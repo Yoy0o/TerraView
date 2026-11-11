@@ -14,7 +14,7 @@ export class FrameCrossfade {
 
   constructor(private readonly source: HTMLCanvasElement) {
     this.overlay = document.createElement('canvas');
-    this.overlay.className = 'frame-crossfade';
+    this.overlay.className = 'tv-crossfade';
     this.overlay.setAttribute('aria-hidden', 'true');
     this.overlay.hidden = true;
     source.after(this.overlay);

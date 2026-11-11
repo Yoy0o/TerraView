@@ -158,7 +158,7 @@ function scene(capacity = 8) {
 }
 
 const display = (m: Marker) => (m.root as unknown as FakeElement).style.display;
-const faded = (m: Marker) => (m.root as unknown as FakeElement).classList.contains('occluded');
+const faded = (m: Marker) => (m.root as unknown as FakeElement).classList.contains('tv-occluded');
 
 describe('marker occlusion', () => {
   it('hides occluded markers with occlusion "hide" and shows them again', () => {

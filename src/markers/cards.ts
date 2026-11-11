@@ -3,7 +3,7 @@
  * center of its element (MarkerManager pivot [0.5, 1]): the leader line's end,
  * the tip of a pin, or the center of a dot, disc or ground ring (those
  * elements end at their symbol's center and the rest overflows). Styles live
- * in style.css as `.tg-<style>`.
+ * in style.css as `.tv-<style>`.
  */
 import type { MarkerStyleName } from './points';
 
@@ -41,14 +41,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, te
 
 /** Text block: title, optional subtitle and status badge (icon in front unless the symbol shows it). */
 function body(options: CardOptions, withIcon: boolean, withSubtitle: boolean): HTMLElement {
-  const b = el('div', 'tg-body');
-  if (withIcon && options.icon) b.append(el('span', 'tg-icon', options.icon));
-  const text = el('div', 'tg-text');
+  const b = el('div', 'tv-body');
+  if (withIcon && options.icon) b.append(el('span', 'tv-icon', options.icon));
+  const text = el('div', 'tv-text');
   text.append(el('strong', '', options.title));
   if (options.subtitle && withSubtitle) text.append(el('span', '', options.subtitle));
   b.append(text);
   if (options.badge) {
-    const badge = el('em', 'tg-status', options.badge);
+    const badge = el('em', 'tv-status', options.badge);
     if (options.badgeColor) badge.style.background = options.badgeColor;
     b.append(badge);
   }
@@ -62,14 +62,14 @@ function body(options: CardOptions, withIcon: boolean, withSubtitle: boolean): H
  */
 export function createCard(options: CardOptions): HTMLElement {
   const style = options.style ?? 'card';
-  const root = el('div', `tg-card tg-${style}`);
-  if (options.color) root.style.setProperty('--accent', options.color);
+  const root = el('div', `tv-card tv-${style}`);
+  if (options.color) root.style.setProperty('--tv-accent', options.color);
   const hasText = options.title !== '' || !!options.subtitle;
 
   switch (style) {
     case 'poi': {
       if (hasText) root.append(body(options, false, true));
-      const drop = el('i', 'tg-drop');
+      const drop = el('i', 'tv-drop');
       const svgNs = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(svgNs, 'svg');
       svg.setAttribute('viewBox', '0 0 24 32');
@@ -82,36 +82,36 @@ export function createCard(options: CardOptions): HTMLElement {
     }
     case 'pulse': {
       if (hasText) root.append(body(options, true, true));
-      const dot = el('i', 'tg-pulse-dot');
+      const dot = el('i', 'tv-pulse-dot');
       dot.append(el('b', ''), el('b', ''));
       root.append(dot);
       break;
     }
     case 'beacon':
       if (hasText) root.append(body(options, true, true));
-      root.append(el('i', 'tg-beam'), el('i', 'tg-ring'));
+      root.append(el('i', 'tv-beam'), el('i', 'tv-ring'));
       break;
     case 'badge':
       if (hasText) root.append(body(options, false, false));
-      root.append(el('i', 'tg-disc', options.icon ?? ''));
+      root.append(el('i', 'tv-disc', options.icon ?? ''));
       break;
     case 'label': {
-      const text = el('span', 'tg-label-text', options.icon ? `${options.icon} ${options.title}` : options.title);
-      root.append(text, el('i', 'tg-dot'));
+      const text = el('span', 'tv-label-text', options.icon ? `${options.icon} ${options.title}` : options.title);
+      root.append(text, el('i', 'tv-dot'));
       break;
     }
     default:
       root.append(body(options, true, style !== 'tag'));
-      if (style === 'card') root.append(el('i', 'tg-stem'));
-      else if (style === 'pin') root.append(el('i', 'tg-dot'));
+      if (style === 'card') root.append(el('i', 'tv-stem'));
+      else if (style === 'pin') root.append(el('i', 'tv-dot'));
   }
   return root;
 }
 
 /** Cluster marker: a disc showing how many points it stands for, sized by the count. */
 export function createClusterCard(count: number, color?: string): HTMLElement {
-  const root = el('div', 'tg-card tg-cluster');
-  if (color) root.style.setProperty('--accent', color);
+  const root = el('div', 'tv-card tv-cluster');
+  if (color) root.style.setProperty('--tv-accent', color);
   setClusterCount(root, count);
   return root;
 }
@@ -119,11 +119,11 @@ export function createClusterCard(count: number, color?: string): HTMLElement {
 /** Updates a cluster marker's count (call `marker.invalidateSize()` afterwards). */
 export function setClusterCount(root: HTMLElement, count: number): void {
   const size = Math.round(Math.min(56, 26 + 7 * Math.log10(Math.max(1, count)) * 2));
-  root.style.setProperty('--size', `${size}px`);
+  root.style.setProperty('--tv-size', `${size}px`);
   const text = count >= 10_000 ? `${Math.round(count / 1000)}k` : count >= 1000 ? `${(count / 1000).toFixed(1)}k` : String(count);
   let disc = root.firstElementChild as HTMLElement | null;
   if (!disc) {
-    disc = el('i', 'tg-disc');
+    disc = el('i', 'tv-disc');
     root.append(disc);
   }
   disc.textContent = text;

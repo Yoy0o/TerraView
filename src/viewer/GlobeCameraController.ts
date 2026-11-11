@@ -17,6 +17,12 @@ export interface ControllerHost {
   readonly camera: PerspectiveCamera;
   readonly ellipsoid: Ellipsoid;
   readonly domElement: HTMLElement;
+  /**
+   * Element whose key events drive the camera (default: `domElement`). Give the viewer
+   * container, made focusable, so the keys keep working after a click on an HTML marker;
+   * keys pressed while the focus is elsewhere on the page are never seen.
+   */
+  readonly keyboardTarget?: HTMLElement;
   /** World position of the surface (globe, 3D Tiles or scene objects) under a point in NDC, or null. */
   pick(ndc: Vector2): Vector3 | null;
   /**
@@ -119,6 +125,7 @@ export class GlobeCameraController {
   /** Right drag (vertical) changes the pitch. */
   enableTilt = true;
   enableZoom = true;
+  /** W A S D / arrows move, Q E turn, R F tilt; only while the viewer has the keyboard focus. */
   enableKeyboard = true;
   inertia = true;
   zoomSpeed = 1;
@@ -165,6 +172,7 @@ export class GlobeCameraController {
 
   private touchStart = { dist: 0, angle: 0, midY: 0 };
   private readonly keys = new Set<string>();
+  private readonly keyTarget: HTMLElement;
   private flight: Flight | null = null;
   private orbitAnim: OrbitAnimation | null = null;
   private animation: { step: CameraAnimationStep; done: (completed: boolean) => void } | null = null;
@@ -188,9 +196,12 @@ export class GlobeCameraController {
     this.dom.addEventListener('wheel', this.onWheel, { passive: false });
     this.dom.addEventListener('dblclick', this.onDoubleClick);
     this.dom.addEventListener('contextmenu', this.onContextMenu);
-    window.addEventListener('keydown', this.onKeyDown);
-    window.addEventListener('keyup', this.onKeyUp);
-    window.addEventListener('blur', this.onBlur);
+    // Keys are read from the viewer, not from `window`: several viewers on a page and the
+    // host's own shortcuts and inputs stay independent.
+    this.keyTarget = host.keyboardTarget ?? this.dom;
+    this.keyTarget.addEventListener('keydown', this.onKeyDown);
+    this.keyTarget.addEventListener('keyup', this.onKeyUp);
+    this.keyTarget.addEventListener('focusout', this.onFocusOut);
   }
 
   dispose(): void {
@@ -201,9 +212,9 @@ export class GlobeCameraController {
     this.dom.removeEventListener('wheel', this.onWheel);
     this.dom.removeEventListener('dblclick', this.onDoubleClick);
     this.dom.removeEventListener('contextmenu', this.onContextMenu);
-    window.removeEventListener('keydown', this.onKeyDown);
-    window.removeEventListener('keyup', this.onKeyUp);
-    window.removeEventListener('blur', this.onBlur);
+    this.keyTarget.removeEventListener('keydown', this.onKeyDown);
+    this.keyTarget.removeEventListener('keyup', this.onKeyUp);
+    this.keyTarget.removeEventListener('focusout', this.onFocusOut);
   }
 
   get isFlying(): boolean {
@@ -807,9 +818,12 @@ export class GlobeCameraController {
   // Keyboard
 
   private readonly onKeyDown = (e: KeyboardEvent) => {
-    if (!this.enabled || !this.enableKeyboard || isTyping(e)) return;
+    // Shortcuts with modifiers (Ctrl+R, Alt+arrows) belong to the browser and the host.
+    if (!this.enabled || !this.enableKeyboard || isTyping(e) || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'q', 'e', 'r', 'f', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
+      // The focused viewer owns these keys: arrows must not scroll the host page as well.
+      e.preventDefault();
       this.keys.add(k);
       if (this.keys.size === 1) this.beginInteraction();
     }
@@ -819,7 +833,11 @@ export class GlobeCameraController {
     this.keys.delete(e.key.toLowerCase());
   };
 
-  private readonly onBlur = () => this.keys.clear();
+  /** Focus left the viewer (another element, another window): no key-up will arrive, so release the keys. */
+  private readonly onFocusOut = (e: FocusEvent) => {
+    const next = e.relatedTarget as Node | null;
+    if (!next || !this.keyTarget.contains(next)) this.keys.clear();
+  };
 
   private applyKeyboard(dt: number): void {
     const k = this.keys;

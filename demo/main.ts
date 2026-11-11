@@ -1,4 +1,5 @@
 import 'terraview/style.css';
+import './style.css';
 import { AWS_TERRARIUM, GeoViewer, parseGpuTier, type ViewPosition } from 'terraview';
 import { ControlPanel, createImagery } from './ui/ControlPanel';
 import { h } from './ui/dom';
@@ -106,6 +107,8 @@ async function main(): Promise<void> {
   const navBar = new NavigationBar(viewer, (text, kind) => panel.notify(text, kind));
   app.append(title, panel.root, status.root, status.compass, navBar.root, popup.root, levels.root, levels.floors);
   syncHash(viewer);
+  // Camera keys (W A S D, arrows, Q E R F) go to the focused viewer only: take the focus at startup.
+  viewer.canvas.focus({ preventScroll: true });
 
   // Opening spin, ending on the start view. Skipped when startup data would fly elsewhere
   // (unless ?intro=1) and, inside playIntro, for close-up views.

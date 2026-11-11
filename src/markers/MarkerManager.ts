@@ -146,7 +146,7 @@ export class Marker {
   ) {
     this.element = options.element;
     this.wrapper = document.createElement('div');
-    this.wrapper.className = 'marker';
+    this.wrapper.className = 'tv-marker';
     this.wrapper.style.display = 'none';
     this.wrapper.append(this.element);
     const proxied = options.userData?.entity !== undefined;
@@ -161,7 +161,7 @@ export class Marker {
       this.rightDown = false;
     };
     if (options.onClick || options.onDoubleClick || proxied) {
-      this.wrapper.classList.add('interactive');
+      this.wrapper.classList.add('tv-interactive');
       this.wrapper.addEventListener('click', this.onClick);
       this.wrapper.addEventListener('dblclick', this.onDoubleClick);
     }
@@ -269,7 +269,7 @@ export class Marker {
   setFaded(faded: boolean): void {
     if (faded === this.faded) return;
     this.faded = faded;
-    this.wrapper.classList.toggle('occluded', faded);
+    this.wrapper.classList.toggle('tv-occluded', faded);
   }
 
   /** @internal Hidden by culling: the next placement decides again whether it fits. */
@@ -331,7 +331,7 @@ export class MarkerManager {
    */
   constructor(container: HTMLElement, eventTarget?: HTMLElement) {
     this.root = document.createElement('div');
-    this.root.className = 'marker-layer';
+    this.root.className = 'tv-marker-layer';
     container.append(this.root);
     if (eventTarget) {
       this.root.addEventListener(
@@ -542,7 +542,7 @@ export class MarkerManager {
   private setDense(dense: boolean): void {
     if (dense === this.dense) return;
     this.dense = dense;
-    this.root.classList.toggle('dense', dense);
+    this.root.classList.toggle('tv-dense', dense);
   }
 
   dispose(): void {

@@ -111,6 +111,17 @@ export interface GeoViewerOptions extends GlobeOptions {
   contributionCulling?: ContributionCullingOptions;
   /** Upper bound of the canvas pixel ratio (default from the GPU tier: 1 / 1.5 / 2 / 2). */
   maxPixelRatio?: number;
+  /**
+   * Folder URL (ending with `/`) of the Draco glTF decoder files (`draco_decoder.js`,
+   * `draco_wasm_wrapper.js`, `draco_decoder.wasm`), e.g. on a CDN or in the host's public
+   * folder. Default: the copy shipped with three.js, which the host's bundler picks up.
+   */
+  decoderPath?: string;
+  /**
+   * Folder URL (ending with `/`) of the Basis transcoder files for KTX2 textures
+   * (`basis_transcoder.js`, `basis_transcoder.wasm`). Default: the copy shipped with three.js.
+   */
+  transcoderPath?: string;
 }
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 110, latitude: 28, height: 1.8e7 };
@@ -282,6 +293,10 @@ export class GeoViewer {
   private globeHiddenFor = 0;
   private globeReleased = false;
   private loaders: LoaderKit | null = null;
+  private decoderPath = '';
+  private transcoderPath = '';
+  /** What `adoptContainer` changed on the host's element, undone by `dispose()`. */
+  private containerRestore: (() => void) | null = null;
   private gltfLoader: GLTFLoader | null = null;
   private tilesetsSuppressed = false;
   /** Until when suppressed 3D Tiles keep loading for buildings still waiting for ground (`performance.now()` ms). */
@@ -312,6 +327,7 @@ export class GeoViewer {
     this.container = options.container;
     this.renderer = renderer;
     this.gpu = profile;
+    this.adoptContainer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const backend = renderer.backend as any;
     const isWebGPU = backend.isWebGPUBackend === true;
@@ -322,9 +338,11 @@ export class GeoViewer {
     const pixelRatio = effectivePixelRatio(window.devicePixelRatio, options.maxPixelRatio ?? profile.maxPixelRatio);
     renderer.setPixelRatio(pixelRatio);
     renderer.setClearColor(0x000000, 1);
-    renderer.domElement.classList.add('viewer-canvas');
+    renderer.domElement.classList.add('tv-canvas');
     renderer.domElement.tabIndex = 0;
     this.container.appendChild(renderer.domElement);
+    if (options.decoderPath) this.decoderPath = options.decoderPath;
+    if (options.transcoderPath) this.transcoderPath = options.transcoderPath;
 
     this.info = {
       backend: isWebGPU ? 'WebGPU' : 'WebGL2',
@@ -414,6 +432,7 @@ export class GeoViewer {
       camera: this.camera,
       ellipsoid: this.ellipsoid,
       domElement: renderer.domElement,
+      keyboardTarget: this.container,
       pick: (ndc) => this.gesturePick(ndc),
       groundHeight: (lon, lat) => this.collisionGround(lon, lat),
     };
@@ -989,9 +1008,12 @@ export class GeoViewer {
 
   private getLoaders(): LoaderKit {
     if (!this.loaders) {
-      // Decoder binaries ship with three.js and are bundled by Vite (default paths).
+      // Decoder binaries ship with three.js; its loaders reference them relative to their own
+      // module, so the host's bundler copies them. `decoderPath` / `transcoderPath` point elsewhere.
       const dracoLoader = new DRACOLoader();
+      if (this.decoderPath) dracoLoader.setDecoderPath(this.decoderPath);
       const ktxLoader = new KTX2Loader();
+      if (this.transcoderPath) ktxLoader.setTranscoderPath(this.transcoderPath);
       ktxLoader.detectSupport(this.renderer as never);
       this.loaders = {
         dracoLoader,
@@ -1001,6 +1023,11 @@ export class GeoViewer {
       };
     }
     return this.loaders;
+  }
+
+  /** The canvas the viewer draws into, inside the container. Focus it (or the container) to enable the camera keys. */
+  get canvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
   }
 
   /** Loads a glTF / GLB (Draco, KTX2 and meshopt supported) for building and equipment models. */
@@ -1230,6 +1257,38 @@ export class GeoViewer {
     this.globe.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
+    this.containerRestore?.();
+    this.containerRestore = null;
+  }
+
+  /**
+   * Prepares the host's container: the `tv-viewer` class (stylesheet scope), a positioning
+   * context for the marker layer and the crossfade canvas, and keyboard focus (a click on a
+   * marker then focuses the container, so camera keys keep working). Only what is missing is
+   * set, and `dispose()` puts it back.
+   */
+  private adoptContainer(): void {
+    const el = this.container;
+    const undo: (() => void)[] = [];
+    if (!el.classList.contains('tv-viewer')) {
+      el.classList.add('tv-viewer');
+      undo.push(() => el.classList.remove('tv-viewer'));
+    }
+    if (getComputedStyle(el).position === 'static') {
+      const previous = el.style.position;
+      el.style.position = 'relative';
+      undo.push(() => (el.style.position = previous));
+    }
+    if (!el.hasAttribute('tabindex')) {
+      el.tabIndex = -1;
+      const outline = el.style.outline;
+      el.style.outline = 'none';
+      undo.push(() => {
+        el.removeAttribute('tabindex');
+        el.style.outline = outline;
+      });
+    }
+    this.containerRestore = () => undo.forEach((fn) => fn());
   }
 }
 

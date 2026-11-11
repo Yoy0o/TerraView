@@ -171,6 +171,7 @@ export class PointLayer {
     this.ruleList = options.rules ?? [];
     this.clusterOptions = normalizeCluster(options.cluster);
     this._visible = options.visible ?? true;
+    liveLayers++;
     void this.load(options);
   }
 
@@ -226,9 +227,9 @@ export class PointLayer {
   select(id: string | null): void {
     const entry = id === null ? null : (this.byId.get(id) ?? null);
     if (entry === this.selected) return;
-    this.selected?.marker?.element.classList.remove('selected');
+    this.selected?.marker?.element.classList.remove('tv-selected');
     this.selected = entry;
-    entry?.marker?.element.classList.add('selected');
+    entry?.marker?.element.classList.add('tv-selected');
     // The selection wins collisions: re-place now rather than at the next interval.
     this.host.markers.requestPlacement();
   }
@@ -328,7 +329,10 @@ export class PointLayer {
     };
     if (n >= WORKER_THRESHOLD && typeof Worker !== 'undefined') {
       // The positions buffer is transferred; a fallback build uses a fresh copy.
-      buildInWorker(input, options).then(done, () => done(buildClusterTree({ ...input, positions: this.positions.slice() }, options)));
+      buildInWorker(input, options).then(done, () => {
+        // A disposed layer (its Worker build was dropped) needs no tree.
+        if (!this.disposed) done(buildClusterTree({ ...input, positions: this.positions.slice() }, options));
+      });
     } else {
       done(buildClusterTree(input, options));
     }
@@ -514,7 +518,7 @@ export class PointLayer {
       badge: style.badge !== undefined ? fillTemplate(style.badge, props) || undefined : undefined,
       badgeColor: style.badgeColor,
     });
-    if (this.selected === entry) element.classList.add('selected');
+    if (this.selected === entry) element.classList.add('tv-selected');
     this.markerCount++;
     entry.marker = this.host.markers.add({
       element,
@@ -568,8 +572,8 @@ export class PointLayer {
       slot.marker.invalidateSize();
     }
     const color = this.entries[tree.seed[node]].style.color ?? this.styleBase.color;
-    if (color) slot.element.style.setProperty('--accent', color);
-    else slot.element.style.removeProperty('--accent');
+    if (color) slot.element.style.setProperty('--tv-accent', color);
+    else slot.element.style.removeProperty('--tv-accent');
   }
 
   private removeMarkers(): void {
@@ -585,9 +589,11 @@ export class PointLayer {
   }
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     this.treeVersion++;
     this.removeMarkers();
+    if (--liveLayers === 0) stopClusterWorker();
   }
 }
 
@@ -603,10 +609,20 @@ function filterInPlace(list: number[], keep: (v: number) => boolean): void {
   list.length = j;
 }
 
-// One shared Worker for cluster tree builds of large layers.
+// One shared Worker for cluster tree builds of large layers, on every viewer of the page.
+// It lives while any point layer does: the last `dispose()` terminates it.
+let liveLayers = 0;
 let worker: Worker | null = null;
 let workerSeq = 0;
 const pending = new Map<number, { resolve: (tree: ClusterTree) => void; reject: (err: unknown) => void }>();
+
+function stopClusterWorker(): void {
+  worker?.terminate();
+  worker = null;
+  // Builds still running belonged to disposed layers, which ignore the outcome.
+  for (const p of pending.values()) p.reject(new Error('disposed'));
+  pending.clear();
+}
 
 function buildInWorker(input: ClusterTreeInput, options: ClusterTreeOptions): Promise<ClusterTree> {
   if (!worker) {
