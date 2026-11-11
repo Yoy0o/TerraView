@@ -1,0 +1,250 @@
+{
+  "format": "three-geo-building",
+  "version": "1.0",
+  "id": "sample-office-b",
+  "name": "样例综合楼 · B 座",
+  "category": "office",
+  "ifcType": "IfcBuilding",
+  "tags": ["sample"],
+  "properties": { "用途": "办公 + 机房", "建成年份": 2023, "物业单位": "样例物业" },
+  "anchor": { "longitude": 116.3975, "latitude": 39.999, "heading": 15 },
+  "footprint": [[-15, -8], [15, -8], [15, 8], [-15, 8]],
+  "exterior": { "color": "#86a9d4", "opacity": 0.5 },
+  "label": { "title": "样例综合楼 · B 座", "subtitle": "地上 2 层 · 地下 1 层", "icon": "🏢", "style": "card" },
+  "viewpoint": { "heading": 30, "pitch": -35, "range": 120 },
+  "floors": [
+    {
+      "id": "B-B1",
+      "name": "B1",
+      "index": -1,
+      "elevation": -4.5,
+      "height": 4.5,
+      "ifcType": "IfcBuildingStorey",
+      "rooms": [
+        {
+          "id": "B-B1-R01",
+          "name": "地下车库",
+          "category": "parking",
+          "footprint": [[-15, -8], [8, -8], [8, 8], [-15, 8]],
+          "doors": [{ "edge": 1, "at": 0.5, "width": 4 }],
+          "properties": { "用途": "停车", "车位数": 28 }
+        },
+        {
+          "id": "B-B1-R02",
+          "name": "水泵房",
+          "category": "plant",
+          "footprint": [[8, -8], [15, -8], [15, 8], [8, 8]],
+          "doors": [{ "edge": 3, "at": 0.5, "width": 1.2 }],
+          "properties": { "用途": "给排水设备" }
+        }
+      ],
+      "things": [
+        {
+          "id": "B-B1-PU01",
+          "name": "生活水泵 1#",
+          "category": "pump",
+          "shape": "cylinder",
+          "position": [11.5, 2, 0],
+          "size": [0.8, 0.8, 1.1],
+          "color": "#2563eb",
+          "tags": ["mep", "water", "monitored"],
+          "properties": { "设备类型": "变频水泵", "运行状态": "运行", "出口压力": "0.42 MPa" },
+          "label": { "icon": "💧", "mode": "level", "style": "pin" }
+        }
+      ]
+    },
+    {
+      "id": "B-F1",
+      "name": "1F",
+      "index": 0,
+      "elevation": 0,
+      "height": 4.5,
+      "ifcType": "IfcBuildingStorey",
+      "rooms": [
+        {
+          "id": "B-F1-R00",
+          "name": "1F 走廊",
+          "category": "corridor",
+          "footprint": [[-15, -1.2], [15, -1.2], [15, 1.2], [-15, 1.2]],
+          "walls": false
+        },
+        {
+          "id": "B-F1-R01",
+          "name": "入口大堂",
+          "category": "lobby",
+          "ifcType": "IfcSpace",
+          "footprint": [[-15, 1.2], [-3, 1.2], [-3, 8], [-15, 8]],
+          "doors": [
+            { "edge": 0, "at": 0.5, "width": 3 },
+            { "edge": 2, "at": 0.5, "width": 2.6 }
+          ],
+          "properties": { "用途": "大堂 / 接待" }
+        },
+        {
+          "id": "B-F1-R02",
+          "name": "101 办公室",
+          "category": "office",
+          "ifcType": "IfcSpace",
+          "footprint": [[-3, 1.2], [9, 1.2], [9, 8], [-3, 8]],
+          "doors": [{ "edge": 0, "at": 0.2, "width": 1.1 }],
+          "properties": { "用途": "办公", "部门": "运维部", "工位数": 12 }
+        },
+        {
+          "id": "B-F1-R03",
+          "name": "102 会议室",
+          "category": "meeting",
+          "ifcType": "IfcSpace",
+          "footprint": [[9, 1.2], [15, 1.2], [15, 8], [9, 8]],
+          "doors": [{ "edge": 0, "at": 0.5 }],
+          "viewpoint": { "pitch": -60, "range": 28 },
+          "properties": { "用途": "会议", "座位": 10 }
+        },
+        {
+          "id": "B-F1-R04",
+          "name": "103 数据机房",
+          "category": "server",
+          "ifcType": "IfcSpace",
+          "footprint": [[-15, -8], [0, -8], [0, -1.2], [-15, -1.2]],
+          "doors": [{ "edge": 2, "at": 0.8, "width": 1.5 }],
+          "tags": ["critical"],
+          "properties": { "用途": "机房", "等级": "B 级" }
+        },
+        {
+          "id": "B-F1-R05",
+          "name": "交通核",
+          "category": "stair",
+          "footprint": [[0, -8], [15, -8], [15, -1.2], [0, -1.2]],
+          "doors": [{ "edge": 2, "at": 0.5, "width": 2 }]
+        }
+      ],
+      "things": [
+        {
+          "id": "B-F1-CAM01",
+          "name": "1F 走廊摄像机",
+          "category": "camera",
+          "position": [0, 0, 3.9],
+          "size": [0.22, 0.34, 0.22],
+          "tags": ["security"],
+          "properties": { "设备类型": "球形摄像机", "状态": "在线" },
+          "label": { "icon": "📷", "mode": "hover", "style": "pin" }
+        },
+        {
+          "id": "B-F1-TH01",
+          "name": "101 温湿度",
+          "category": "sensor",
+          "position": [8.6, 4.6, 1.6],
+          "size": [0.12, 0.08, 0.16],
+          "tags": ["monitored", "hvac"],
+          "properties": { "设备类型": "温湿度传感器", "温度": "23.4 ℃", "湿度": "48 %", "状态": "正常" },
+          "label": { "title": "23.4℃ · 48%", "icon": "🌡", "mode": "level", "style": "pin" }
+        },
+        {
+          "id": "B-F1-DK01",
+          "name": "101 工位组 1",
+          "category": "desk",
+          "position": [3, 4.6, 0],
+          "rotation": 90,
+          "size": [2.8, 1.4, 0.75],
+          "properties": { "工位数": 4 }
+        },
+        {
+          "id": "B-F1-RK01",
+          "name": "机柜 A01",
+          "category": "rack",
+          "position": [-12, -5, 0],
+          "size": [0.6, 1.2, 2.2],
+          "tags": ["it", "monitored"],
+          "properties": { "负载": "41 %", "功率": "3.8 kW", "状态": "正常" },
+          "label": { "mode": "hover", "style": "tag" }
+        },
+        {
+          "id": "B-F1-RK02",
+          "name": "机柜 A02",
+          "category": "rack",
+          "position": [-10.6, -5, 0],
+          "size": [0.6, 1.2, 2.2],
+          "color": "#7f1d1d",
+          "tags": ["it", "monitored", "alarm"],
+          "properties": { "负载": "93 %", "功率": "6.1 kW", "状态": "告警：进风温度过高" },
+          "label": { "title": "机柜 A02", "subtitle": "进风温度过高", "icon": "⚠", "mode": "level", "style": "card", "color": "#ef4444" }
+        },
+        {
+          "id": "B-F1-FE01",
+          "name": "1F 灭火器",
+          "category": "extinguisher",
+          "shape": "cylinder",
+          "position": [-0.6, -0.9, 0],
+          "size": [0.2, 0.2, 0.62],
+          "tags": ["fire"],
+          "properties": { "类型": "干粉灭火器", "有效期": "2027-06" }
+        }
+      ],
+      "elements": [
+        { "id": "B-F1-COL01", "name": "大堂柱", "kind": "column", "position": [-9, 4.6, 0], "size": [0.6, 0.6, 4.5] },
+        { "id": "B-F1-DR01", "name": "大堂入口门", "kind": "door", "position": [-9, 8, 0], "size": [2.6, 0.08, 2.1] },
+        { "id": "B-F1-WIN01", "name": "大堂玻璃幕墙", "kind": "window", "path": [[-14.5, 8.05], [-11, 8.05]], "height": 3.6, "thickness": 0.06 },
+        { "id": "B-F1-ST01", "name": "1# 楼梯", "kind": "stair", "position": [7.5, -4.6, 0], "size": [4, 3, 4.5] }
+      ]
+    },
+    {
+      "id": "B-F2",
+      "name": "2F",
+      "index": 1,
+      "elevation": 4.5,
+      "height": 4.2,
+      "ifcType": "IfcBuildingStorey",
+      "rooms": [
+        {
+          "id": "B-F2-R00",
+          "name": "2F 走廊",
+          "category": "corridor",
+          "footprint": [[-15, -1.2], [15, -1.2], [15, 1.2], [-15, 1.2]],
+          "walls": false
+        },
+        {
+          "id": "B-F2-R01",
+          "name": "201 开放办公区",
+          "category": "office",
+          "footprint": [[-15, 1.2], [15, 1.2], [15, 8], [-15, 8]],
+          "doors": [
+            { "edge": 0, "at": 0.25, "width": 1.8 },
+            { "edge": 0, "at": 0.75, "width": 1.8 }
+          ],
+          "properties": { "用途": "开放办公", "工位数": 48 }
+        },
+        {
+          "id": "B-F2-R02",
+          "name": "202 茶水间",
+          "category": "kitchen",
+          "footprint": [[-15, -8], [-5, -8], [-5, -1.2], [-15, -1.2]],
+          "doors": [{ "edge": 2, "at": 0.5 }]
+        },
+        {
+          "id": "B-F2-R03",
+          "name": "卫生间",
+          "category": "restroom",
+          "footprint": [[-5, -8], [0, -8], [0, -1.2], [-5, -1.2]],
+          "doors": [{ "edge": 2, "at": 0.5, "width": 0.9 }]
+        },
+        {
+          "id": "B-F2-R04",
+          "name": "交通核",
+          "category": "stair",
+          "footprint": [[0, -8], [15, -8], [15, -1.2], [0, -1.2]],
+          "doors": [{ "edge": 2, "at": 0.5, "width": 2 }]
+        }
+      ],
+      "things": [
+        {
+          "id": "B-F2-AP01",
+          "name": "2F 无线 AP",
+          "category": "ap",
+          "shape": "cylinder",
+          "position": [0, 4.6, 3.85],
+          "size": [0.3, 0.3, 0.06],
+          "properties": { "设备类型": "Wi-Fi 6 AP", "在线终端": 31 }
+        }
+      ]
+    }
+  ]
+}
