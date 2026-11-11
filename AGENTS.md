@@ -140,7 +140,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 - 访问凭证（天地图、ion、Google、Mapbox）由宿主作为参数传入；演示应用把它们保存在本机 localStorage。凭证不能写进仓库，也不能内置进包。
 - 示例国界数据不是审定地图，在国内发布必须使用有审图号的数据。示例数据放在 `demo/`，不随包发布。
-- 许可证还没有定（`package.json` 为 `UNLICENSED`、`private`）。移植来的代码保留版权声明，见 `THIRD_PARTY_NOTICES.md`。
+- 许可证 Apache-2.0（`LICENSE`、`package.json` 的 `license` 字段；包仍是 `private`，未发布）。移植来的代码保留版权声明，见 `THIRD_PARTY_NOTICES.md`；引入新的第三方代码前先确认其许可与 Apache-2.0 兼容。
 
 ### 3.10 SDK 边界（包与演示分离）
 

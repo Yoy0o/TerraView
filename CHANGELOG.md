@@ -25,6 +25,10 @@
 - **相机键盘不再监听 `window`**：改为监听 viewer 容器，只在 viewer 有焦点时生效；焦点离开时释放按住的键；带 Ctrl / Meta / Alt 的组合键不处理；处理了的按键会 `preventDefault`（方向键不再滚动宿主页面）。演示应用启动时自动聚焦 canvas。
 - 示例数据 `createDemoBuilding`、`POINT_DEMOS` 不在包里（在 `demo/data/`）。
 
+**许可证**
+
+- 采用 Apache-2.0（2026-11-11）：新增 `LICENSE`，`package.json` 的 `license` 改为 `Apache-2.0`，`check:package` 检查 tarball 里有 `LICENSE`。移植代码的声明仍在 `THIRD_PARTY_NOTICES.md`。
+
 **工程**
 
 - GitHub Actions：`ci.yml`（每次推送和 PR：typecheck、单测、库构建与类型声明、演示构建，Node 22 / 24；再把打出的包装进宿主工程检查）和 `release.yml`（推送标签 `v<版本>`：GitHub Release 附 tgz，`package.json` 不再是 `private` 时发布到 npm）。

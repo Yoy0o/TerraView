@@ -45,7 +45,7 @@ try {
   const packed = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', work], root));
   const tarball = join(work, packed[0].filename);
   const files = packed[0].files.map((f) => f.path);
-  const required = ['package.json', 'README.md', 'THIRD_PARTY_NOTICES.md', 'dist/terraview.js', 'dist/terraview.css', 'dist/types/index.d.ts'];
+  const required = ['package.json', 'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'dist/terraview.js', 'dist/terraview.css', 'dist/types/index.d.ts'];
   for (const path of required) if (!files.includes(path)) fail(`tarball is missing ${path}`);
   for (const worker of ['tileMesh', 'vector', 'clusterTree']) {
     if (!files.some((f) => f.startsWith(`dist/assets/${worker}.worker`) && f.endsWith('.js'))) fail(`tarball is missing the ${worker} worker`);

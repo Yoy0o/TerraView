@@ -5,7 +5,7 @@
 #   3. publishes to npm, only when package.json no longer says `"private": true`
 #
 # Before the first npm publish:
-#   - remove `"private": true` from package.json and set the license
+#   - remove `"private": true` from package.json (the license is already Apache-2.0)
 #   - add the repository secret NPM_TOKEN (an npm automation token allowed to publish the package)
 #
 # Run it by hand (Actions > Release > Run workflow) for a dry run: everything except the

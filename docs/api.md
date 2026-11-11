@@ -147,7 +147,7 @@ GeoViewer.create({ container, decoderPath: '/libs/draco/gltf/', transcoderPath: 
 
 ## 5. 还没有的东西
 
-- 没有发布到 npm，许可证未定（`package.json` 里是 `UNLICENSED`、`private`）。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
+- 没有发布到 npm（`package.json` 里是 `private`）。许可证 Apache-2.0，见仓库根目录的 `LICENSE`。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
 - 核心里还有少量写死的中文默认文案（房间顶牌副标题取 `面积` 属性、点位图层默认名、解析告警文本），没有 i18n 选项。
 - 没有 CommonJS / UMD 产物，只有 ES 模块。
 - 示例数据（`demo/data/`）和演示面板（`demo/ui/`）不随包发布。

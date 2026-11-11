@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "WebGPU-first 3D globe SDK built on three.js: quadtree imagery and terrain, atmosphere, OGC 3D Tiles, GeoJSON, HTML markers and indoor / BIM navigation.",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "sideEffects": [
     "**/*.css"
   ],

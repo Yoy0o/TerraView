@@ -5,7 +5,7 @@
 
 以 npm 包 `terra-view` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
 
-> 目前是私有包（`"private": true`），还没有发布到 npm，许可证未定。包名 `terra-view` 在 npm 上没有注册（2026-11-11 查询），但首次发布有被相似名规则拒绝的风险，见下面的「持续集成与发布」。代码由 three-geo-global 迁移而来（2026-11-11，源提交 `be3bbbd`）。
+> 目前是私有包（`"private": true`），还没有发布到 npm。许可证 Apache-2.0（见 [LICENSE](LICENSE)）。包名 `terra-view` 在 npm 上没有注册（2026-11-11 查询），但首次发布有被相似名规则拒绝的风险，见下面的「持续集成与发布」。代码由 three-geo-global 迁移而来（2026-11-11，源提交 `be3bbbd`）。
 >
 > 参与开发（人或 AI 代理）请先读 [AGENTS.md](AGENTS.md)，子系统规范在 [docs/agents/](docs/agents/)，公共 API 说明在 [docs/api.md](docs/api.md)。
 
