@@ -131,7 +131,7 @@ export class NavigationBar {
       const blob = await this.viewer.navigation.screenshot();
       const url = URL.createObjectURL(blob);
       const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-      const a = h('a', { href: url, download: `three-geo-global-${stamp}.png` });
+      const a = h('a', { href: url, download: `terraview-${stamp}.png` });
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (err) {

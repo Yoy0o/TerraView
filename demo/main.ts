@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   const title = h(
     'div',
     { class: 'brand' },
-    h('strong', {}, 'Three Geo Global'),
+    h('strong', {}, 'TerraView'),
     h('span', {}, '左键拖拽平移 · 滚轮缩放 · 右键拖拽调航向/俯仰 · 双击进入建筑 · 右键/Esc 返回'),
   );
   const popup = new FeaturePopup(viewer);

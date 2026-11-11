@@ -35,7 +35,9 @@ export interface Settings {
   googleKey: string;
 }
 
-const KEY = 'three-geo-global:settings';
+const KEY = 'terraview:settings';
+/** Key used before the move from three-geo-global: read once so saved settings and keys carry over. */
+const LEGACY_KEY = 'three-geo-global:settings';
 
 export const DEFAULT_SETTINGS: Settings = {
   imagery: 'esri-imagery',
@@ -62,7 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export function loadSettings(): Settings {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY);
     if (raw) {
       const saved = JSON.parse(raw) as Partial<Settings>;
       const merged = { ...DEFAULT_SETTINGS, ...saved };
