@@ -8,7 +8,7 @@ import {
   type GeoViewer,
   type PointLayer,
   type PointRecord,
-} from 'terraview';
+} from 'terra-view';
 import { h } from './dom';
 
 const KIND_LABEL = { point: '点要素', line: '线要素', polygon: '面要素' } as const;

@@ -3,9 +3,9 @@
 基于 three.js 的 **WebGPU 优先** 三维地球 SDK：WGS84 椭球、四叉树影像瓦片、全球地形、物理大气、OGC 3D Tiles、GeoJSON 矢量与注记、HTML 顶牌与点位，以及从地球无缝进入建筑 / 楼层 / 房间的**室内 BIM 浏览**（顶牌、事件、层级导航，参考 ThingJS）。
 对标 CesiumJS / Google Earth 的核心浏览体验。
 
-以 npm 包 `terraview` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
+以 npm 包 `terra-view` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
 
-> 目前是私有包（`"private": true`），还没有发布到 npm，许可证未定。代码由 three-geo-global 迁移而来（2026-11-11，源提交 `be3bbbd`）。
+> 目前是私有包（`"private": true`），还没有发布到 npm，许可证未定。包名 `terra-view` 在 npm 上没有注册（2026-11-11 查询），但首次发布有被相似名规则拒绝的风险，见下面的「持续集成与发布」。代码由 three-geo-global 迁移而来（2026-11-11，源提交 `be3bbbd`）。
 >
 > 参与开发（人或 AI 代理）请先读 [AGENTS.md](AGENTS.md)，子系统规范在 [docs/agents/](docs/agents/)，公共 API 说明在 [docs/api.md](docs/api.md)。
 
@@ -33,18 +33,18 @@
 
 ```bash
 # 在本仓库
-npm install && npm run build && npm pack        # 得到 terraview-0.1.0.tgz
+npm install && npm run build && npm pack        # 得到 terra-view-0.1.0.tgz
 
 # 在宿主工程
-npm install /path/to/terraview-0.1.0.tgz three@0.187.0 3d-tiles-renderer@0.5.4
+npm install /path/to/terra-view-0.1.0.tgz three@0.187.0 3d-tiles-renderer@0.5.4
 npm install -D @types/three@0.187.0             # 用 TypeScript 时
 ```
 
 `three` 和 `3d-tiles-renderer` 是 peer 依赖，不打进包里：宿主自己也用 three 时页面上只有一份。three 不按 semver 发布，版本范围锁在 0.187.x。
 
 ```ts
-import 'terraview/style.css';
-import { AWS_TERRARIUM, GeoViewer, IMAGERY_PRESETS } from 'terraview';
+import 'terra-view/style.css';
+import { AWS_TERRARIUM, GeoViewer, IMAGERY_PRESETS } from 'terra-view';
 
 const viewer = await GeoViewer.create({
   container: document.getElementById('map')!, // 任意有尺寸的元素，不必铺满窗口
@@ -81,7 +81,7 @@ viewer.dispose(); // 离开页面时释放 GPU 资源、Worker 和监听
 
 接入时要知道的几件事（细节见 [docs/api.md](docs/api.md)）：
 
-- **样式**：`terraview/style.css` 只包含 SDK 自己创建的元素（canvas、层级切换淡出、顶牌），类名全部以 `tv-` 开头；主题用 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg` 调。面板、状态栏等界面由宿主自己做（可以参考 `demo/ui/`）。
+- **样式**：`terra-view/style.css` 只包含 SDK 自己创建的元素（canvas、层级切换淡出、顶牌），类名全部以 `tv-` 开头；主题用 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg` 调。面板、状态栏等界面由宿主自己做（可以参考 `demo/ui/`）。
 - **容器**：`GeoViewer` 给容器加 `tv-viewer` 类；容器是 `position: static` 时改成 `relative`，没有 `tabindex` 时设为 `-1`（为了接收键盘）。`dispose()` 时恢复。
 - **键盘**：相机快捷键（WASD / 方向键 / QERF）只在 viewer 有焦点时生效，不监听 `window`；同页多个 viewer 互不影响。要一打开就能用键盘，调用 `viewer.canvas.focus()`。
 - **Worker**：包里的三个 Worker 是独立文件，用 `new URL(..., import.meta.url)` 引用。Vite 8 宿主（开发服务器和生产构建）已实测不需要额外配置；webpack 5 认同一种写法，但还没有实测。
@@ -97,9 +97,16 @@ npm test             # 单元测试（vitest）
 npm run build        # 类型检查 + 库构建到 dist/（terraview.js、terraview.css、assets/*.worker.js、types/）
 npm run build:demo   # 演示应用的生产构建到 dist-demo/
 npm run verify       # typecheck + test + build + build:demo，提交前跑
+npm run check:package  # 打包并装进一个临时宿主工程检查（需要联网，先 build）
 ```
 
 需要 Node 20.19+ / 22.12+。浏览器：Chrome / Edge 113+ 走 WebGPU，其他支持 WebGL 2 的浏览器会自动回退。
+
+### 持续集成与发布
+
+- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都会在 Node 22、24 上跑 typecheck、单测、库构建、演示构建，再把打出的包装进一个宿主工程检查；tgz 留作工作流产物。
+- **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.1.0`）时，验证后创建 GitHub Release 并附上 tgz。发布到 npm 的步骤只有在 `package.json` 去掉 `"private": true` 之后才执行，并且需要仓库密钥 `NPM_TOKEN`。在 Actions 页面手动运行是演练，不创建 Release 也不发布。
+- 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
 
 以下 URL 参数和操作说的是演示应用。
 
@@ -228,7 +235,7 @@ src/
 ├─ markers/     HTML 顶牌管理、样式模板、点位图层（解析 / 规则 / 聚合）
 ├─ viewer/      GeoViewer、相机控制器、相机数学、飞行动画、交互事件
 ├─ index.ts     包入口：公共 API 都从这里导出
-└─ style.css    SDK 样式（`terraview/style.css`，类名前缀 `tv-`）
+└─ style.css    SDK 样式（`terra-view/style.css`，类名前缀 `tv-`）
 demo/           演示应用，不进包：main.ts、ui/（面板、状态栏、层级条、属性弹窗、URL 参数）、data/（示例建筑与点位）
 tests/          vitest 单元测试
 ```

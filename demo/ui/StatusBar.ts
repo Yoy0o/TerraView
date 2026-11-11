@@ -1,4 +1,4 @@
-import { formatDegrees, formatDistance, type GeoViewer, type GpuTier, RAD2DEG } from 'terraview';
+import { formatDegrees, formatDistance, type GeoViewer, type GpuTier, RAD2DEG } from 'terra-view';
 import { h } from './dom';
 
 const TIER_NAMES: Record<GpuTier, string> = { low: '低', medium: '中', high: '高', ultra: '极高' };

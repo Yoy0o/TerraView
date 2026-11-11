@@ -614,16 +614,17 @@ SDK 打包（§10）不在这条链上，可以穿插进行。注意两点：S3�
 
 | 编号 | 状态 | 落地情况 |
 | --- | --- | --- |
-| S1 | 完成 | `src/index.ts`；Vite 库模式 + `tsconfig.build.json`；`package.json` 的 `exports` / `types` / `files` / `sideEffects`；演示应用移到 `demo/`，从 `terraview` 引用。`npm pack` 的 tgz 在空的 Vite 8 工程里实测（开发与生产构建） |
+| S1 | 完成 | `src/index.ts`；Vite 库模式 + `tsconfig.build.json`；`package.json` 的 `exports` / `types` / `files` / `sideEffects`；演示应用移到 `demo/`，从 `terra-view` 引用。`npm pack` 的 tgz 在空的 Vite 8 工程里实测（开发与生产构建） |
 | S2 | 完成 | `three`、`3d-tiles-renderer` 及子路径 external，peer 范围 `>=0.187.0 <0.188.0` / `>=0.5.4 <0.6.0`；产物 668 KB（未压缩，不含 three），宿主页面只有一份 three |
 | S3 | 完成 | `src/style.css` 只含 SDK 元素，类名前缀 `tv-`，主题变量 `--tv-*`；演示样式在 `demo/style.css`。顺带把顶牌层从 `position: fixed` 改成相对容器定位 |
 | S4 | 完成 | 键盘监听 viewer 容器（`ControllerHost.keyboardTarget`），容器设 `tabindex`；`tests/keyboard.test.ts` |
 | S5 | 部分 | 聚合 Worker 在最后一个点位图层销毁时关闭；同页两个 viewer 实测正常。未做：共享节点图 / uniform 逐项核对，反复创建销毁 20 次的泄漏测试 |
 | S6 | 部分 | `decoderPath` / `transcoderPath` 选项。未做：webpack 5 宿主实测；EGM96 仍内嵌在瓦片 Worker 里（Worker 202 KB） |
 | S7 | 部分 | 导出清单与 [docs/api.md](../api.md)、版本策略。未做：内部对象标 `@internal` 或收进 `advanced`，默认中文文案改成选项 |
+| CI/CD | 完成 | `.github/workflows/ci.yml`（typecheck、test、库与演示构建，Node 22 / 24；打包后装进宿主工程自检）和 `release.yml`（标签 `v<版本>` 触发：GitHub Release 附 tgz；`package.json` 去掉 `private` 后才发布到 npm）。本机用 `npm run check:package` 跑同一个自检 |
 | S8 | 部分 | 包里带 `THIRD_PARTY_NOTICES.md`，示例数据和凭证不进包。未做：LICENSE（许可证未定，`package.json` 为 `UNLICENSED`）、three / 3d-tiles-renderer / EGM96 的声明补全 |
 
-§10.4 的决定：包名 `terraview`（暂无 scope，发布前确认 npm 上是否可用）；单包单入口加 `terraview/style.css`；类名前缀 `tv-`；演示面板只留在示例里；没有引入 api-extractor。许可证仍待定。
+§10.4 的决定：包名 `terra-view`（无 scope，用户 2026-11-11 指定）。`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。产品名、产物文件名（`dist/terraview.js`）和类名前缀不变。单包单入口加 `terra-view/style.css`；类名前缀 `tv-`；演示面板只留在示例里；没有引入 api-extractor。许可证仍待定。
 
 **目标**：以 npm 包的形式交给第三方应用嵌入。宿主只需提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。演示应用（`main.ts`、`ui/` 面板、URL 参数、hash 同步、Esc 返回）保留为示例，不进包。
 

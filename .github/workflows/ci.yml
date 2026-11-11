@@ -1,0 +1,71 @@
+# CI: every push to main and every pull request.
+#
+#   verify   typecheck, unit tests, library build + declarations, demo build (Node 22 and 24)
+#   package  packs the build and installs it into a fresh host project, the way a consumer
+#            would (scripts/check-package.mjs); the tarball is kept as a workflow artifact
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build the library and its declarations
+        run: npm run build:lib && npm run build:types
+      - name: Build the demo
+        run: npm run build:demo
+
+  package:
+    name: Package check
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        run: npm run build
+      - name: Pack and install into a host project
+        run: npm run check:package
+      - name: Pack for the artifact
+        run: npm pack
+      - uses: actions/upload-artifact@v6
+        with:
+          name: package-tarball
+          path: '*.tgz'
+          if-no-files-found: error
+          retention-days: 14

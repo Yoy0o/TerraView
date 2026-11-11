@@ -1,5 +1,5 @@
 import { POINT_DEMOS } from '../data/demoPoints';
-import { type GeoViewer, MARKER_STYLES, type MarkerStyleName, type PointLayer, type PointLayerOptions } from 'terraview';
+import { type GeoViewer, MARKER_STYLES, type MarkerStyleName, type PointLayer, type PointLayerOptions } from 'terra-view';
 import { h, section } from './dom';
 
 type Notify = (text: string, kind?: 'info' | 'error') => void;

@@ -1,4 +1,4 @@
-import type { GeoJsonLayer, GeoJsonLayerOptions, GeoViewer } from 'terraview';
+import type { GeoJsonLayer, GeoJsonLayerOptions, GeoViewer } from 'terra-view';
 import { h, section } from './dom';
 import { GEOJSON_PRESETS } from './presets';
 

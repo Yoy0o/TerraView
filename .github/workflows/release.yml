@@ -1,0 +1,109 @@
+# Release: push a tag `v<version>` that matches package.json (for example v0.1.0).
+#
+#   1. verifies and builds the tagged commit, checks the package in a host project
+#   2. creates a GitHub Release with the tarball attached (pre-release when the version has a `-`)
+#   3. publishes to npm, only when package.json no longer says `"private": true`
+#
+# Before the first npm publish:
+#   - remove `"private": true` from package.json and set the license
+#   - add the repository secret NPM_TOKEN (an npm automation token allowed to publish the package)
+#
+# Run it by hand (Actions > Release > Run workflow) for a dry run: everything except the
+# GitHub Release and the npm publish.
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build, release, publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # npm provenance (public repositories)
+    env:
+      IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+
+      - name: Read the package
+        id: pkg
+        run: |
+          echo "name=$(node -p "require('./package.json').name")" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "private=$(node -p "require('./package.json').private === true")" >> "$GITHUB_OUTPUT"
+
+      - name: The tag must match package.json
+        if: env.IS_TAG == 'true'
+        env:
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          if [ "${GITHUB_REF_NAME}" != "v${PKG_VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Verify (typecheck, tests, library and demo builds)
+        run: npm run verify
+      - name: Pack and install into a host project
+        run: npm run check:package
+      - name: Pack
+        run: npm pack
+
+      - name: GitHub Release
+        if: env.IS_TAG == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          flags="--generate-notes --verify-tag"
+          case "${PKG_VERSION}" in *-*) flags="$flags --prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" ./*.tgz --title "${GITHUB_REF_NAME}" $flags
+
+      - name: Publish to npm
+        if: env.IS_TAG == 'true' && steps.pkg.outputs.private != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::the NPM_TOKEN secret is not set"
+            exit 1
+          fi
+          tag=latest
+          case "${PKG_VERSION}" in *-*) tag=next ;; esac
+          provenance=""
+          if [ "${REPO_PRIVATE}" = "false" ]; then provenance="--provenance"; fi
+          npm publish ./*.tgz --access public --tag "$tag" $provenance
+
+      - name: Summary
+        env:
+          PKG_NAME: ${{ steps.pkg.outputs.name }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+          PKG_PRIVATE: ${{ steps.pkg.outputs.private }}
+        run: |
+          {
+            echo "### ${PKG_NAME} ${PKG_VERSION}"
+            echo "- tag run: ${IS_TAG}"
+            echo "- package.json private: ${PKG_PRIVATE} (npm publish runs only when false, on a tag)"
+            ls -l ./*.tgz | awk '{print "- tarball: " $NF " (" $5 " bytes)"}'
+          } >> "$GITHUB_STEP_SUMMARY"

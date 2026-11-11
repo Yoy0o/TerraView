@@ -17,7 +17,7 @@
  * Read in main.ts: ?gpu=low|medium|high|ultra sets the GPU tier (memory budgets and default quality,
  * docs/agents/gpu-memory.md) instead of the one guessed from the adapter.
  */
-import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terraview';
+import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
 
 /** '1' / 'true' / 'on' / '' (bare flag) → true, '0' / 'false' / 'off' → false, absent or other → undefined. */
 export function parseFlag(params: URLSearchParams, name: string): boolean | undefined {

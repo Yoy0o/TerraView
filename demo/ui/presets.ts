@@ -1,4 +1,4 @@
-import type { LabelStyle, VectorStyle } from 'terraview';
+import type { LabelStyle, VectorStyle } from 'terra-view';
 
 export interface Bookmark {
   name: string;

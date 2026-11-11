@@ -7,7 +7,7 @@
  *   `3d-tiles-renderer/plugins`), so a host that uses three itself gets one copy.
  * - Workers are emitted as separate files next to the entry and referenced with
  *   `new URL(..., import.meta.url)`, which Vite, webpack 5 and Rollup hosts resolve.
- * - The stylesheet is copied as dist/terraview.css (`terraview/style.css`).
+ * - The stylesheet is copied as dist/terraview.css (`terra-view/style.css`).
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -30,7 +30,7 @@ function sdkStyleSheet(): Plugin {
 export default defineConfig({
   base: './',
   resolve: {
-    alias: { terraview: entry },
+    alias: { 'terra-view': entry },
   },
   plugins: [sdkStyleSheet()],
   build: {

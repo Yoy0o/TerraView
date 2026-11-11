@@ -16,8 +16,8 @@ export default defineConfig({
   base: './',
   resolve: {
     alias: [
-      { find: /^terraview\/style\.css$/, replacement: fromRoot('./src/style.css') },
-      { find: /^terraview$/, replacement: fromRoot('./src/index.ts') },
+      { find: /^terra-view\/style\.css$/, replacement: fromRoot('./src/style.css') },
+      { find: /^terra-view$/, replacement: fromRoot('./src/index.ts') },
     ],
   },
   build: {

@@ -16,7 +16,7 @@ import {
   type Tiles3DLayer,
   type TilesetSource,
   XYZImageryProvider,
-} from 'terraview';
+} from 'terra-view';
 import { h, section, slider, toggle } from './dom';
 import { autoRotateLabel } from './NavigationBar';
 import { IndoorPanel } from './IndoorPanel';

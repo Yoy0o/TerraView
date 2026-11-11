@@ -6,11 +6,11 @@
 
 ### SDK 化：迁移到 TerraView（2026-11-11）
 
-代码从 three-geo-global（`main`，提交 `be3bbbd`）迁移到本仓库，并改造成可复用的 npm 包 `terraview`（私有，未发布）。功能没有删减；下面是对使用者和开发者可见的变化，路径对应见 [AGENTS.md](AGENTS.md) §8。
+代码从 three-geo-global（`main`，提交 `be3bbbd`）迁移到本仓库，并改造成可复用的 npm 包 `terra-view`（私有，未发布）。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。功能没有删减；下面是对使用者和开发者可见的变化，路径对应见 [AGENTS.md](AGENTS.md) §8。
 
 **新增**
 
-- 包入口 `src/index.ts`：`GeoViewer`、图层类、公共类型和纯工具都从 `terraview` 导出；清单见 [docs/api.md](docs/api.md)。
+- 包入口 `src/index.ts`：`GeoViewer`、图层类、公共类型和纯工具都从 `terra-view` 导出；清单见 [docs/api.md](docs/api.md)。
 - 库构建：`npm run build` 产出 `dist/terraview.js`（ES 模块）、`dist/terraview.css`、`dist/assets/*.worker-*.js` 和类型声明 `dist/types/`。`three`、`3d-tiles-renderer`（含子路径）是 peer 依赖，不打进产物。
 - `GeoViewerOptions.decoderPath` / `transcoderPath`：指定 Draco、KTX2 解码器文件的位置（默认用宿主安装的 three.js 自带的那份）。
 - `viewer.canvas`。
@@ -20,10 +20,15 @@
 
 - **类名统一加 `tv-` 前缀**：`.viewer-canvas` → `.tv-canvas`，`.frame-crossfade` → `.tv-crossfade`，`.marker-layer` → `.tv-marker-layer`，`.marker` → `.tv-marker`，`.tg-*` → `.tv-*`；状态类 `.interactive` / `.occluded` / `.dense` / `.selected` → `.tv-interactive` / `.tv-occluded` / `.tv-dense` / `.tv-selected`。
 - **CSS 变量**：顶牌不再读页面的 `--font` / `--text` / `--muted`，改为带默认值的 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg`；`--accent` → `--tv-accent`，`--size` → `--tv-size`。
-- **样式要单独引入**：`import 'terraview/style.css'`，里面只有 SDK 创建的元素（canvas、淡出层、顶牌）。
+- **样式要单独引入**：`import 'terra-view/style.css'`，里面只有 SDK 创建的元素（canvas、淡出层、顶牌）。
 - **顶牌层相对容器定位**（原来是 `position: fixed` 铺满窗口）：viewer 不铺满窗口时顶牌位置正确。`GeoViewer` 给容器加 `tv-viewer` 类，容器是 `static` 定位时改成 `relative`，没有 `tabindex` 时设为 `-1`，`dispose()` 时恢复。
 - **相机键盘不再监听 `window`**：改为监听 viewer 容器，只在 viewer 有焦点时生效；焦点离开时释放按住的键；带 Ctrl / Meta / Alt 的组合键不处理；处理了的按键会 `preventDefault`（方向键不再滚动宿主页面）。演示应用启动时自动聚焦 canvas。
 - 示例数据 `createDemoBuilding`、`POINT_DEMOS` 不在包里（在 `demo/data/`）。
+
+**工程**
+
+- GitHub Actions：`ci.yml`（每次推送和 PR：typecheck、单测、库构建与类型声明、演示构建，Node 22 / 24；再把打出的包装进宿主工程检查）和 `release.yml`（推送标签 `v<版本>`：GitHub Release 附 tgz，`package.json` 不再是 `private` 时发布到 npm）。
+- `npm run check:package`（`scripts/check-package.mjs`）：检查 tarball 的内容（入口、样式、Worker、类型声明都在，源码和演示不在，three 没被打进去），再装进 `scripts/host-fixture` 的宿主工程做类型检查和构建。
 
 **修复**
 

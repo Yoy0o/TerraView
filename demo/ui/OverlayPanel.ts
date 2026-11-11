@@ -1,4 +1,4 @@
-import { findOverlayPreset, type GeoViewer, OVERLAY_PRESETS, type RasterOverlay } from 'terraview';
+import { findOverlayPreset, type GeoViewer, OVERLAY_PRESETS, type RasterOverlay } from 'terra-view';
 import { h } from './dom';
 import type { Settings } from './settings';
 

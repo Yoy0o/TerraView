@@ -1,4 +1,4 @@
-import type { BimEntity, Building, GeoViewer } from 'terraview';
+import type { BimEntity, Building, GeoViewer } from 'terra-view';
 import { createDemoBuilding } from '../data/demoBuilding';
 import { h, section, slider, toggle } from './dom';
 

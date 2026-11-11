@@ -1,5 +1,5 @@
 /*
- * TerraView stylesheet: `import 'terraview/style.css'`.
+ * TerraView stylesheet: `import 'terra-view/style.css'`.
  *
  * Only what the SDK itself creates is styled here: the canvas, the level-change crossfade
  * and HTML markers (顶牌 / 点位). Every class starts with `tv-`, so host pages are not

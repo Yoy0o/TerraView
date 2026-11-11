@@ -3,7 +3,7 @@
  *
  * Everything a host application needs is exported from here; anything not
  * exported is internal and may change without notice. The stylesheet is a
- * separate import: `import 'terraview/style.css'`.
+ * separate import: `import 'terra-view/style.css'`.
  *
  * Units and frames (see docs/api.md): world coordinates are ECEF meters, the
  * public API takes degrees and meters above the WGS84 ellipsoid, internals use

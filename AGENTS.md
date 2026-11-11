@@ -23,7 +23,7 @@
 
 ## 1. 项目速览
 
-基于 three.js 的 WebGPU 优先三维地球 SDK（npm 包 `terraview`，目前私有、未发布）：WGS84 椭球、四叉树影像与地形、物理大气、OGC 3D Tiles、GeoJSON 矢量与注记、HTML 顶牌、统一拾取事件，以及从地球无缝进入建筑、楼层、房间的室内 / BIM 浏览。宿主应用提供一个容器元素，通过 `GeoViewer` 使用全部能力。
+基于 three.js 的 WebGPU 优先三维地球 SDK（npm 包 `terra-view`，目前私有、未发布）：WGS84 椭球、四叉树影像与地形、物理大气、OGC 3D Tiles、GeoJSON 矢量与注记、HTML 顶牌、统一拾取事件，以及从地球无缝进入建筑、楼层、房间的室内 / BIM 浏览。宿主应用提供一个容器元素，通过 `GeoViewer` 使用全部能力。
 
 - 技术栈：three r187（0.187.0，`WebGPURenderer` + TSL）、3d-tiles-renderer 0.5.4、TypeScript 5.9（strict）、Vite 8、Vitest 5。依赖版本是锁定的，不要随意升级；升级要先征得同意，并同时更新 `package-lock.json`（本仓库用 npm 安装）。`three` 和 `3d-tiles-renderer` 是 peer 依赖（开发时也装在 devDependencies 里），不打进产物。
 - 命令：
@@ -35,9 +35,10 @@
   npm run build       # 类型检查 + 库构建（dist/terraview.js、terraview.css、assets/*.worker.js）+ 类型声明（dist/types）
   npm run build:demo  # 演示应用的生产构建（dist-demo/）
   npm run verify      # 以上全部，提交前跑
+  npm run check:package  # 打包并装进一个临时宿主工程（scripts/host-fixture）检查，需要联网；先 build
   ```
 
-- 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terraview` 解析到 `src/index.ts`）。
+- 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
 
 - 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
@@ -47,7 +48,7 @@
 ```
 src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ index.ts     包入口：公共 API 只从这里导出（§3.10）
-├─ style.css    SDK 样式，发布为 `terraview/style.css`，类名前缀 `tv-`
+├─ style.css    SDK 样式，发布为 `terra-view/style.css`，类名前缀 `tv-`
 ├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、
 │               gpuProfile（显存档位、预算表、帧缓冲估算，纯函数）
 ├─ globe/       四叉树地球：Globe（调度）、GlobeTile（状态）、tileSelection（选择规则纯函数）、
@@ -70,7 +71,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
                 PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、
                 OcclusionProxies（顶牌遮挡查询代理）
-demo/           演示应用，不进包；只通过 `terraview` 入口使用 SDK
+demo/           演示应用，不进包；只通过 `terra-view` 入口使用 SDK
 ├─ main.ts      启动、URL 参数、hash 同步、Esc 返回、文件拖放
 ├─ style.css    演示界面的样式（面板、状态栏等）
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
@@ -143,7 +144,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 ### 3.10 SDK 边界（包与演示分离）
 
-- `src/` 不能 import `demo/`；`demo/` 只能从 `terraview`（`src/index.ts`）和 `terraview/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
+- `src/` 不能 import `demo/`；`demo/` 只能从 `terra-view`（`src/index.ts`）和 `terra-view/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
 - 新增、改名、删除导出都是公共 API 变更：同步 `docs/api.md`，记入 CHANGELOG。0.x 阶段次版本号可以有破坏性变更。
 - 不要在 `src/` 里读 URL 参数、`localStorage`、`location`，也不要在 `window` / `document` 上注册全局监听（键盘读 viewer 容器，见 camera-controller.md）。这些属于应用。
 - SDK 创建的 DOM 元素，类名一律以 `tv-` 开头，样式写在 `src/style.css`；可调的外观做成 `--tv-*` 变量并带默认值（`var(--tv-x, 默认值)`），不要依赖宿主页面的变量或全局样式。定位相对 viewer 容器，不要用 `position: fixed`。
@@ -188,7 +189,7 @@ docs/agents/    子系统规范（本文档的展开）
 | 改某类层级的效果或取景 | 实现 `LevelControl`，用 `viewer.indoor.registerLevelControl(control, tag)` 注册（`condition` 选择器 + `priority`）；要整体替换默认行为就先 `unregisterLevelControls('builtin')`。效果要写成幂等的绝对状态（返回上级时会重新进入父级）。见 indoor-bim.md §6。 |
 | 新增顶牌样式 | 在 `markers/points.ts` 的 `MarkerStyleName` 加名字，在 `markers/cards.ts` 加 `style` 分支，在 `src/style.css` 写 `.tv-<style>`。锚点约定为元素底部中点（pivot `[0.5, 1]`）；以符号中心为锚点的样式用负下外边距让元素止于符号中心。同步 markers.md 的样式表和演示应用 `PointPanel` 的中文名。 |
 | 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。 |
-| 验证打出的包 | `npm run build && npm pack`，把 tgz 装进一个空的 Vite 工程（另装 `three`、`3d-tiles-renderer`），确认开发服务器和生产构建都能跑、Worker 能加载、页面上只有一份 three。 |
+| 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容，并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。 |
 | 加载点位数据 | `viewer.addPoints(...)`、面板"点位标注"、`?points=<url>`，或拖入 `*.points.json`；规则写法见 markers.md §4。大批量（上万）或高频刷新的数值不要用 DOM 顶牌，走路线图 M3.6 / M4.6。 |
 | 调加载性能 | 先看状态栏和 `viewer.globe.stats`，再按 [tile-loading.md](docs/agents/tile-loading.md) 的调参表调整；不要改坏桶的优先顺序。 |
 
@@ -288,3 +289,10 @@ docs/agents/    子系统规范（本文档的展开）
 - 不读取、不输出、不提交 `.env`、密钥、证书等敏感文件。
 - 不通过修改或删除测试让检查变绿。
 - 推送到远端、发布到 npm 都要先得到明确同意。
+
+### 8.5 CI 与发布
+
+- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、单测、库构建与类型声明、演示构建；`package`：`npm run check:package`，并把 tgz 存为工作流产物。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
+- `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 不再是 `"private": true` 时执行，需要仓库密钥 `NPM_TOKEN`；版本号带 `-` 的发到 `next` 标签。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
+- 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本 → 合并到 main → 打标签并推送。打标签和推送要先得到明确同意。
+- 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。
