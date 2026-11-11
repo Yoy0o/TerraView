@@ -1,0 +1,15 @@
+node_modules/
+dist/
+dist-demo/
+.vite/
+*.log
+*.tgz
+.DS_Store
+.env
+.env.local
+test-output/
+# 本地测试用数据（CAD 图纸等），不入库
+data/
+.agent/
+# 本地临时资料（参考分析、草稿等），不入库
+temp/

@@ -1,0 +1,54 @@
+{
+  "name": "terraview",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "WebGPU-first 3D globe SDK built on three.js: quadtree imagery and terrain, atmosphere, OGC 3D Tiles, GeoJSON, HTML markers and indoor / BIM navigation.",
+  "license": "UNLICENSED",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "module": "./dist/terraview.js",
+  "types": "./dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/terraview.js"
+    },
+    "./style.css": "./dist/terraview.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "dev": "vite --config vite.demo.config.ts",
+    "build": "npm run typecheck && npm run build:lib && npm run build:types",
+    "build:lib": "vite build",
+    "build:types": "tsc -p tsconfig.build.json",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "preview": "vite preview --config vite.demo.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build && npm run build:demo"
+  },
+  "peerDependencies": {
+    "3d-tiles-renderer": ">=0.5.4 <0.6.0",
+    "three": ">=0.187.0 <0.188.0"
+  },
+  "devDependencies": {
+    "3d-tiles-renderer": "0.5.4",
+    "@types/three": "0.187.0",
+    "@webgpu/types": "0.1.74",
+    "three": "0.187.0",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.5"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}
