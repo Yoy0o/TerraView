@@ -56,16 +56,19 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify": "npm run typecheck && npm test && npm run build && npm run build:demo",
-    "check:package": "node scripts/check-package.mjs"
+    "check:package": "node scripts/check-package.mjs",
+    "smoke:build": "npm run build && npm run build:demo && node scripts/check-package.mjs --keep-host .smoke/host",
+    "smoke": "playwright test"
   },
   "peerDependencies": {
     "3d-tiles-renderer": ">=0.5.4 <0.6.0",
     "three": ">=0.187.0 <0.188.0"
   },
   "devDependencies": {
-    "3d-tiles-renderer": "0.5.4",
+    "@playwright/test": "1.65.0",
     "@types/three": "0.187.0",
     "@webgpu/types": "0.1.74",
+    "3d-tiles-renderer": "0.5.4",
     "three": "0.187.0",
     "typescript": "5.9.3",
     "vite": "8.3.4",

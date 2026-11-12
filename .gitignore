@@ -8,6 +8,8 @@ dist-demo/
 .env
 .env.local
 test-output/
+# 浏览器冒烟测试用的宿主构建（check:package --keep-host）
+.smoke/
 # 本地测试用数据（CAD 图纸等），不入库
 /data/
 .agent/

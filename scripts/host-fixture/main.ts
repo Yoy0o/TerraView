@@ -9,6 +9,8 @@ async function start(id: string, view: GeoViewerOptions['initialView']): Promise
     imagery: IMAGERY_PRESETS[0].create(),
     terrain: AWS_TERRARIUM,
     initialView: view,
+    // ?webgl: the browser smoke test (tests/e2e/host.e2e.ts) runs both backends.
+    forceWebGL: new URLSearchParams(location.search).has('webgl'),
   });
 }
 

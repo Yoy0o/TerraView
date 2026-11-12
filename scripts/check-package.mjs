@@ -8,12 +8,14 @@
  *   2. Install the tarball into a fresh copy of scripts/host-fixture with the pinned three /
  *      3d-tiles-renderer / Vite versions, then type-check and build that host.
  *
- * Needs network access for step 2 (`--no-host` skips it). Works in a temp folder, removed at the end.
+ * Needs network access for step 2 (`--no-host` skips it). Works in a temp folder, removed at the end;
+ * `--keep-host <dir>` first copies the built host (its dist/) to <dir>, relative to the repository,
+ * for the browser smoke test (tests/e2e/host.e2e.ts, `npm run smoke`).
  */
 import { execSync } from 'node:child_process';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
@@ -35,6 +37,9 @@ const BUDGETS = [
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const withHost = !process.argv.includes('--no-host');
+const keepIndex = process.argv.indexOf('--keep-host');
+const keepHost = keepIndex > 0 ? process.argv[keepIndex + 1] : null;
+if (keepIndex > 0 && (!keepHost || keepHost.startsWith('--'))) throw new Error('--keep-host needs a directory');
 const work = mkdtempSync(join(tmpdir(), 'terraview-check-'));
 
 /** Runs through the shell (npm and npx are .cmd shims on Windows); arguments with spaces are quoted. */
@@ -132,6 +137,12 @@ try {
     const installed = existsSync(join(host, 'node_modules', pkg.name, 'node_modules', 'three'));
     if (installed) fail('the package brought its own copy of three into the host');
     if (!process.exitCode) console.log(`✓ host project: installed ${pkg.name}, type-checked, built (${built.length} files)`);
+    if (keepHost && !process.exitCode) {
+      const target = resolve(root, keepHost);
+      rmSync(target, { recursive: true, force: true });
+      cpSync(join(host, 'dist'), target, { recursive: true });
+      console.log(`✓ host build kept in ${target}`);
+    }
   }
 } catch (err) {
   fail(err instanceof Error ? err.message : String(err));
