@@ -89,13 +89,25 @@
 
 | 编号 | 内容 | 做法 | 验收 |
 | --- | --- | --- | --- |
-| P1.1 | 公共 API 收口（S7） | `src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定。另：`GeoViewerOptions.imagery` 是必填，但不写类型的 JS 宿主漏传时不报错，之后每帧在 `Globe.update` 报错、`dispose()` 也抛错（2026-11-12 冒烟时发现）：`create()` 里校验必填项，缺了就抛 `TerraViewError`（或给默认影像） | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
+| P1.1 | 公共 API 收口（S7） | 2026-11-12：必填项检查已做（`create()` 先检查 `container` / `imagery`，缺了抛 `option-invalid`，不再拖到每帧报错）；分级见下方草案，待确认。`src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定。另：`GeoViewerOptions.imagery` 是必填，但不写类型的 JS 宿主漏传时不报错，之后每帧在 `Globe.update` 报错、`dispose()` 也抛错（2026-11-12 冒烟时发现）：`create()` 里校验必填项，缺了就抛 `TerraViewError`（或给默认影像） | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
 | P1.2 | 核心文案选项化（S7） | ✅ 2026-11-12。确认项：**默认 `zh-CN`**，**错误信息用英文**（带 `code`）。做法：`core/i18n.ts`（`GeoViewerOptions.locale` / `messages`，内置 `zh-CN`、`en`）管实体自动属性名、房间顶牌副标题、点位图层默认名；预设显示名改为 `label: LocalizedText`；`core/errors.ts` 的 `TerraViewError`（8 个 code，Worker 跨线程保留 code）；服务商署名和输入字段别名保留原文。演示应用用 `demo/ui/errors.ts` 把 code 译成中文。破坏性变更见 CHANGELOG | 除白名单（输入别名、署名、预设中文名）外 `src/` 无中文字面量，由 `tests/i18n.test.ts` 扫描守住；单测覆盖两种语言 |
 | P1.3 | 打包工具兼容余项（S6） | Webpack 5 宿主里实际解码 Draco / KTX2 模型（构建和运行已验证，解码没验证）；评估 EGM96 改按需加载（瓦片 Worker 202 KB，其中网格约 174 KB） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
 | P1.4 | 多实例余项（S5） | 逐项核对模块级共享的节点图和 uniform（`TileMaterial`、`LabelManager`、`nodeMaterials` 渐显遮罩、大气全局参数）跨 renderer 是否安全，结论写进 [api.md](../api.md) §4 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
 | P1.5 | 浏览器冒烟测试进 CI | 2026-11-12 确认：**有条件时用真实浏览器 MCP**（如 Claude in Chrome，驱动本机真实 Chrome）做冒烟；**Playwright 兜底**（CI 和没有浏览器 MCP 时用，同意新增为开发依赖）。现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零 | CI 上有浏览器 job |
 | P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变 | 超过预算时 CI 失败 |
 | P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
+
+**P1.1 公共 API 分级草案**（2026-11-12，**待确认后再动代码**；依据：`src/index.ts` 227 个导出、`GeoViewer` / `Globe` 的公开成员，以及演示应用和宿主工程实际用到的 56 个导出）
+
+机制：**稳定**不加标记，0.x 期间也尽量不破坏，破坏记 CHANGELOG；**高级**加 TSDoc `@advanced`（自定义标记，在 api.md 说明含义：给扩展和调试用，次版本可以改、不预先废弃）；**内部**加 `@internal`，`tsconfig.build.json` 开 `stripInternal` 从声明里去掉，并从 `src/index.ts` 移除。不引入 api-extractor。
+
+| 分级 | 内容 |
+| --- | --- |
+| 稳定 | `GeoViewer` 的创建与释放、视点与飞行（`setView` / `getView` / `flyTo*` / `resetNorth` / 环绕 / `playIntro`）、图层增删与列表、拾取（`pick` / `pickAt` / `pickCartographic` / `pickFeature` / `highlightFeature`）、`surfaceHeight`、`loadModel`、`captureFrame`、`canvas`、`events` / `info` / `stats` / `memory` / `gpu` / `locale` / `messages`、场景开关（`lighting` / `atmosphere` / `showGlobe` / `showStars` / `date` / `timeMultiplier` / `indoorBackdrop`）、`ellipsoid`；子对象 `navigation`、`interaction`、`indoor`、`markers`、`clouds`、`overlays`，`controller` 的手势开关与 `zoomBy` / `orbitBy` / `playAnimation`；它们的选项和结果类型。影像源、预设、地形源；`Tiles3DLayer`、`GeoJsonLayer`、`PointLayer`、`Marker` / `MarkerManager`；`Building`、`BimEntity`、`EntitySet`、`parseBuildingDoc` 与文档类型、选择器、`LevelControl` 与内置控制；`CloudLayer` 选项；`Ellipsoid`、`cartographic`、`geodeticToEcef`、`geodeticNormal`、`geoidUndulation`、`sunDirectionECEF`、角度与格式化工具、`EventEmitter`；语言与错误 |
+| 高级 | `viewer.renderer` / `scene` / `camera`（演示应用用它们做弹窗定位）、`viewer.globe`（`Globe` 里换影像 / 地形、出错回调、调参属性算高级；`update` / `group` / `scheme` / `raycast` 等引擎内部的成员标内部）、`viewer.pickBuffer`、`viewer.levelTransition`（演示应用切换淡出）、`tileDebugUniforms` / `refreshTileMaterials`、GPU 档位函数（`gpuProfile` / `classifyGpu` / `GPU_TIERS`）、相机数学（弧度）、顶牌模板（`createCard`）、点位纯函数（`parsePoints` / `resolvePointStyle` / `matchesRule` / `fillTemplate` / `pointsBBox`）、`OverlayCompositor`、`ContributionCuller` |
+| 内部 | `viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；导出 `FrameCrossfade`（只留类型给 `levelTransition`）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`GpuHints`、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`、`PickBufferOptions` / `PickTarget` / `GpuPick`、`SurfaceSample` / `SurfaceSource` |
+
+配套改动：演示应用读的 `viewer.vectors.highlighted` 改成稳定的 `viewer.highlightedFeature`；分级写进 api.md §3（每行标级别）。待确认的两点：① 上面的分级本身；② "内部"是用 `stripInternal` 从类型里去掉（宿主写了就编译不过），还是只标注、保留类型（更温和，但挡不住误用）。我的建议是去掉。
 
 **首发准备清单**（P1.7；2026-11-12 决定先准备、暂不发布。发布、推标签、去掉 `private` 都要单独确认）
 
