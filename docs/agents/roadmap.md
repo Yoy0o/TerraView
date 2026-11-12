@@ -55,7 +55,7 @@
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
-| 迁移收尾 | 进行中 | §0.2 P0 |
+| 迁移收尾 | 完成（2026-11-12；源仓库收口由维护者自行处理） | §0.2 P0 |
 | SDK S5–S8 余项与首次发布 | 未开始 | §0.2 P1 |
 | M1.4 GPU 版截帧过渡 | 遗留 | 等 M3.1 后期骨架，再把 DOM 淡出换成缩放过渡、按深度混合 |
 | M2.2 改查拾取缓冲深度 | 可选优化，暂缓 | 见 §3 M2.2 |
@@ -74,7 +74,7 @@
 
 编号说明：`P*.*` 是本节的执行单元；括号里是 §3 的里程碑项和 [progress-log.md](progress-log.md) §4 的待办编号，两边状态同步更新。
 
-**P0 迁移收尾**（1–2 天，大多是小项）
+**P0 迁移收尾**（✅ 2026-11-12 全部标为完成）
 
 | 编号 | 内容 | 做法 / 状态 | 验收 |
 | --- | --- | --- | --- |
@@ -82,18 +82,18 @@
 | P0.2 | 第三方声明补全：`globe/tileSelection.ts` 和 `Globe.visitTile` 改写自 CesiumJS（Apache-2.0），`THIRD_PARTY_NOTICES.md` 只收录了 t3d.js；EGM96 网格的数据来源（NGA，公有领域；经 `egm96-universal`，MIT，生成）也没写 | ✅ 2026-11-12：补了 CesiumJS（Apache-2.0，`Copyright 2011-2026 CesiumJS Contributors`，列出 7 个改写位置）和 EGM96（NGA 数据，经 `egm96-universal` MIT）两节；quantized-mesh 解码是按格式规范自写，单独注明 | 声明与文件头一一对应 |
 | P0.3 | `package-lock.json` 根包的 `license` 还是 `UNLICENSED`（`package.json` 已改为 Apache-2.0） | ✅ 2026-11-12（经同意）：只改根包的 `license` 字段，没有重新解析依赖 | 两处一致 |
 | P0.4 | 远端 CI 首跑确认 | ✅ 2026-11-12 确认：`ci.yml` 第 1 次运行（推送 `441a82c` 触发）成功，Verify（Node 22）、Verify（Node 24）、Package check 三个 job 全绿，用时 1 分 16 秒，24 个测试文件、291 个测试通过，tgz 产物 1 个 | CI 绿 |
-| P0.5 | 源仓库收口 | 2026-11-12 核对了源仓库的状态，步骤清单只保存在本地 `temp/source-repo-wrapup.md`（不入库）。实测记录已抄入本仓库 §10.5 | 源仓库 main 能看出"已迁移" |
+| P0.5 | 源仓库收口 | ✅ 2026-11-12 标为完成：由维护者自行在源仓库处理，步骤清单只保存在本地 `temp/source-repo-wrapup.md`（不入库）。实测记录已抄入本仓库 §10.5 | 源仓库 main 能看出"已迁移" |
 | P0.6 | `cad-to-building` 技能和 CAD 数据的去留 | ✅ 2026-11-12 决定：**不迁移**。技能和 CAD 资料留在源仓库，本仓库不收录（AGENTS.md §8.3） | 有结论 |
 
 **P1 首发就绪**（约 2 周，目标是首个对外版本，建议 `0.2.0`）
 
 | 编号 | 内容 | 做法 | 验收 |
 | --- | --- | --- | --- |
-| P1.1 | 公共 API 收口（S7） | `src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定 | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
-| P1.2 | 核心文案选项化（S7） | `src/` 里写死的中文分三类处理：错误和告警（影像不可达、地形格式、ion 资产类型、建筑重复加载、GeoJSON / 点位解析）改成英文消息加 `code` 字段，由宿主翻译；显示文案（影像预设名称与署名、点位图层默认名、实体默认属性键"楼层 / 标高 / 层高 / 面积 / 类型"和房间顶牌副标题）走 `locale` 选项，内置 `zh-CN` 与 `en`；输入字段别名（"经度""纬度""名称"等）是数据兼容，保留 | 除输入别名外，`src/` 没有中文字面量；单测覆盖两种 locale |
+| P1.1 | 公共 API 收口（S7） | `src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定。另：`GeoViewerOptions.imagery` 是必填，但不写类型的 JS 宿主漏传时不报错，之后每帧在 `Globe.update` 报错、`dispose()` 也抛错（2026-11-12 冒烟时发现）：`create()` 里校验必填项，缺了就抛 `TerraViewError`（或给默认影像） | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
+| P1.2 | 核心文案选项化（S7） | ✅ 2026-11-12。确认项：**默认 `zh-CN`**，**错误信息用英文**（带 `code`）。做法：`core/i18n.ts`（`GeoViewerOptions.locale` / `messages`，内置 `zh-CN`、`en`）管实体自动属性名、房间顶牌副标题、点位图层默认名；预设显示名改为 `label: LocalizedText`；`core/errors.ts` 的 `TerraViewError`（8 个 code，Worker 跨线程保留 code）；服务商署名和输入字段别名保留原文。演示应用用 `demo/ui/errors.ts` 把 code 译成中文。破坏性变更见 CHANGELOG | 除白名单（输入别名、署名、预设中文名）外 `src/` 无中文字面量，由 `tests/i18n.test.ts` 扫描守住；单测覆盖两种语言 |
 | P1.3 | 打包工具兼容余项（S6） | Webpack 5 宿主里实际解码 Draco / KTX2 模型（构建和运行已验证，解码没验证）；评估 EGM96 改按需加载（瓦片 Worker 202 KB，其中网格约 174 KB） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
 | P1.4 | 多实例余项（S5） | 逐项核对模块级共享的节点图和 uniform（`TileMaterial`、`LabelManager`、`nodeMaterials` 渐显遮罩、大气全局参数）跨 renderer 是否安全，结论写进 [api.md](../api.md) §4 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
-| P1.5 | 浏览器冒烟测试进 CI | 现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零。**要新增开发依赖（Playwright 或 Puppeteer），先征得同意** | CI 上有浏览器 job |
+| P1.5 | 浏览器冒烟测试进 CI | 2026-11-12 确认：**有条件时用真实浏览器 MCP**（如 Claude in Chrome，驱动本机真实 Chrome）做冒烟；**Playwright 兜底**（CI 和没有浏览器 MCP 时用，同意新增为开发依赖）。现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零 | CI 上有浏览器 job |
 | P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变 | 超过预算时 CI 失败 |
 | P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
 
@@ -692,7 +692,7 @@ flowchart LR
 | S4 | 完成 | 键盘监听 viewer 容器（`ControllerHost.keyboardTarget`），容器设 `tabindex`；`tests/keyboard.test.ts` |
 | S5 | 大部分完成 | 聚合 Worker 在最后一个点位图层销毁时关闭；同页两个 viewer 实测正常；创建、加聚合点位图层、销毁连续 40 次无泄漏（§10.5）。未做：共享节点图 / uniform 跨 renderer 逐项核对（§0.2 P1.4） |
 | S6 | 大部分完成 | `decoderPath` / `transcoderPath` 选项；Webpack 5 宿主构建和运行通过（§10.5）。未做：Webpack 宿主里实际解码 Draco / KTX2 模型；EGM96 按需加载的评估（仍内嵌在瓦片 Worker 里，Worker 202 KB）（§0.2 P1.3） |
-| S7 | 部分 | 导出清单与 [docs/api.md](../api.md)、版本策略。未做：内部对象标 `@internal` 或收进 `advanced`，默认中文文案改成选项（§0.2 P1.1、P1.2） |
+| S7 | 部分 | 导出清单与 [docs/api.md](../api.md)、版本策略。默认中文文案已改成选项（2026-11-12，§0.2 P1.2）。未做：内部对象标 `@internal` 或收进 `advanced`（§0.2 P1.1） |
 | CI/CD | 完成 | `.github/workflows/ci.yml`（typecheck、test、库与演示构建，Node 22 / 24；打包后装进宿主工程自检）和 `release.yml`（标签 `v<版本>` 触发：GitHub Release 附 tgz；`package.json` 去掉 `private` 后才发布到 npm）。本机用 `npm run check:package` 跑同一个自检。远端第 1 次运行（`441a82c`）三个 job 全部通过（2026-11-12 确认） |
 | S8 | 大部分完成 | Apache-2.0（`LICENSE`，`check:package` 检查它在包里）；包里带 `THIRD_PARTY_NOTICES.md`，示例数据和凭证不进包。three、3d-tiles-renderer 是 peer 依赖、不打进产物，不需要在包里附它们的声明。CesiumJS 改写部分与 EGM96 数据来源的声明、`package-lock.json` 根包 `license` 已于 2026-11-12 补齐（§0.2 P0.2、P0.3） |
 
