@@ -6,6 +6,7 @@ import { IMAGERY_PRESETS, OVERLAY_PRESETS } from '../src/globe/imagery/presets';
 import { Building } from '../src/indoor/Building';
 import { parseBuildingDoc } from '../src/indoor/schema';
 import { parsePoints } from '../src/markers/points';
+import { checkViewerOptions } from '../src/viewer/viewerOptions';
 
 const E = Ellipsoid.WGS84;
 const LOCALES: LocaleId[] = ['zh-CN', 'en'];
@@ -120,6 +121,24 @@ describe('errors', () => {
     expect(err.details.path).toBe('$.floors[0].height');
     expect(err.message.startsWith('$.floors[0].height: ')).toBe(true);
     expect(err.name).toBe('BuildingSchemaError');
+  });
+
+  it('rejects missing required viewer options before any GPU work', () => {
+    const container = { appendChild: () => undefined };
+    const imagery = { requestImage: async () => null };
+    const codeOf = (o: unknown) => {
+      try {
+        checkViewerOptions(o);
+        return 'ok';
+      } catch (e) {
+        return isTerraViewError(e, 'option-invalid') ? `${e.code}:${e.details.option}` : String(e);
+      }
+    };
+    expect(codeOf({ container, imagery })).toBe('ok');
+    expect(codeOf({ container })).toBe('option-invalid:imagery');
+    expect(codeOf({ container, imagery: {} })).toBe('option-invalid:imagery');
+    expect(codeOf({ imagery })).toBe('option-invalid:container');
+    expect(codeOf(undefined)).toBe('option-invalid:container');
   });
 
   it('writes point parse warnings in English', () => {

@@ -52,6 +52,7 @@ import type { IntroSpinOptions } from './IntroAnimation';
 import { NavigationControls } from './NavigationControls';
 import { OcclusionProxies } from './OcclusionProxies';
 import { PickBuffer, type PickTarget } from './PickBuffer';
+import { checkViewerOptions } from './viewerOptions';
 import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
 
 export interface ViewPosition {
@@ -322,6 +323,8 @@ export class GeoViewer {
   private timestampPending = false;
 
   static async create(options: GeoViewerOptions): Promise<GeoViewer> {
+    // Fail fast (before any GPU work) on what plain JavaScript hosts can get wrong.
+    checkViewerOptions(options);
     // The tier decides MSAA, which is fixed once the renderer exists: look at the adapter first.
     const tier = options.gpuTier ?? classifyGpu(await detectGpuHints());
     const profile = gpuProfile(tier);

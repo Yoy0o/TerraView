@@ -95,6 +95,7 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | `building-already-loaded` | 同一 id 的建筑重复加载 | `id` |
 | `points-empty` | 点位数据里没有可用的点（`message` 带第一条解析告警） | 无 |
 | `geojson-invalid` | GeoJSON 无法识别（`addGeoJson`） | 无 |
+| `option-invalid` | `GeoViewer.create` 的必填项缺失或类型不对（`container` 要是元素，`imagery` 要是影像源）；在创建渲染器之前检查 | `option`、`expected` |
 
 图层异步加载失败时，`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上原始错误（`{ message, error }`），可以照样按 `code` 处理。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
 

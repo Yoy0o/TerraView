@@ -14,6 +14,7 @@ SDK 里写死的中文改成可选语言（默认 `zh-CN`，另有 `en`），错
 - `TerraViewError`（`code`、`details`）与 `isTerraViewError`；导出 `LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`、`TerraViewErrorCode`、`TerraViewErrorDetails`。
 - `GeoJsonLayer`、`PointLayer` 的 `error` 事件增加 `error`（原始错误，SDK 抛出的带 `code`）。
 - `BuildingOptions.messages`、`IndoorHost.messages`、`PointLayerHost.messages`（不传时为 `zh-CN`）。
+- `GeoViewer.create` 先检查必填项：`container` 不是元素、`imagery` 不是影像源时立即抛 `TerraViewError`（code `option-invalid`）。原来漏传 `imagery` 的 JavaScript 宿主不会马上报错，而是之后每帧在地球更新里报错，`dispose()` 也会抛错。
 
 **破坏性变更**
 

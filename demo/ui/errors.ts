@@ -14,6 +14,7 @@ const ZH: Record<TerraViewErrorCode, (e: TerraViewError) => string> = {
   'building-already-loaded': (e) => `建筑 ${e.details.id} 已加载`,
   'points-empty': (e) => (e.message === 'no point features' ? '没有点要素' : `没有点要素（${e.message}）`),
   'geojson-invalid': () => '不是有效的 GeoJSON',
+  'option-invalid': (e) => `创建参数 ${e.details.option} 无效（需要 ${e.details.expected}）`,
 };
 
 /** What to show for an error: the Chinese text for SDK errors, the message for anything else. */

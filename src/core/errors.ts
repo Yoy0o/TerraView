@@ -17,6 +17,7 @@
  * - `building-already-loaded`: `id`
  * - `points-empty`: none (`message` repeats the first parse warning when there is one)
  * - `geojson-invalid`: none
+ * - `option-invalid`: `option` (name in `GeoViewerOptions`), `expected` (what it must be)
  */
 export type TerraViewErrorCode =
   | 'imagery-unreachable'
@@ -26,7 +27,8 @@ export type TerraViewErrorCode =
   | 'building-invalid'
   | 'building-already-loaded'
   | 'points-empty'
-  | 'geojson-invalid';
+  | 'geojson-invalid'
+  | 'option-invalid';
 
 export type TerraViewErrorDetails = Readonly<Record<string, string | number>>;
 
