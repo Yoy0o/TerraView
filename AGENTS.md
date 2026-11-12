@@ -36,6 +36,8 @@
   npm run build:demo  # 演示应用的生产构建（dist-demo/）
   npm run verify      # 以上全部，提交前跑
   npm run check:package  # 打包并装进一个临时宿主工程（scripts/host-fixture）检查，需要联网；先 build
+  npm run smoke:build    # 冒烟前的构建：库、演示应用、打包宿主（保留在 .smoke/host），需要联网
+  npm run smoke          # Playwright 浏览器冒烟：演示应用和打包宿主，WebGL / WebGPU 各一遍；本机用已装的 Chrome，端口 4180 / 4181
   ```
 
 - 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
@@ -77,7 +79,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -189,7 +191,7 @@ docs/agents/    子系统规范（本文档的展开）
 | 改某类层级的效果或取景 | 实现 `LevelControl`，用 `viewer.indoor.registerLevelControl(control, tag)` 注册（`condition` 选择器 + `priority`）；要整体替换默认行为就先 `unregisterLevelControls('builtin')`。效果要写成幂等的绝对状态（返回上级时会重新进入父级）。见 indoor-bim.md §6。 |
 | 新增顶牌样式 | 在 `markers/points.ts` 的 `MarkerStyleName` 加名字，在 `markers/cards.ts` 加 `style` 分支，在 `src/style.css` 写 `.tv-<style>`。锚点约定为元素底部中点（pivot `[0.5, 1]`）；以符号中心为锚点的样式用负下外边距让元素止于符号中心。同步 markers.md 的样式表和演示应用 `PointPanel` 的中文名。 |
 | 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。 |
-| 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。 |
+| 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。这几项 `npm run smoke:build && npm run smoke` 会自动检查（另有顶牌留在容器内、逐个销毁后 Worker 归零），看画面仍要手测。 |
 | 加载点位数据 | `viewer.addPoints(...)`、面板"点位标注"、`?points=<url>`，或拖入 `*.points.json`；规则写法见 markers.md §4。大批量（上万）或高频刷新的数值不要用 DOM 顶牌，走路线图 M3.6 / M4.6。 |
 | 调加载性能 | 先看状态栏和 `viewer.globe.stats`，再按 [tile-loading.md](docs/agents/tile-loading.md) 的调参表调整；不要改坏桶的优先顺序。 |
 
@@ -197,7 +199,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 1. 运行 `npm run verify`（typecheck、test、库构建与类型声明、演示构建），全部通过。
 2. 涉及数学、调度规则或数据格式的改动，必须在 `tests/` 里补单测（相机不变量、地形分块、BIM 解析与层级都已有测试，可以照着写）。
-3. 浏览器手测（可以用 `window.viewer` 编程驱动）：
+3. 浏览器手测（可以用 `window.viewer` 编程驱动）。有条件时用真实浏览器（Claude in Chrome 等）；自动化兜底是 `npm run smoke`（Playwright，CI 也跑）：演示应用（离线调试影像、`?demo` 逐级进出并核对事件顺序、销毁）和打包宿主（两个 viewer、逐个销毁、Worker 归零），出现页面错误、控制台错误或请求外部域名就失败。改了渲染、Worker、容器、层级相关的代码时跑一遍。手测清单：
    - 全球俯视状态下，光标分别放在北、南、东、西，滚轮放大，航向保持 0°、俯仰保持 -90°，画面不翻转。
    - 右键横向拖动只改航向，纵向拖动只改俯仰；拖到极限时停在 -90° 或俯仰上限，不翻转。
    - 加载过程中没有空洞、台阶或拉长的裙边，相机不会被顶高。
@@ -246,6 +248,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **瓦片纹理参数要在上传前设**：GPU 纹理创建时就定了有没有 mip 链，之后改 `generateMipmaps` / 过滤方式不生效。3D Tiles 的纹理策略在 `processTileModel` 里做（`applyTexturePolicy`）。
 - **读不到显存大小，`powerPreference` 在 Windows 上无效**：浏览器不暴露显存容量和用量，档位只能按适配器厂商 / 架构猜（`classifyGpu`，可用 `?gpu=` 指定），`viewer.memory` 是自己分配量的估算。Chrome 在 Windows 上忽略 `powerPreference`，双显卡笔记本可能跑在集显上，测性能前先看状态栏徽标里的适配器名。
 - **共享 uniform 在帧外渲染时串 viewer**：大气、注记的相机 uniform 是模块级的，所有 viewer 共用，帧内渲染前由各自重写。截图、层级切换截帧这类帧外的 `renderer.render` 原来没有重写，同页有两个 viewer 时会画出另一个 viewer 的相机和大气。帧外渲染一律走 `GeoViewer.renderOutsideFrame()`；新增共享 uniform 时同样要在渲染前重写（docs/api.md §4）。
+- **冒烟测试里 `window.viewer` 提前"存在"**：带 id 的元素会成为同名的 `window` 属性（演示应用的 `<div id="viewer">`、宿主的 `#left` / `#right`），等 viewer 要等 `window.viewer?.info` 之类的实例字段。无 GPU 时（CI、`SMOKE_NO_GPU=1`）软件渲染很慢，双 viewer 宿主测试约 1.5 分钟，超时按这个量级给。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
@@ -294,7 +297,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 ### 8.5 CI 与发布
 
-- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、单测、库构建与类型声明、演示构建；`package`：`npm run check:package`，并把 tgz 存为工作流产物。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
+- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、单测、库构建与类型声明、演示构建；`package`：`npm run check:package`，并把 tgz 存为工作流产物；`smoke`：Playwright 自带的 Chromium、无 GPU（WebGL 走 SwiftShader，WebGPU 项目自动跳过），跑 `npm run smoke`，失败时把 `test-output/` 存为产物。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
 - `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 不再是 `"private": true` 时执行，需要仓库密钥 `NPM_TOKEN`；版本号带 `-` 的发到 `next` 标签。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
 - 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本 → 合并到 main → 打标签并推送。打标签和推送要先得到明确同意。
 - 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。

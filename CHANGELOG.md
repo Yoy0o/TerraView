@@ -4,6 +4,15 @@
 
 ## [未发布]
 
+### 浏览器冒烟测试（2026-11-12，路线图 §0.2 P1.5）
+
+只涉及开发与 CI，包的内容不变。
+
+**工程**
+
+- 新增开发依赖 `@playwright/test`（1.65.0）。`npm run smoke:build` 构建库、演示应用和打包后的宿主工程，`npm run smoke` 在浏览器里冒烟：演示应用（瓦片就绪、建筑层级逐级进出与事件顺序、销毁）和打包宿主（两个 viewer、逐个销毁、Worker 归零、只有一份 three、顶牌留在容器内），WebGL / WebGPU 各一遍；外部影像与地形请求由本地替身瓦片应答，不依赖外网。本机用已装的 Chrome，CI 新增 `smoke` job（无 GPU，WebGL 走 SwiftShader）。
+- `scripts/check-package.mjs` 新增 `--keep-host <dir>`：保留宿主工程的构建产物，供冒烟测试使用；宿主工程支持 `?webgl`。
+
 ### 语言与错误（2026-11-12，路线图 §0.2 P1.2）
 
 SDK 里写死的中文改成可选语言（默认 `zh-CN`，另有 `en`），错误改成英文消息加稳定的 `code`。说明见 [docs/api.md](docs/api.md) §1.6。
