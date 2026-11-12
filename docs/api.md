@@ -21,7 +21,7 @@ const viewer = await GeoViewer.create({
 | 包入口 | `terra-view`（ES 模块，`dist/terraview.js`，类型在 `dist/types/`）；`terra-view/style.css` |
 | peer 依赖 | `three` 0.187.x、`3d-tiles-renderer` 0.5.x，由宿主安装，不打进包。TypeScript 宿主另装 `@types/three@0.187.0` |
 | 浏览器 | WebGPU（Chrome / Edge 113+），没有时自动回退 WebGL 2；`forceWebGL: true` 强制 WebGL 2 |
-| 打包工具 | Worker 是 `dist/assets/*.worker-*.js`，用 `new URL(..., import.meta.url)` 引用。Vite 8（开发与构建）已实测；webpack 5（style-loader / css-loader）构建和运行已实测，在其中实际解码 Draco / KTX2 模型还没有验证 |
+| 打包工具 | Worker 是 `dist/assets/*.worker-*.js`，用 `new URL(..., import.meta.url)` 引用。Vite 8（开发与构建）已实测；webpack 5（style-loader / css-loader）已实测：构建、运行，以及 Draco、KTX2、meshopt 模型的实际解码（不用设解码器路径） |
 | 释放 | `viewer.dispose()`：停止渲染循环，释放 GPU 资源、Worker、监听，移除 canvas，恢复容器 |
 
 ### 1.1 容器
