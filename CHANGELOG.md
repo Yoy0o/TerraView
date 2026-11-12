@@ -24,6 +24,10 @@ SDK 里写死的中文改成可选语言（默认 `zh-CN`，另有 `en`），错
 - 点位解析告警（`parsePoints(...).warnings`）改为英文。
 - 天地图两个影像源的 `name` 改为英文（`Tianditu Imagery`、`Tianditu Labels`），与其他影像源一致；署名保持原文。
 
+**修复**
+
+- 同页多个 viewer 时，`captureFrame()`（截图）和层级切换前的截帧会用上**另一个 viewer** 的相机和大气设置：大气、注记的 uniform 是所有 viewer 共用的，帧外渲染之前没有重写。现在这两处渲染前先写回本 viewer 的值（实测：截图前 uniform 里是另一个 viewer 的相机，截图后是本 viewer 的）。
+
 **工程**
 
 - `tests/i18n.test.ts`：两种语言的文案齐全、改写合并、预设显示名、属性名随语言变化、错误码；并扫描 `src/`，注释以外出现中文就失败（输入字段别名、服务商署名、预设的中文显示名除外）。

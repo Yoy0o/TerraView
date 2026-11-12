@@ -431,10 +431,12 @@ export class LabelManager {
     return page;
   }
 
-  /** Declutters, fades and re-anchors labels. Call once per frame before rendering. */
-  update(camera: PerspectiveCamera, width: number, height: number, dt: number): void {
-    if (this.items.length === 0) return;
-    this.frame++;
+  /**
+   * Writes the camera into the label uniforms. They are module-level (one shader for every
+   * viewer on the page), so a viewer must call this before each of its renders, including
+   * renders outside its frame loop (screenshots, transition captures).
+   */
+  syncCamera(camera: PerspectiveCamera): void {
     camera.updateMatrixWorld();
     _cam.setFromMatrixPosition(camera.matrixWorld);
     const [hx, lx] = splitDouble(_cam.x);
@@ -442,6 +444,13 @@ export class LabelManager {
     const [hz, lz] = splitDouble(_cam.z);
     labelUniforms.cameraHigh.value.set(hx, hy, hz);
     labelUniforms.cameraLow.value.set(lx, ly, lz);
+  }
+
+  /** Declutters, fades and re-anchors labels. Call once per frame before rendering. */
+  update(camera: PerspectiveCamera, width: number, height: number, dt: number): void {
+    if (this.items.length === 0) return;
+    this.frame++;
+    this.syncCamera(camera);
 
     _vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     const e = _vp.elements;

@@ -434,7 +434,7 @@ export class GeoViewer {
       },
       flyToPose: (pose, duration) =>
         this.controller.flyTo({ position: pose.position.clone(), heading: pose.heading * DEG2RAD, pitch: pose.pitch * DEG2RAD }, duration, { lookAt: pose.target }),
-      beginTransition: () => this.levelTransition.start(() => this.renderer.render(this.scene, this.camera)),
+      beginTransition: () => this.levelTransition.start(() => this.renderOutsideFrame()),
       setTilesetsVisible: (visible) => this.setTilesetsSuppressed(!visible),
       loadModel: (uri) => this.loadModel(uri),
       followMove: (delta) => this.controller.translate(delta),
@@ -1071,7 +1071,7 @@ export class GeoViewer {
    */
   captureFrame(): HTMLCanvasElement {
     const source = this.renderer.domElement;
-    this.renderer.render(this.scene, this.camera);
+    this.renderOutsideFrame();
     const out = document.createElement('canvas');
     out.width = source.width;
     out.height = source.height;
@@ -1180,6 +1180,17 @@ export class GeoViewer {
       cam.far = far;
       cam.updateProjectionMatrix();
     }
+  }
+
+  /**
+   * Renders outside the frame loop (screenshots, transition captures). The atmosphere and label
+   * uniforms are shared by every viewer on the page and hold whatever the last viewer to render
+   * wrote: put this viewer's camera and settings back first.
+   */
+  private renderOutsideFrame(): void {
+    this.updateEnvironment();
+    this.labels.syncCamera(this.camera);
+    this.renderer.render(this.scene, this.camera);
   }
 
   private updateEnvironment(): void {
