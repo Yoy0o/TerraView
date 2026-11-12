@@ -1,6 +1,6 @@
 # 顶牌与点位标注（Marker / PointLayer）
 
-代码：`src/markers/MarkerManager.ts`（HTML 顶牌：投影、裁剪、避让）、`src/markers/cards.ts`（样式模板）、`src/markers/points.ts`（点位数据解析、样式规则，纯函数）、`src/markers/clusterTree.ts`（层级聚合树，纯函数；大数据量在 `clusterTree.worker.ts` 里构建）、`src/markers/PointLayer.ts`（点位图层）、`demo/data/demoPoints.ts`（示例数据）、`src/core/CollisionGrid.ts`（屏幕网格碰撞索引，顶牌与矢量注记共用）。UI：`demo/ui/PointPanel.ts`（"点位标注"面板）、`demo/ui/FeaturePopup.ts`（点击弹出属性）。样式：`src/style.css` 的 `.tg-*`。测试：`tests/points.test.ts`、`tests/clusterTree.test.ts`。
+代码：`src/markers/MarkerManager.ts`（HTML 顶牌：投影、裁剪、避让）、`src/markers/cards.ts`（样式模板）、`src/markers/points.ts`（点位数据解析、样式规则，纯函数）、`src/markers/clusterTree.ts`（层级聚合树，纯函数；大数据量在 `clusterTree.worker.ts` 里构建）、`src/markers/PointLayer.ts`（点位图层）、`demo/data/demoPoints.ts`（示例数据）、`src/core/CollisionGrid.ts`（屏幕网格碰撞索引，顶牌与矢量注记共用）。UI：`demo/ui/PointPanel.ts`（"点位标注"面板）、`demo/ui/FeaturePopup.ts`（点击弹出属性）。样式：`src/style.css` 的 `.tv-*`。测试：`tests/points.test.ts`、`tests/clusterTree.test.ts`。
 
 ## 1. 分层
 

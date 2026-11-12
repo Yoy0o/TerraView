@@ -28,6 +28,7 @@
 **许可证**
 
 - 采用 Apache-2.0（2026-11-11）：新增 `LICENSE`，`package.json` 的 `license` 改为 `Apache-2.0`，`check:package` 检查 tarball 里有 `LICENSE`。移植代码的声明仍在 `THIRD_PARTY_NOTICES.md`。
+- `THIRD_PARTY_NOTICES.md` 补齐：CesiumJS（地球瓦片选择、地平线剔除、请求限流等改写部分，Apache-2.0）和内嵌的 EGM96 网格（NGA 数据，经 `egm96-universal` 生成，MIT）。`package-lock.json` 的 `license` 同步为 `Apache-2.0`。
 
 **工程**
 

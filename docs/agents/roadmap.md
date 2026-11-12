@@ -1,6 +1,6 @@
 # 可借鉴与复用路线图
 
-> 版本：2026-11-04，2026-11-05 按 three.js r187 复核（见 §8），2026-11-06 M0、M1 落地（各节"状态"），同日增补进度总览（§0.1）和 SDK 打包插入项（§10），2026-11-09 M3.6、M2.1、M2.2 落地，2026-11-10 M2.1、M2.2 合入 main 并在 Google 真实感 3D Tiles 下实测，同日 M2.3 落地（默认关闭、可配置）并合入 main，同日 GPU 显存盘点与硬件档位（插单 T261110-npf）合入 main。已改造的时间线、agent-hub 任务对应和待办清单见 [progress-log.md](progress-log.md)。本文是后续开发的总路线：把外部来源中可借鉴、可复用的内容，对照本仓库现状和 three.js 的内置能力，整理成分阶段的落地计划。外部代码只做了静态阅读和检索，没有安装或执行。
+> 版本：2026-11-04，2026-11-05 按 three.js r187 复核（见 §8），2026-11-06 M0、M1 落地（各节"状态"），同日增补进度总览（§0.1）和 SDK 打包插入项（§10），2026-11-09 M3.6、M2.1、M2.2 落地，2026-11-10 M2.1、M2.2 合入 main 并在 Google 真实感 3D Tiles 下实测，同日 M2.3 落地（默认关闭、可配置）并合入 main，同日 GPU 显存盘点与硬件档位（插单 T261110-npf）合入 main，2026-11-11 迁移到 TerraView 并完成 SDK 第一期（§10），2026-11-12 逐项核对迁移完整性（§10.5）并按 SDK 定位重排后续阶段（**§0.2，当前执行以它为准**）。已改造的时间线、agent-hub 任务对应和待办清单见 [progress-log.md](progress-log.md)。本文是后续开发的总路线：把外部来源中可借鉴、可复用的内容，对照本仓库现状和 three.js 的内置能力，整理成分阶段的落地计划。外部代码只做了静态阅读和检索，没有安装或执行。
 >
 > 文中"参考平台"指一款商业数字孪生平台的浏览器运行时（闭源，只公开构建产物）；"t3d 生态"指开源的 t3d.js 渲染库及其配套扩展仓库。两类来源可以互相印证：参考平台里观察到的不少机制（拾取缓冲、静止超采样、后期缓冲依赖、遮挡查询、锚点矩阵），在 t3d 生态里都有公开实现。
 
@@ -21,9 +21,9 @@
      - 静止超采样、楼层 AO、阴影和帧快照，three 已有更完整的内置或 addon 方案，应先评估再决定是否自研。
    - 2026-11-06 修复：隐藏地球（Google 3D Tiles）且室内压制 3D Tiles 时，光标下落空导致平移飞出数千公里、右键不能环绕；室内无地表时改为展台背景。见 [camera-controller.md](camera-controller.md) §3.4、[indoor-bim.md](indoor-bim.md) §7.1。
    - 已完成：地球瓦片调度借鉴 CesiumJS 的改造（选择记忆、不丢细节守卫、象限填充、兄弟预建、雾化 SSE、取消即释放），见 [tile-loading.md](tile-loading.md)；点位标注（样式、规则、聚合），见 [markers.md](markers.md)；M0（升级 r187、瓦片材质实例）和 M1（层级控制、路径切换、取景、选择器、事件选项），见 [indoor-bim.md](indoor-bim.md) §5–§7。
-5. **SDK 打包是单独插入的一项**（§10，2026-11-06 记录；2026-11-11 迁移到 TerraView 时落地了 S1–S4 和 S5–S8 的一部分，状态见 §10.0）：核心模块已经和演示界面解耦，但还缺包入口、three 外置、样式拆分等。不阻塞 M2，但类名和公共 API 边界要在对外首发前定下来。
+5. **SDK 打包**（§10）：2026-11-06 作为插入项记录，2026-11-11 随迁移到 TerraView 完成 S1–S4，S5–S8 部分完成（状态见 §10.0）。仓库定位从此变成 SDK，后续排序改为"先首发就绪、再嵌入体验、再画质与孪生"，见 §0.2。
 
-### 0.1 进度总览（2026-11-10 更新）
+### 0.1 进度总览（2026-11-12 更新）
 
 **已完成**
 
@@ -49,17 +49,77 @@
 | 插入项：缩放抖动排查与自动旋转按视角 | 2026-11-09 | 云层噪声按像素限带，修复缩放时云边闪烁；自动旋转按视角选地球自转 / 环绕 / 先倾斜再环绕 | [intro-and-navigation.md](intro-and-navigation.md) |
 | 插入项：GPU 显存盘点与硬件档位 | 2026-11-10 | `low / medium / high / ultra` 档位（按适配器猜测或 `?gpu=` 指定）；3D Tiles 远处放宽、缓存满时自适应降精度、纹理过滤策略；隐藏地球超时释放缓存；`viewer.gpu` / `viewer.memory`。Hub 任务 T261110-npf | [gpu-memory.md](gpu-memory.md) |
 | 插入项：建筑数据制作手册 | 2026-11-06 | 中文手册 + 有单测校验的样例；门洞、构件校验 | [building-data-manual.md](../building-data-manual.md) |
+| SDK 第一期：迁移到 TerraView | 2026-11-11 | 包入口与库构建、three 外置、`tv-` 样式、键盘改容器、解码器路径、聚合 Worker 关闭、CI / Release、打包自检、Apache-2.0；40 次创建销毁无泄漏、Webpack 5 宿主可构建运行 | §10.0、§10.5 |
 
 **未完成**
 
 | 项 | 状态 | 说明 |
 | --- | --- | --- |
+| 迁移收尾 | 进行中 | §0.2 P0 |
+| SDK S5–S8 余项与首次发布 | 未开始 | §0.2 P1 |
 | M1.4 GPU 版截帧过渡 | 遗留 | 等 M3.1 后期骨架，再把 DOM 淡出换成缩放过渡、按深度混合 |
-| SDK 打包（S1–S8） | S1–S4 完成，S5–S8 部分完成（2026-11-11，迁移到 TerraView） | §10.0 |
-| M2.2 改查拾取缓冲深度 | 可选优化 | 见 §3 M2.2 |
-| M3.1–M3.5、M3.7–M3.9 画质与性能 | 未开始 | 建议下一步做 M3.1 后期骨架 |
-| M4.1–M4.8 孪生数据与空间分析 | 未开始 | 按需求排期 |
+| M2.2 改查拾取缓冲深度 | 可选优化，暂缓 | 见 §3 M2.2 |
+| M3.1–M3.5、M3.7–M3.9 画质与性能 | 未开始 | M3.3 的按需渲染、M3.8 楼层按需加载提前到 §0.2 P2，其余在 P3 |
+| M4.1–M4.8 孪生数据与空间分析 | 未开始 | §0.2 P4，按需求排期 |
 | M5.1–M5.3 工程与工具 | 未开始 | 持续项 |
+
+### 0.2 TerraView 阶段计划（2026-11-12 调整）
+
+迁移之后，仓库的产出从"一个演示应用"变成"给第三方嵌入的 npm 包"，排序原则相应调整：
+
+1. **先把迁移收干净**，再谈新功能（P0）。
+2. **首发前必须定下的东西优先**（P1）：公共 API 边界、写死在核心里的中文文案、打包工具兼容。0.x 阶段可以有破坏性变更，但每改一次都要宿主跟着改，越晚越贵。
+3. **嵌入方最先感知的是功耗、显存、加载状态**（P2），排在画质特效（P3）之前。
+4. **画质（M3）和孪生数据（M4）按业务需求排期**，单项方案仍按 §3，不重写。
+
+编号说明：`P*.*` 是本节的执行单元；括号里是 §3 的里程碑项和 [progress-log.md](progress-log.md) §4 的待办编号，两边状态同步更新。
+
+**P0 迁移收尾**（1–2 天，大多是小项）
+
+| 编号 | 内容 | 做法 / 状态 | 验收 |
+| --- | --- | --- | --- |
+| P0.1 | 文档残留：旧类名（markers.md 的 `.tg-*`）、旧路径（`src/ui/`）、许可证"未定"、S5 / S6 实测结果没有同步过来 | ✅ 2026-11-12，核对过程见 §10.5 | 文档和注释里搜不到旧类名、旧路径（AGENTS.md §8 的对照表除外） |
+| P0.2 | 第三方声明补全：`globe/tileSelection.ts` 和 `Globe.visitTile` 改写自 CesiumJS（Apache-2.0），`THIRD_PARTY_NOTICES.md` 只收录了 t3d.js；EGM96 网格的数据来源（NGA，公有领域；经 `egm96-universal`，MIT，生成）也没写 | ✅ 2026-11-12：补了 CesiumJS（Apache-2.0，`Copyright 2011-2026 CesiumJS Contributors`，列出 7 个改写位置）和 EGM96（NGA 数据，经 `egm96-universal` MIT）两节；quantized-mesh 解码是按格式规范自写，单独注明 | 声明与文件头一一对应 |
+| P0.3 | `package-lock.json` 根包的 `license` 还是 `UNLICENSED`（`package.json` 已改为 Apache-2.0） | ✅ 2026-11-12（经同意）：只改根包的 `license` 字段，没有重新解析依赖 | 两处一致 |
+| P0.4 | 远端 CI 首跑确认 | ✅ 2026-11-12 确认：`ci.yml` 第 1 次运行（推送 `441a82c` 触发）成功，Verify（Node 22）、Verify（Node 24）、Package check 三个 job 全绿，用时 1 分 16 秒，24 个测试文件、291 个测试通过，tgz 产物 1 个 | CI 绿 |
+| P0.5 | 源仓库收口 | 2026-11-12 核对了源仓库的状态，步骤清单只保存在本地 `temp/source-repo-wrapup.md`（不入库）。实测记录已抄入本仓库 §10.5 | 源仓库 main 能看出"已迁移" |
+| P0.6 | `cad-to-building` 技能和 CAD 数据的去留 | ✅ 2026-11-12 决定：**不迁移**。技能和 CAD 资料留在源仓库，本仓库不收录（AGENTS.md §8.3） | 有结论 |
+
+**P1 首发就绪**（约 2 周，目标是首个对外版本，建议 `0.2.0`）
+
+| 编号 | 内容 | 做法 | 验收 |
+| --- | --- | --- | --- |
+| P1.1 | 公共 API 收口（S7） | `src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定 | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
+| P1.2 | 核心文案选项化（S7） | `src/` 里写死的中文分三类处理：错误和告警（影像不可达、地形格式、ion 资产类型、建筑重复加载、GeoJSON / 点位解析）改成英文消息加 `code` 字段，由宿主翻译；显示文案（影像预设名称与署名、点位图层默认名、实体默认属性键"楼层 / 标高 / 层高 / 面积 / 类型"和房间顶牌副标题）走 `locale` 选项，内置 `zh-CN` 与 `en`；输入字段别名（"经度""纬度""名称"等）是数据兼容，保留 | 除输入别名外，`src/` 没有中文字面量；单测覆盖两种 locale |
+| P1.3 | 打包工具兼容余项（S6） | Webpack 5 宿主里实际解码 Draco / KTX2 模型（构建和运行已验证，解码没验证）；评估 EGM96 改按需加载（瓦片 Worker 202 KB，其中网格约 174 KB） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
+| P1.4 | 多实例余项（S5） | 逐项核对模块级共享的节点图和 uniform（`TileMaterial`、`LabelManager`、`nodeMaterials` 渐显遮罩、大气全局参数）跨 renderer 是否安全，结论写进 [api.md](../api.md) §4 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
+| P1.5 | 浏览器冒烟测试进 CI | 现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零。**要新增开发依赖（Playwright 或 Puppeteer），先征得同意** | CI 上有浏览器 job |
+| P1.6 | 包体积预算 | 库产物是单个 668 KB 文件（gzip 249 KB）。先在 `check:package` 里记录体积并设阈值，防止无意变大；子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变 | 超过阈值时 CI 失败 |
+| P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
+
+**P2 嵌入体验与性能**（P1 之后；P2.1 可与 P1 并行）
+
+| 编号 | 内容 | 来源 | 说明 |
+| --- | --- | --- | --- |
+| P2.1 | 按需渲染：相机、瓦片、动画、顶牌都没变化时不画新帧；宿主可调用 `requestRender()` | M3.3 前半（B1） | 大屏、仪表盘一类宿主最先关心功耗；也是静止超采样（P3.3）的前置。要处理云层、开场、拾取缓冲、遮挡代理各自的"有变化"信号 |
+| P2.2 | 楼层模型按需加载，离开后按显存预算 LRU 卸载 | M3.8（B6） | 档位和预算机制已有（[gpu-memory.md](gpu-memory.md)），成本最低 |
+| P2.3 | 3D Tiles 要素拾取与属性查询（`EXT_mesh_features` / batch table），高亮，接入 `viewer.interaction` | progress-log C8 | README 近期项，业务有需要时可提前 |
+| P2.4 | 加载状态与错误事件 | 新增 | 核对现有的 `viewer.events`、图层 `events`，补齐宿主需要的"图层就绪 / 加载进度 / 出错（带 `code`）"。现在 `ViewerEvents` 只有帧统计、图层增删和点位单击；影像出错只能通过 `globe.onImageryError` 回调拿到一段中文字符串（`imageryErrorMessage`）。与 P1.2 一起设计 |
+
+**P3 画质**（按需求排期；单项方案见 §3 M3）
+
+P3.1 后期管线骨架（M3.1，B2）→ P3.2 描边与发光，替换 emissive 高亮（M3.2，B3）→ P3.3 静止超采样与调色（M3.3 后半，B4，依赖 P2.1）→ P3.4 GPU 版层级过渡（M1.4 遗留，B5）。不依赖后期的可以穿插：楼层 AO（M3.4）、光照跟随大气（M3.5）、冒名顶替（M3.7）；透明与阴影（M3.9）依赖 P3.1。
+
+**P4 孪生数据与空间分析**（按需求排期；单项方案见 §3 M4）
+
+IoT 数据管线（M4.5，E4）优先，它解锁场强图（M4.1）和高频数值标签（M4.6）；路线几何（M4.2）→ 室内导航（M4.4）；带洞多边形与挤出（M4.3）；空间分析效果（M4.7）依赖 P3.1；场景扩展（M4.8）逐项评估。
+
+**P5 持续项**：地球与瓦片进阶（§8.3，progress-log C 组）、工程与工具（M5）、README"中期 / 产品化"里的方向（progress-log F 组）。
+
+阶段之间的约束：
+
+- P1.1、P1.2 都是公共 API 的破坏性变更，必须在首次发布前完成；P1 期间新增的 API（包括 P2 提前做的）直接按 P1.1 的规则写。
+- P2–P5 的每一项落地时，按 AGENTS.md §3.10 同步 [api.md](../api.md) 和 CHANGELOG，并跑 `npm run check:package`。
 
 ## 1. 来源与许可
 
@@ -479,9 +539,7 @@ flowchart LR
   M["M3.8 楼层按需加载"] --> E
 ```
 
-建议的执行顺序：M0（可与 M1 并行）→ M1.5 → M1.1 → M1.2 / M1.3 / M1.4 → M1.6 → M3.6 → M2.1 → M2.2 / M2.3 → M3.1 → M3.2 / M3.3 → 其余各项按需求排期。
-
-SDK 打包（§10）不在这条链上，可以穿插进行。注意两点：S3（样式类名）和 S7（公共 API 边界）要在对外首发前完成；M2 以后新增的公共 API 按 S7 的规则写。
+原定的执行顺序（M0 → M1.5 → M1.1 → M1.2 / M1.3 / M1.4 → M1.6 → M3.6 → M2.1 → M2.2 / M2.3）已全部走完。之后的顺序以 §0.2 为准：P0 迁移收尾 → P1 首发就绪（S5–S8 余项）→ P2 嵌入体验（按需渲染、楼层按需加载、要素拾取、加载与错误事件）→ P3 画质 / P4 孪生数据按需求排期。上图的依赖关系仍然有效。
 
 ## 5. 不复用的部分
 
@@ -500,6 +558,7 @@ SDK 打包（§10）不在这条链上，可以穿插进行。注意两点：S3�
   - 八面体法线编解码、深度反投影、屏幕投影范围。
   - Halton 序列与累积权重。
   - IDW 的 CPU 参考实现、路线条带构建、导航 A*。
+- 动了导出、类名、容器行为、Worker 或样式的改动，还要跑 `npm run check:package`，并同步 [api.md](../api.md) 和 CHANGELOG（AGENTS.md §3.10）。
 - 浏览器手测沿用 AGENTS.md §6.3，另外增加三项：
   - 拾取结果与 CPU 射线一致。
   - 顶牌被挡住时淡出。
@@ -618,13 +677,13 @@ SDK 打包（§10）不在这条链上，可以穿插进行。注意两点：S3�
 | S2 | 完成 | `three`、`3d-tiles-renderer` 及子路径 external，peer 范围 `>=0.187.0 <0.188.0` / `>=0.5.4 <0.6.0`；产物 668 KB（未压缩，不含 three），宿主页面只有一份 three |
 | S3 | 完成 | `src/style.css` 只含 SDK 元素，类名前缀 `tv-`，主题变量 `--tv-*`；演示样式在 `demo/style.css`。顺带把顶牌层从 `position: fixed` 改成相对容器定位 |
 | S4 | 完成 | 键盘监听 viewer 容器（`ControllerHost.keyboardTarget`），容器设 `tabindex`；`tests/keyboard.test.ts` |
-| S5 | 部分 | 聚合 Worker 在最后一个点位图层销毁时关闭；同页两个 viewer 实测正常。未做：共享节点图 / uniform 逐项核对，反复创建销毁 20 次的泄漏测试 |
-| S6 | 部分 | `decoderPath` / `transcoderPath` 选项。未做：webpack 5 宿主实测；EGM96 仍内嵌在瓦片 Worker 里（Worker 202 KB） |
-| S7 | 部分 | 导出清单与 [docs/api.md](../api.md)、版本策略。未做：内部对象标 `@internal` 或收进 `advanced`，默认中文文案改成选项 |
-| CI/CD | 完成 | `.github/workflows/ci.yml`（typecheck、test、库与演示构建，Node 22 / 24；打包后装进宿主工程自检）和 `release.yml`（标签 `v<版本>` 触发：GitHub Release 附 tgz；`package.json` 去掉 `private` 后才发布到 npm）。本机用 `npm run check:package` 跑同一个自检 |
-| S8 | 部分 | 包里带 `THIRD_PARTY_NOTICES.md`，示例数据和凭证不进包。未做：LICENSE（许可证未定，`package.json` 为 `UNLICENSED`）、three / 3d-tiles-renderer / EGM96 的声明补全 |
+| S5 | 大部分完成 | 聚合 Worker 在最后一个点位图层销毁时关闭；同页两个 viewer 实测正常；创建、加聚合点位图层、销毁连续 40 次无泄漏（§10.5）。未做：共享节点图 / uniform 跨 renderer 逐项核对（§0.2 P1.4） |
+| S6 | 大部分完成 | `decoderPath` / `transcoderPath` 选项；Webpack 5 宿主构建和运行通过（§10.5）。未做：Webpack 宿主里实际解码 Draco / KTX2 模型；EGM96 按需加载的评估（仍内嵌在瓦片 Worker 里，Worker 202 KB）（§0.2 P1.3） |
+| S7 | 部分 | 导出清单与 [docs/api.md](../api.md)、版本策略。未做：内部对象标 `@internal` 或收进 `advanced`，默认中文文案改成选项（§0.2 P1.1、P1.2） |
+| CI/CD | 完成 | `.github/workflows/ci.yml`（typecheck、test、库与演示构建，Node 22 / 24；打包后装进宿主工程自检）和 `release.yml`（标签 `v<版本>` 触发：GitHub Release 附 tgz；`package.json` 去掉 `private` 后才发布到 npm）。本机用 `npm run check:package` 跑同一个自检。远端第 1 次运行（`441a82c`）三个 job 全部通过（2026-11-12 确认） |
+| S8 | 大部分完成 | Apache-2.0（`LICENSE`，`check:package` 检查它在包里）；包里带 `THIRD_PARTY_NOTICES.md`，示例数据和凭证不进包。three、3d-tiles-renderer 是 peer 依赖、不打进产物，不需要在包里附它们的声明。CesiumJS 改写部分与 EGM96 数据来源的声明、`package-lock.json` 根包 `license` 已于 2026-11-12 补齐（§0.2 P0.2、P0.3） |
 
-§10.4 的决定：包名 `terra-view`（无 scope，用户 2026-11-11 指定）。`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。产品名、产物文件名（`dist/terraview.js`）和类名前缀不变。单包单入口加 `terra-view/style.css`；类名前缀 `tv-`；演示面板只留在示例里；没有引入 api-extractor。许可证仍待定。
+§10.4 的决定（2026-11-11 全部定下）：包名 `terra-view`（无 scope，用户 2026-11-11 指定）。`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。产品名、产物文件名（`dist/terraview.js`）和类名前缀不变。单包单入口加 `terra-view/style.css`；类名前缀 `tv-`；演示面板只留在示例里；没有引入 api-extractor；许可证 Apache-2.0。
 
 **目标**：以 npm 包的形式交给第三方应用嵌入。宿主只需提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。演示应用（`main.ts`、`ui/` 面板、URL 参数、hash 同步、Esc 返回）保留为示例，不进包。
 
@@ -655,10 +714,51 @@ SDK 打包（§10）不在这条链上，可以穿插进行。注意两点：S3�
 2. **可靠嵌入**：S5、S6。
 3. **首次对外发布**：S7、S8，配套发布用的 README 和示例工程。
 
-### 10.4 待决定
+第一期已完成；第二、三期的余项排进 §0.2 P1。
 
-- 包名、npm scope 和许可证。
-- 单包还是拆包（core / indoor / markers）。建议先单包加子入口（例如 `three-geo-global/indoor`），等体积真成问题再拆。
-- 演示面板（`ui/`）是否作为可选子入口对外提供，还是只保留在示例里。
-- 样式类名前缀。
-- 是否引入 api-extractor（新增开发依赖，需要同意）。
+### 10.4 待决定（2026-11-11 已全部决定，结论见 §10.0 末段）
+
+| 事项 | 结论 |
+| --- | --- |
+| 包名、npm scope | `terra-view`，无 scope；首发被拒时改用 `@<scope>/terra-view` |
+| 许可证 | Apache-2.0 |
+| 单包还是拆包 | 单包，主入口加 `terra-view/style.css`；子入口等体积真成问题再做（§0.2 P1.6） |
+| 演示面板 | 不进包，留在 `demo/` |
+| 样式类名前缀 | `tv-`，变量 `--tv-*` |
+| api-extractor | 没有引入；P1.1 先用 `@internal` + `stripInternal`，不新增依赖 |
+
+### 10.5 迁移核对（2026-11-12）
+
+对照源仓库 three-geo-global（`main`，`be3bbbd`）与本仓库 `441a82c`，逐项核对。
+
+**代码与测试**
+
+| 项 | 结果 |
+| --- | --- |
+| SDK 源码（`src/` 下 core、globe、atmosphere、tiles3d、vector、indoor、markers、viewer） | 全部迁入。忽略换行符后，只有 7 个文件有改动，都是 SDK 化的预期改动：`GeoViewer`（`adoptContainer`、`decoderPath` / `transcoderPath`、`canvas`、键盘目标）、`GlobeCameraController`（键盘监听改容器、组合键放行、`focusout` 释放）、`MarkerManager` / `cards` / `PointLayer` / `FrameCrossfade`（`tv-` 类名、`--tv-accent`；`PointLayer` 另加聚合 Worker 引用计数）、`style.css`（拆分） |
+| 演示应用（`main.ts`、`index.html`、`ui/*`、示例数据） | 全部迁入 `demo/`；改动只有 import 改走 `terra-view`、产品名、启动时聚焦 canvas、设置键迁移（读旧键兜底） |
+| 测试 | 源仓库 23 个测试文件全部迁入，另增 `keyboard.test.ts`；改动只有 3 处 import 路径和 1 处类名。`npm run verify` 通过：24 个文件、291 个测试，库构建与演示构建正常（2026-11-12） |
+| `scripts/generate-egm96.mjs`、`docs/examples`、`docs/images` | 迁入，内容一致；README 引用的图片都在 |
+| 本地参考资料（`temp/thingjs/`） | 两份分析文档已在本仓库 `temp/` 下；源仓库 `temp/m3.6-plan.md` 没有带过来，M3.6 已完成，不需要 |
+
+**按约定没有迁移的**（AGENTS.md §8.3）：agent-hub 任务流（`scripts/agent/`、`.githooks/`、`.claude/settings.json`、`specs/`）、`cad-to-building` 技能与 `data/` 下的 CAD 资料（2026-11-12 决定不迁移，§0.2 P0.6）、Git 历史。
+
+**SDK 边界**：`src/` 不读 URL 参数、`localStorage`，不在 `window` / `document` 上注册监听；用到 `location.href` 的 3 处只是把相对 URL 解析成绝对 URL，可以保留。
+
+**源仓库分支上的实测记录**（`agent/T261109-ppn-sdk-moved-to-terraview`，未合并到源仓库 main；测的是本仓库 `441a82c`，在全新克隆里执行）：
+
+- `npm ci`、`npm run verify`、`npm run check:package` 通过。
+- 无头 Chrome（WebGPU）：`?demo` 正常进入示例楼，旧类名为 0 个；同页两个 viewer 都渲染到瓦片全部就绪，焦点在哪个 viewer，只有哪个响应 W 键；控制台没有错误，没有 three 多实例告警。
+- S5：创建 viewer、加一个聚合点位图层、销毁，连续 40 次。Worker 共创建 205 个，结束时回到基线（5 个，都属演示应用自己的 viewer）；canvas、`tv-*` 节点、窗口 / 文档监听数、rAF 速率都回到基线；没有报错。JS 堆在 57–88 MB 间波动，没有持续上升（基线 44 MB，强制 GC 后结束时 56 MB）。
+- S6：Webpack 5 宿主（webpack 5.112、style-loader / css-loader，装入打好的 tarball）构建成功，three 自带的 Draco / Basis 解码器由打包器作为资源输出；运行时 WebGPU、5 个 Worker、瓦片全部就绪，没有失败请求和报错。没有实际解码 Draco / KTX2 模型。库产物自身不含解码器文件，Draco 出现两份是宿主打包了 three 自带的两套变体（`draco/` 与 `draco/gltf/`），不是 SDK 多打了一份。
+
+**发现并处理的问题**
+
+| 问题 | 处理 |
+| --- | --- |
+| markers.md 仍写 `.tg-*`；两处代码注释仍指 `src/ui/` | 2026-11-12 已改 |
+| 本节 §10.0、progress-log §4–§5 仍写"许可证未定" | 2026-11-12 已改（`441a82c` 已定为 Apache-2.0） |
+| 上面的 S5 / S6 实测记录只在源仓库的未合并分支上，本仓库的 §10.0 和 [api.md](../api.md) 仍写"未实测" | 2026-11-12 已抄入本节，并同步 §10.0、api.md §1 和 §4 |
+| AGENTS.md 的测试清单少了 backdrop / flight / navigation / surfaceHeight | 2026-11-12 已补 |
+| 在 Git Bash 里用 `cd /d/...` 进入仓库后跑 vitest，Node 看到的当前目录是小写盘符 `d:\`，24 个套件全部报 `Cannot read properties of undefined (reading 'config')`；用 `cd D:/...` 或 PowerShell 就正常 | 环境问题，不是回归；已记入 AGENTS.md §7 |
+| CesiumJS 改写部分、EGM96 数据来源没有第三方声明；`package-lock.json` 根包 `license` 仍是 `UNLICENSED` | 2026-11-12 已补（§0.2 P0.2、P0.3） |

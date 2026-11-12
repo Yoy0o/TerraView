@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   if (imageryParam) settings.imagery = imageryParam;
   if (params.has('noterrain')) settings.terrainSource = 'none';
 
-  // ?clouds / ?cloudCoverage / … and ?intro / ?introDuration / … (src/ui/urlOptions.ts) override the saved settings for this visit.
+  // ?clouds / ?cloudCoverage / … and ?intro / ?introDuration / … (demo/ui/urlOptions.ts) override the saved settings for this visit.
   const cloudParams = parseCloudParams(params);
   const introParams = parseIntroParams(params);
   // ?cull / ?cullThreshold / … : contribution culling of small devices (off unless ?cull=1).

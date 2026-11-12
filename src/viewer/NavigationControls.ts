@@ -2,7 +2,7 @@
  * Basic navigation commands (zoom, rotate, tilt, north up, home, orbit,
  * fullscreen, screenshot, opening spin) as a UI-free API on top of the
  * camera controller. Buttons, keyboard shortcuts or a host application call
- * these; none of it depends on the demo panels in `src/ui/`.
+ * these; none of it depends on the demo panels in `demo/ui/`.
  *
  * Every motion goes through the controller (`zoomBy`, `orbitBy`, `flyTo`,
  * `playAnimation`), so the camera invariants hold (zero roll, zoom keeps

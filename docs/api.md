@@ -18,7 +18,7 @@ const viewer = await GeoViewer.create({ container: document.getElementById('map'
 | 包入口 | `terra-view`（ES 模块，`dist/terraview.js`，类型在 `dist/types/`）；`terra-view/style.css` |
 | peer 依赖 | `three` 0.187.x、`3d-tiles-renderer` 0.5.x，由宿主安装，不打进包。TypeScript 宿主另装 `@types/three@0.187.0` |
 | 浏览器 | WebGPU（Chrome / Edge 113+），没有时自动回退 WebGL 2；`forceWebGL: true` 强制 WebGL 2 |
-| 打包工具 | Worker 是 `dist/assets/*.worker-*.js`，用 `new URL(..., import.meta.url)` 引用。Vite 8（开发与构建）已实测；webpack 5 未实测 |
+| 打包工具 | Worker 是 `dist/assets/*.worker-*.js`，用 `new URL(..., import.meta.url)` 引用。Vite 8（开发与构建）已实测；webpack 5（style-loader / css-loader）构建和运行已实测，在其中实际解码 Draco / KTX2 模型还没有验证 |
 | 释放 | `viewer.dispose()`：停止渲染循环，释放 GPU 资源、Worker、监听，移除 canvas，恢复容器 |
 
 ### 1.1 容器
@@ -143,7 +143,7 @@ GeoViewer.create({ container, decoderPath: '/libs/draco/gltf/', transcoderPath: 
 - `tileDebugUniforms` 和大气的全局参数是模块级的，所有 viewer 共用。
 - 点位聚合用一个共享 Worker，最后一个点位图层销毁时关闭。
 
-反复创建、销毁的长时间稳定性还没有专门测试（路线图 §10 S5）。
+反复创建、销毁已实测（创建 viewer、加聚合点位图层、销毁，连续 40 次）：Worker、canvas、`tv-*` 节点、窗口 / 文档监听、rAF 都回到基线，堆内存没有持续上升（路线图 §10.5）。共享的节点图和 uniform 跨 renderer（例如一个 WebGPU、一个 WebGL）是否安全，还没有逐项核对（路线图 §0.2 P1.4）。
 
 ## 5. 还没有的东西
 

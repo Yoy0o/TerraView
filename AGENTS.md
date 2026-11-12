@@ -77,7 +77,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / pickBuffer / interaction / intro / clouds / culling / gpuProfile
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -246,6 +246,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **瓦片纹理参数要在上传前设**：GPU 纹理创建时就定了有没有 mip 链，之后改 `generateMipmaps` / 过滤方式不生效。3D Tiles 的纹理策略在 `processTileModel` 里做（`applyTexturePolicy`）。
 - **读不到显存大小，`powerPreference` 在 Windows 上无效**：浏览器不暴露显存容量和用量，档位只能按适配器厂商 / 架构猜（`classifyGpu`，可用 `?gpu=` 指定），`viewer.memory` 是自己分配量的估算。Chrome 在 Windows 上忽略 `powerPreference`，双显卡笔记本可能跑在集显上，测性能前先看状态栏徽标里的适配器名。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
+- **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
 ## 8. 从 three-geo-global 迁移（2026-11-11）
 
@@ -279,7 +280,7 @@ docs/agents/    子系统规范（本文档的展开）
 ### 8.3 没有迁过来的
 
 - **agent-hub 任务流**（`scripts/agent/`、`.githooks/`、`.claude/settings.json`、`specs/`）：那套脚本绑定的是 Hub 项目 `three-geo-global`。本仓库目前没有接入任务流；要接入，需要在 Hub 上为 TerraView 建项目后重新生成。文档里出现的任务编号（`T2611xx-xxx`）指的是原仓库在 Hub 上的任务，留作历史。
-- **`cad-to-building` 技能**（`.claude/skills/`）和本地 CAD 数据（`data/`）：含具体站点的资料，是否放进这个将来可能公开的仓库需要人决定。
+- **`cad-to-building` 技能**（`.claude/skills/`）和本地 CAD 数据（`data/`）：含具体站点的资料，2026-11-12 决定不迁移，留在源仓库。本仓库只通过 [建筑数据制作手册](docs/building-data-manual.md) 约定 `*.building.json` 的格式，不收录 CAD 转换工具和站点数据。
 - **Git 历史**：本仓库从一次导入提交开始，历史在源仓库。
 
 ### 8.4 工作约定
