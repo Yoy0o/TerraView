@@ -104,7 +104,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 
 ### 持续集成与发布
 
-- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都会在 Node 22、24 上跑 typecheck、单测、库构建、演示构建，再把打出的包装进一个宿主工程检查；tgz 留作工作流产物。
+- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都会在 Node 22、24 上跑 typecheck、单测、库构建、演示构建，再把打出的包装进一个宿主工程检查（含体积预算）；tgz 留作工作流产物。
 - **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.1.0`）时，验证后创建 GitHub Release 并附上 tgz。发布到 npm 的步骤只有在 `package.json` 去掉 `"private": true` 之后才执行，并且需要仓库密钥 `NPM_TOKEN`。在 Actions 页面手动运行是演练，不创建 Release 也不发布。
 - 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
 

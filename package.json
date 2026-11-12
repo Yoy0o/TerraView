@@ -5,6 +5,28 @@
   "type": "module",
   "description": "WebGPU-first 3D globe SDK built on three.js: quadtree imagery and terrain, atmosphere, OGC 3D Tiles, GeoJSON, HTML markers and indoor / BIM navigation.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yoy0o/TerraView.git"
+  },
+  "homepage": "https://github.com/Yoy0o/TerraView#readme",
+  "bugs": {
+    "url": "https://github.com/Yoy0o/TerraView/issues"
+  },
+  "keywords": [
+    "three",
+    "threejs",
+    "webgpu",
+    "tsl",
+    "globe",
+    "gis",
+    "3d-tiles",
+    "terrain",
+    "geojson",
+    "bim",
+    "indoor",
+    "digital-twin"
+  ],
   "sideEffects": [
     "**/*.css"
   ],

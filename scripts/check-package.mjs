@@ -4,6 +4,7 @@
  *   1. `npm pack` the current build (run `npm run build` first) and inspect the tarball:
  *      entry, stylesheet, workers and declarations are in; sources, tests and the demo are out;
  *      three.js is imported, not bundled.
+ *      Each output file must stay within its size budget (`BUDGETS` below).
  *   2. Install the tarball into a fresh copy of scripts/host-fixture with the pinned three /
  *      3d-tiles-renderer / Vite versions, then type-check and build that host.
  *
@@ -14,6 +15,22 @@ import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, sta
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
+
+/**
+ * Size budgets (KiB, unminified as shipped; gzip at the default level) for the files a host
+ * downloads. Set about 10% above the sizes of 2026-11-12 (entry 652 / 242, tile worker 197 / 102)
+ * so that accidental growth (a bundled dependency, a duplicated table) fails the check. Raising a
+ * budget on purpose is fine: say why in the commit and in docs/agents/roadmap.md §0.2 P1.6.
+ * Keys match the start of the file name under dist/ (workers carry a content hash).
+ */
+const BUDGETS = [
+  { file: 'terraview.js', raw: 720, gzip: 270 },
+  { file: 'terraview.css', raw: 16, gzip: 5 },
+  { file: 'assets/tileMesh.worker', raw: 220, gzip: 115 },
+  { file: 'assets/vector.worker', raw: 32, gzip: 10 },
+  { file: 'assets/clusterTree.worker', raw: 12, gzip: 5 },
+];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
@@ -59,6 +76,27 @@ try {
   const exported = pkg.exports?.['.']?.import;
   if (exported !== './dist/terraview.js') fail(`package.json exports["."].import is ${exported}`);
   console.log(`✓ tarball ${packed[0].filename}: ${files.length} files, ${(packed[0].size / 1024).toFixed(0)} kB packed, entry ${(entry.length / 1024).toFixed(0)} kB`);
+
+  // Size budgets, measured on dist/ (the same bytes as in the tarball).
+  const distFiles = listFiles(join(root, 'dist')).filter((f) => !f.endsWith('.map') && !f.startsWith('types/'));
+  const rows = [];
+  for (const budget of BUDGETS) {
+    const matches = distFiles.filter((f) => f.startsWith(budget.file) && /\.(js|css)$/.test(f));
+    if (matches.length !== 1) {
+      fail(`size budget ${budget.file}: expected one file in dist/, found ${matches.length}`);
+      continue;
+    }
+    const bytes = readFileSync(join(root, 'dist', matches[0]));
+    const raw = bytes.length / 1024;
+    const gzip = gzipSync(bytes).length / 1024;
+    const over = raw > budget.raw || gzip > budget.gzip;
+    if (over) fail(`${matches[0]} is ${raw.toFixed(1)} KiB (gzip ${gzip.toFixed(1)}), budget ${budget.raw} (gzip ${budget.gzip})`);
+    rows.push(`| ${matches[0]} | ${raw.toFixed(1)} / ${budget.raw} | ${gzip.toFixed(1)} / ${budget.gzip} | ${over ? '✗' : '✓'} |`);
+  }
+  console.log(['', '| file | KiB / budget | gzip KiB / budget | |', '| --- | --- | --- | --- |', ...rows, ''].join('\n'));
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    writeFileSync(process.env.GITHUB_STEP_SUMMARY, ['### Package size', '', '| file | KiB / budget | gzip KiB / budget | |', '| --- | --- | --- | --- |', ...rows, ''].join('\n'), { flag: 'a' });
+  }
 
   // ---------------------------------------------------------------- 2. host project
   if (withHost && !process.exitCode) {

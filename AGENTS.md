@@ -189,7 +189,7 @@ docs/agents/    子系统规范（本文档的展开）
 | 改某类层级的效果或取景 | 实现 `LevelControl`，用 `viewer.indoor.registerLevelControl(control, tag)` 注册（`condition` 选择器 + `priority`）；要整体替换默认行为就先 `unregisterLevelControls('builtin')`。效果要写成幂等的绝对状态（返回上级时会重新进入父级）。见 indoor-bim.md §6。 |
 | 新增顶牌样式 | 在 `markers/points.ts` 的 `MarkerStyleName` 加名字，在 `markers/cards.ts` 加 `style` 分支，在 `src/style.css` 写 `.tv-<style>`。锚点约定为元素底部中点（pivot `[0.5, 1]`）；以符号中心为锚点的样式用负下外边距让元素止于符号中心。同步 markers.md 的样式表和演示应用 `PointPanel` 的中文名。 |
 | 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。 |
-| 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容，并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。 |
+| 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。 |
 | 加载点位数据 | `viewer.addPoints(...)`、面板"点位标注"、`?points=<url>`，或拖入 `*.points.json`；规则写法见 markers.md §4。大批量（上万）或高频刷新的数值不要用 DOM 顶牌，走路线图 M3.6 / M4.6。 |
 | 调加载性能 | 先看状态栏和 `viewer.globe.stats`，再按 [tile-loading.md](docs/agents/tile-loading.md) 的调参表调整；不要改坏桶的优先顺序。 |
 

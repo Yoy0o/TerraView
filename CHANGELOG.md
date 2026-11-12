@@ -34,6 +34,8 @@
 
 - GitHub Actions：`ci.yml`（每次推送和 PR：typecheck、单测、库构建与类型声明、演示构建，Node 22 / 24；再把打出的包装进宿主工程检查）和 `release.yml`（推送标签 `v<版本>`：GitHub Release 附 tgz，`package.json` 不再是 `private` 时发布到 npm）。
 - `npm run check:package`（`scripts/check-package.mjs`）：检查 tarball 的内容（入口、样式、Worker、类型声明都在，源码和演示不在，three 没被打进去），再装进 `scripts/host-fixture` 的宿主工程做类型检查和构建。
+- 包体积预算：`check:package` 检查入口、样式和每个 Worker 的原始大小与 gzip 大小，超出预算时失败；CI 上把体积表写进运行摘要。
+- `package.json` 补 `repository`、`homepage`、`bugs`、`keywords`（npm 带 provenance 发布时要核对 `repository`）。
 
 **修复**
 

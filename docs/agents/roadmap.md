@@ -94,8 +94,21 @@
 | P1.3 | 打包工具兼容余项（S6） | Webpack 5 宿主里实际解码 Draco / KTX2 模型（构建和运行已验证，解码没验证）；评估 EGM96 改按需加载（瓦片 Worker 202 KB，其中网格约 174 KB） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
 | P1.4 | 多实例余项（S5） | 逐项核对模块级共享的节点图和 uniform（`TileMaterial`、`LabelManager`、`nodeMaterials` 渐显遮罩、大气全局参数）跨 renderer 是否安全，结论写进 [api.md](../api.md) §4 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
 | P1.5 | 浏览器冒烟测试进 CI | 现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零。**要新增开发依赖（Playwright 或 Puppeteer），先征得同意** | CI 上有浏览器 job |
-| P1.6 | 包体积预算 | 库产物是单个 668 KB 文件（gzip 249 KB）。先在 `check:package` 里记录体积并设阈值，防止无意变大；子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变 | 超过阈值时 CI 失败 |
+| P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变 | 超过预算时 CI 失败 |
 | P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
+
+**首发准备清单**（P1.7；2026-11-12 决定先准备、暂不发布。发布、推标签、去掉 `private` 都要单独确认）
+
+| 项 | 状态 |
+| --- | --- |
+| 包名 `terra-view` | npm 上仍未注册（2026-11-12 再查，404）。相似名规则只有真正发布时才能确认，被拒就改带 scope 的名字（§10.0） |
+| `package.json` 的 `repository` / `homepage` / `bugs` / `keywords` | ✅ 2026-11-12 补上。`release.yml` 在公开仓库里带 `--provenance` 发布，npm 会核对 `repository` 与 GitHub 仓库是否一致，缺了会发布失败 |
+| 体积预算 | ✅ P1.6 |
+| 发布流程演练 | 待做：在 GitHub Actions 页面手动运行 Release 工作流（演练模式：验证、打包自检、打包，不建 Release、不发布） |
+| 仓库密钥 `NPM_TOKEN` | 待配置（npm 自动化令牌，发布前加到仓库密钥） |
+| GitHub 仓库是否公开 | 待决定：公开仓库才会带 provenance；包里的 `repository` 链接对私有仓库的使用者打不开 |
+| 首发前的代码项 | P1.1–P1.5 |
+| 发版当天 | 改 `package.json` 的 `version`（`package-lock.json` 两处同步）→ CHANGELOG「未发布」整理成该版本 → 去掉 `private` → 合并到 main → 打标签推送（AGENTS.md §8.5） |
 
 **P2 嵌入体验与性能**（P1 之后；P2.1 可与 P1 并行）
 
