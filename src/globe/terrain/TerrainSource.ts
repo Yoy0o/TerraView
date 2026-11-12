@@ -1,3 +1,5 @@
+import { TerraViewError } from '../../core/errors';
+
 /** How elevation is packed into RGB pixels. */
 export type TerrainEncoding = 'terrarium' | 'mapbox';
 
@@ -110,8 +112,10 @@ export async function quantizedMeshFromLayerJson(
   const res = await fetch(`${base}layer.json`, { headers, mode: 'cors' });
   if (!res.ok) throw new Error(`layer.json HTTP ${res.status}`);
   const layer = (await res.json()) as LayerJson;
-  if (layer.format && !layer.format.startsWith('quantized-mesh')) throw new Error(`不支持的地形格式 ${layer.format}`);
-  if (layer.projection && layer.projection !== 'EPSG:4326') throw new Error(`只支持 EPSG:4326 的 quantized-mesh（当前 ${layer.projection}）`);
+  if (layer.format && !layer.format.startsWith('quantized-mesh')) throw new TerraViewError('terrain-format-unsupported', `unsupported terrain format ${layer.format}`, { format: layer.format });
+  if (layer.projection && layer.projection !== 'EPSG:4326') {
+    throw new TerraViewError('terrain-projection-unsupported', `only EPSG:4326 quantized-mesh is supported (got ${layer.projection})`, { projection: layer.projection });
+  }
   const template = (layer.tiles?.[0] ?? '{z}/{x}/{y}.terrain?v={version}').replace('{version}', layer.version ?? '1.0.0');
   // Keep the {z}/{x}/{y} braces literal (the URL constructor would percent-encode them).
   const url = /^https?:/i.test(template) ? template : base + template.replace(/^\//, '');
@@ -137,7 +141,9 @@ export async function cesiumIonTerrain(token: string, assetId = 1): Promise<Quan
   const res = await fetch(`https://api.cesium.com/v1/assets/${assetId}/endpoint?access_token=${encodeURIComponent(token)}`);
   if (!res.ok) throw new Error(`Cesium ion HTTP ${res.status}`);
   const endpoint = (await res.json()) as { type?: string; url: string; accessToken: string; attributions?: { html?: string }[] };
-  if (endpoint.type && endpoint.type !== 'TERRAIN') throw new Error(`ion 资产 ${assetId} 不是地形（${endpoint.type}）`);
+  if (endpoint.type && endpoint.type !== 'TERRAIN') {
+    throw new TerraViewError('ion-asset-not-terrain', `ion asset ${assetId} is not terrain (${endpoint.type})`, { assetId, type: endpoint.type });
+  }
   const attribution = (endpoint.attributions ?? []).map((a) => (a.html ?? '').replace(/<[^>]+>/g, '')).filter(Boolean).join(' ') || 'Terrain © Cesium';
   return quantizedMeshFromLayerJson(endpoint.url, {
     id: `cesium-ion-${assetId}`,

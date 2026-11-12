@@ -1,13 +1,15 @@
 import { DebugImageryProvider } from './DebugImageryProvider';
 import { EquirectangularImageryProvider } from './EquirectangularImageryProvider';
 import { XYZImageryProvider, type ImageryProvider } from './ImageryProvider';
+import type { LocalizedText } from '../../core/i18n';
 
 /** server.arcgisonline.com speaks HTTP/1.1 only; browsers open 6 connections per host. */
 const ARCGIS_CONNECTIONS = 6;
 
 export interface ImageryPreset {
   id: string;
-  name: string;
+  /** Label for preset pickers, per locale: `localize(preset.label, locale)`. */
+  label: LocalizedText;
   /** Name of a credential the preset needs (looked up via `create(key)`). */
   requiresKey?: 'tianditu';
   create(key?: string): ImageryProvider;
@@ -16,7 +18,7 @@ export interface ImageryPreset {
 export const IMAGERY_PRESETS: ImageryPreset[] = [
   {
     id: 'esri-imagery',
-    name: 'ArcGIS 卫星影像',
+    label: { 'zh-CN': 'ArcGIS 卫星影像', en: 'ArcGIS World Imagery' },
     create: () =>
       new XYZImageryProvider({
         id: 'esri-imagery',
@@ -29,7 +31,7 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'osm',
-    name: 'OpenStreetMap',
+    label: { 'zh-CN': 'OpenStreetMap', en: 'OpenStreetMap' },
     create: () =>
       new XYZImageryProvider({
         id: 'osm',
@@ -41,7 +43,7 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'carto-voyager',
-    name: 'Carto Voyager',
+    label: { 'zh-CN': 'Carto Voyager', en: 'Carto Voyager' },
     create: () =>
       new XYZImageryProvider({
         id: 'carto-voyager',
@@ -54,7 +56,7 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'carto-dark',
-    name: 'Carto 暗色',
+    label: { 'zh-CN': 'Carto 暗色', en: 'Carto Dark' },
     create: () =>
       new XYZImageryProvider({
         id: 'carto-dark',
@@ -67,7 +69,7 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'esri-topo',
-    name: 'ArcGIS 地形图',
+    label: { 'zh-CN': 'ArcGIS 地形图', en: 'ArcGIS Topographic' },
     create: () =>
       new XYZImageryProvider({
         id: 'esri-topo',
@@ -80,12 +82,12 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'tianditu-img',
-    name: '天地图影像（需 key）',
+    label: { 'zh-CN': '天地图影像（需 key）', en: 'Tianditu Imagery (key required)' },
     requiresKey: 'tianditu',
     create: (key = '') =>
       new XYZImageryProvider({
         id: 'tianditu-img',
-        name: '天地图影像',
+        name: 'Tianditu Imagery',
         url: 'https://t{s}.tianditu.gov.cn/img_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=img&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk={tk}',
         subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
         minZoom: 1,
@@ -98,7 +100,7 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'blue-marble',
-    name: 'Blue Marble 单图（低清）',
+    label: { 'zh-CN': 'Blue Marble 单图（低清）', en: 'Blue Marble single image (low resolution)' },
     create: () =>
       new EquirectangularImageryProvider({
         id: 'blue-marble',
@@ -110,7 +112,7 @@ export const IMAGERY_PRESETS: ImageryPreset[] = [
   },
   {
     id: 'debug',
-    name: '调试网格（离线）',
+    label: { 'zh-CN': '调试网格（离线）', en: 'Debug grid (offline)' },
     create: () => new DebugImageryProvider(),
   },
 ];
@@ -121,7 +123,8 @@ export function findImageryPreset(id: string): ImageryPreset | undefined {
 
 export interface OverlayPreset {
   id: string;
-  name: string;
+  /** Label for preset pickers, per locale: `localize(preset.label, locale)`. */
+  label: LocalizedText;
   requiresKey?: 'tianditu';
   /** Suggested initial opacity. */
   opacity: number;
@@ -132,13 +135,13 @@ export interface OverlayPreset {
 export const OVERLAY_PRESETS: OverlayPreset[] = [
   {
     id: 'tianditu-cia',
-    name: '天地图影像注记（需 key）',
+    label: { 'zh-CN': '天地图影像注记（需 key）', en: 'Tianditu Labels (key required)' },
     requiresKey: 'tianditu',
     opacity: 1,
     create: (key = '') =>
       new XYZImageryProvider({
         id: 'tianditu-cia',
-        name: '天地图影像注记',
+        name: 'Tianditu Labels',
         url: 'https://t{s}.tianditu.gov.cn/cia_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cia&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&tk={tk}',
         subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
         minZoom: 1,
@@ -151,7 +154,7 @@ export const OVERLAY_PRESETS: OverlayPreset[] = [
   },
   {
     id: 'esri-places',
-    name: 'Esri 边界与地名',
+    label: { 'zh-CN': 'Esri 边界与地名', en: 'Esri Boundaries & Places' },
     opacity: 1,
     create: () =>
       new XYZImageryProvider({
@@ -165,7 +168,7 @@ export const OVERLAY_PRESETS: OverlayPreset[] = [
   },
   {
     id: 'esri-transport',
-    name: 'Esri 交通路网',
+    label: { 'zh-CN': 'Esri 交通路网', en: 'Esri Transportation' },
     opacity: 0.9,
     create: () =>
       new XYZImageryProvider({
@@ -179,7 +182,7 @@ export const OVERLAY_PRESETS: OverlayPreset[] = [
   },
   {
     id: 'carto-labels',
-    name: 'Carto 地名注记',
+    label: { 'zh-CN': 'Carto 地名注记', en: 'Carto Labels' },
     opacity: 1,
     create: () =>
       new XYZImageryProvider({
@@ -193,7 +196,7 @@ export const OVERLAY_PRESETS: OverlayPreset[] = [
   },
   {
     id: 'openrailwaymap',
-    name: 'OpenRailwayMap 铁路',
+    label: { 'zh-CN': 'OpenRailwayMap 铁路', en: 'OpenRailwayMap Railways' },
     opacity: 0.9,
     create: () =>
       new XYZImageryProvider({
@@ -207,7 +210,7 @@ export const OVERLAY_PRESETS: OverlayPreset[] = [
   },
   {
     id: 'debug-overlay',
-    name: '调试网格（离线）',
+    label: { 'zh-CN': '调试网格（离线）', en: 'Debug grid (offline)' },
     opacity: 0.35,
     create: () => new DebugImageryProvider(),
   },

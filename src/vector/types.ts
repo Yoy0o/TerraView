@@ -1,3 +1,5 @@
+import type { TerraViewErrorCode, TerraViewErrorDetails } from '../core/errors';
+
 /** Visual style of a vector layer. Colors are CSS color strings. */
 export interface VectorStyle {
   fill: string;
@@ -133,4 +135,4 @@ export type VectorResponse =
   | { type: 'labels'; layerId: number; labelField: string | null; labels: LabelCandidate[] }
   | { type: 'raster'; id: number; bitmap: ImageBitmap | null }
   | { type: 'query'; id: number; hit: FeatureHit | null }
-  | { type: 'error'; layerId?: number; id?: number; message: string };
+  | { type: 'error'; layerId?: number; id?: number; message: string; code?: TerraViewErrorCode; details?: TerraViewErrorDetails };

@@ -19,6 +19,7 @@
  * (ThingJS "Misc"). See docs/agents/indoor-bim.md.
  */
 import type { MarkerStyleName } from '../markers/points';
+import { TerraViewError } from '../core/errors';
 
 export const BUILDING_FORMAT = 'three-geo-building';
 export const BUILDING_FORMAT_VERSION = '1.0';
@@ -231,9 +232,9 @@ export function bounds2(points: readonly Vec2[]): [number, number, number, numbe
   return [x0, y0, x1, y1];
 }
 
-class SchemaError extends Error {
+class SchemaError extends TerraViewError {
   constructor(path: string, message: string) {
-    super(`${path}: ${message}`);
+    super('building-invalid', `${path}: ${message}`, { path });
     this.name = 'BuildingSchemaError';
   }
 }

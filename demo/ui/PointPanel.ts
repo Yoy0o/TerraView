@@ -1,5 +1,6 @@
 import { POINT_DEMOS } from '../data/demoPoints';
 import { type GeoViewer, MARKER_STYLES, type MarkerStyleName, type PointLayer, type PointLayerOptions } from 'terra-view';
+import { describeError } from './errors';
 import { h, section } from './dom';
 
 type Notify = (text: string, kind?: 'info' | 'error') => void;
@@ -69,8 +70,8 @@ export class PointPanel {
       if (flyTo && bbox) void this.viewer.flyToBBox(padBBox(bbox));
       this.render();
     });
-    layer.events.on('error', ({ message }) => {
-      this.notify(`点位加载失败：${layer.name}：${message}`, 'error');
+    layer.events.on('error', ({ error }) => {
+      this.notify(`点位加载失败：${layer.name}：${describeError(error)}`, 'error');
       this.render();
     });
     return layer;
@@ -82,7 +83,7 @@ export class PointPanel {
         const text = await file.text();
         this.load({ name: file.name.replace(/(\.points)?\.(geo)?json$/i, ''), data: text });
       } catch (err) {
-        this.notify(`读取 ${file.name} 失败：${(err as Error).message}`, 'error');
+        this.notify(`读取 ${file.name} 失败：${describeError(err)}`, 'error');
       }
     }
   }

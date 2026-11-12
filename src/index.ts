@@ -17,7 +17,7 @@
  *   markers     HTML markers, point layers, clustering
  *   indoor      building documents, entities, selectors, level controls
  *   atmosphere  cloud layer options
- *   core        ellipsoid, geodesy, GPU tiers, events, math helpers
+ *   core        ellipsoid, geodesy, GPU tiers, events, math helpers, locales, errors
  */
 
 // ---------------------------------------------------------------- viewer
@@ -178,3 +178,7 @@ export { greenwichMeanSiderealTime, sunDirectionECEF } from './core/SunPosition'
 export { GPU_TIERS, classifyGpu, gpuProfile, parseGpuTier } from './core/gpuProfile';
 export type { GpuHints, GpuProfile, GpuTier, TilesQuality } from './core/gpuProfile';
 export { DEG2RAD, RAD2DEG, clamp, formatDegrees, formatDistance } from './core/math';
+export { DEFAULT_LOCALE, MESSAGES, localize, resolveMessages } from './core/i18n';
+export type { LocaleId, LocalizedText, ViewerMessageOverrides, ViewerMessages } from './core/i18n';
+export { TerraViewError, isTerraViewError } from './core/errors';
+export type { TerraViewErrorCode, TerraViewErrorDetails } from './core/errors';

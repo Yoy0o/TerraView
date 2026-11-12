@@ -16,7 +16,8 @@ export interface GeoJsonLayerOptions {
 
 export interface GeoJsonLayerEvents extends Record<string, unknown> {
   ready: LayerSummary;
-  error: { message: string };
+  /** Loading failed. `error` is the original error (a `TerraViewError` with a `code` when the SDK raised it); `message` is its message. */
+  error: { message: string; error: Error };
   change: void;
 }
 
@@ -68,7 +69,7 @@ export class GeoJsonLayer {
       })
       .catch((err: Error) => {
         this.error = err.message;
-        this.events.emit('error', { message: err.message });
+        this.events.emit('error', { message: err.message, error: err });
       });
   }
 

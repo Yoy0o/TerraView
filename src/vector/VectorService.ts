@@ -1,6 +1,12 @@
 import type { TileOverlaySource } from '../globe/overlay';
 import { bboxIntersects, type BBox } from './geometry';
+import { TerraViewError } from '../core/errors';
 import type { FeatureHit, LabelCandidate, LayerSummary, VectorRequest, VectorResponse, VectorSource, VectorStyle } from './types';
+
+/** Rebuilds a Worker error: a `TerraViewError` when the Worker raised one, a plain `Error` otherwise. */
+function errorFromResponse(msg: Extract<VectorResponse, { type: 'error' }>): Error {
+  return msg.code ? new TerraViewError(msg.code, msg.message, msg.details) : new Error(msg.message);
+}
 
 interface LayerState {
   id: number;
@@ -87,7 +93,7 @@ export class VectorService implements TileOverlaySource {
           this.pending.delete(msg.id);
           cb?.(msg);
         } else if (msg.layerId !== undefined) {
-          this.loads.get(msg.layerId)?.reject(new Error(msg.message));
+          this.loads.get(msg.layerId)?.reject(errorFromResponse(msg));
           this.loads.delete(msg.layerId);
         }
         break;
@@ -224,7 +230,7 @@ export class VectorService implements TileOverlaySource {
     return new Promise((resolve, reject) => {
       this.pending.set(id, (msg) => {
         if (msg.type === 'raster') resolve(msg.bitmap);
-        else reject(new Error(msg.type === 'error' ? msg.message : 'unexpected response'));
+        else reject(msg.type === 'error' ? errorFromResponse(msg) : new Error('unexpected response'));
       });
       this.post({
         type: 'raster',

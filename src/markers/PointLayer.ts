@@ -18,6 +18,8 @@
  */
 import { Frustum, Matrix4, Vector3, type PerspectiveCamera } from 'three';
 import type { Ellipsoid } from '../core/Ellipsoid';
+import { TerraViewError } from '../core/errors';
+import { MESSAGES, DEFAULT_LOCALE, type ViewerMessages } from '../core/i18n';
 import { EventEmitter } from '../core/EventEmitter';
 import { isScaledSpacePointVisible, WGS84_A, WGS84_B } from '../core/geodesy';
 import { DEG2RAD } from '../core/math';
@@ -50,7 +52,8 @@ export interface PointLayerOptions {
 
 export interface PointLayerEvents extends Record<string, unknown> {
   ready: { count: number; skipped: number; warnings: string[]; bbox: [number, number, number, number] | null };
-  error: { message: string };
+  /** Loading failed. `error` is the original error (a `TerraViewError` with a `code` when the SDK raised it); `message` is its message. */
+  error: { message: string; error: Error };
   click: { point: PointRecord; layer: PointLayer; event: MouseEvent };
   clusterclick: { points: PointRecord[]; layer: PointLayer; event: MouseEvent };
 }
@@ -67,6 +70,8 @@ export interface PointLayerHost {
   groundHeight(longitude: number, latitude: number, maxCellSize?: number): number | null;
   /** Flies to fit [west, south, east, north] in degrees. */
   flyToBBox(bbox: [number, number, number, number]): void;
+  /** Display text (default name of the layer); default `zh-CN`. */
+  readonly messages?: ViewerMessages;
 }
 
 /** Per-frame counters (`layer.stats`). */
@@ -166,7 +171,8 @@ export class PointLayer {
     options: PointLayerOptions,
     private readonly host: PointLayerHost,
   ) {
-    this.name = options.name ?? (options.url ? decodeURIComponent(options.url.split('/').pop() ?? '点位') : '点位');
+    const fallbackName = (host.messages ?? MESSAGES[DEFAULT_LOCALE]).pointLayerName;
+    this.name = options.name ?? (options.url ? decodeURIComponent(options.url.split('/').pop() || fallbackName) : fallbackName);
     this.styleBase = { ...options.style };
     this.ruleList = options.rules ?? [];
     this.clusterOptions = normalizeCluster(options.cluster);
@@ -254,7 +260,7 @@ export class PointLayer {
       }
       if (this.disposed) return;
       const parsed = parsePoints(data);
-      if (parsed.points.length === 0) throw new Error(parsed.warnings[0] ?? '没有点要素');
+      if (parsed.points.length === 0) throw new TerraViewError('points-empty', parsed.warnings[0] ?? 'no point features');
       // A document's own defaults apply unless the caller overrides them.
       this.styleBase = { ...parsed.style, ...options.style };
       if (!options.rules && parsed.rules) this.ruleList = parsed.rules;
@@ -265,8 +271,9 @@ export class PointLayer {
       this.events.emit('ready', { count: this.records.length, skipped: parsed.skipped, warnings: parsed.warnings, bbox: this.bbox });
     } catch (err) {
       if (this.disposed) return;
-      this.error = err instanceof Error ? err.message : String(err);
-      this.events.emit('error', { message: this.error });
+      const error = err instanceof Error ? err : new Error(String(err));
+      this.error = error.message;
+      this.events.emit('error', { message: error.message, error });
     }
   }
 

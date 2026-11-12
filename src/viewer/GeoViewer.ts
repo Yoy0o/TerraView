@@ -26,6 +26,7 @@ import { EventEmitter } from '../core/EventEmitter';
 import { classifyGpu, effectivePixelRatio, estimateFramebufferBytes, gpuProfile, type GpuHints, type GpuProfile, type GpuTier } from '../core/gpuProfile';
 import { clamp, DEG2RAD, smoothstep } from '../core/math';
 import { greenwichMeanSiderealTime, sunDirectionECEF } from '../core/SunPosition';
+import { DEFAULT_LOCALE, resolveMessages, type LocaleId, type ViewerMessageOverrides, type ViewerMessages } from '../core/i18n';
 import { Globe, type GlobeOptions } from '../globe/Globe';
 import { OverlayCompositor } from '../globe/OverlayCompositor';
 import { BimEntity } from '../indoor/BimEntity';
@@ -122,6 +123,14 @@ export interface GeoViewerOptions extends GlobeOptions {
    * (`basis_transcoder.js`, `basis_transcoder.wasm`). Default: the copy shipped with three.js.
    */
   transcoderPath?: string;
+  /**
+   * Language of the text the SDK shows by itself (default `'zh-CN'`): property names added to
+   * BIM entities, default point layer names. Error messages are always English with a `code`
+   * (`TerraViewError`).
+   */
+  locale?: LocaleId;
+  /** Overrides individual texts of `locale`. */
+  messages?: ViewerMessageOverrides;
 }
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 110, latitude: 28, height: 1.8e7 };
@@ -265,6 +274,10 @@ export class GeoViewer {
    * `gpu.tiles` when they are added; the globe values are applied at startup.
    */
   readonly gpu: GpuProfile;
+  /** Language of the SDK's own display text (`GeoViewerOptions.locale`). */
+  readonly locale: LocaleId;
+  /** The SDK's own display text in effect: `locale` with `GeoViewerOptions.messages` merged over it. */
+  readonly messages: ViewerMessages;
   /**
    * Show the studio backdrop (ground grid, gradient sky) inside a building
    * when nothing else is drawn around it: globe hidden and no active 3D Tiles.
@@ -327,6 +340,8 @@ export class GeoViewer {
     this.container = options.container;
     this.renderer = renderer;
     this.gpu = profile;
+    this.locale = options.locale ?? DEFAULT_LOCALE;
+    this.messages = resolveMessages(this.locale, options.messages);
     this.adoptContainer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const backend = renderer.backend as any;
@@ -396,6 +411,7 @@ export class GeoViewer {
     this.scene.add(this.markerOcclusion.group);
     this.markers.occlusion = this.markerOcclusion;
     this.indoor = new IndoorManager({
+      messages: this.messages,
       ellipsoid: this.ellipsoid,
       camera: this.camera,
       markers: this.markers,
@@ -934,6 +950,7 @@ export class GeoViewer {
    */
   addPoints(options: PointLayerOptions): PointLayer {
     const layer = new PointLayer(options, {
+      messages: this.messages,
       ellipsoid: this.ellipsoid,
       markers: this.markers,
       // Detailed queries need reliable data; the coarse one takes any estimate, but not the 0 m of "no data".

@@ -110,7 +110,7 @@ export function parsePoints(input: unknown): ParsedPoints {
   };
   const usedIds = new Set<string>();
   const add = (id: unknown, lon: number, lat: number, height: unknown, properties: Record<string, unknown>, where: string) => {
-    if (!validLonLat(lon, lat)) return warn(`${where}: 坐标无效 (${lon}, ${lat})`);
+    if (!validLonLat(lon, lat)) return warn(`${where}: invalid coordinates (${lon}, ${lat})`);
     const h = toNumber(height);
     let key = id === undefined || id === null || id === '' ? `p${out.points.length}` : String(id);
     // Keep ids unique (MultiPoint parts, duplicate records).
@@ -120,7 +120,7 @@ export function parsePoints(input: unknown): ParsedPoints {
   };
 
   const fromGeometry = (geom: unknown, id: unknown, props: Record<string, unknown>, where: string) => {
-    if (!isObject(geom)) return warn(`${where}: 缺少 geometry`);
+    if (!isObject(geom)) return warn(`${where}: missing geometry`);
     if (geom.type === 'Point' && Array.isArray(geom.coordinates)) {
       const [lon, lat, h] = geom.coordinates as unknown[];
       return add(id, toNumber(lon), toNumber(lat), h, props, where);
@@ -140,14 +140,14 @@ export function parsePoints(input: unknown): ParsedPoints {
   };
 
   const fromRecord = (r: unknown, where: string) => {
-    if (!isObject(r)) return warn(`${where}: 不是对象`);
+    if (!isObject(r)) return warn(`${where}: not an object`);
     if (r.type === 'Feature') return fromGeometry(r.geometry, r.id ?? (isObject(r.properties) ? r.properties.id : undefined), isObject(r.properties) ? r.properties : {}, where);
     const lon = pick(r, LON_KEYS);
     const lat = pick(r, LAT_KEYS);
     if (!lon || !lat) {
       // Records may carry a GeoJSON-like `coordinates` / `position` pair instead.
       const pos = Array.isArray(r.coordinates) ? r.coordinates : Array.isArray(r.position) ? r.position : null;
-      if (!pos) return warn(`${where}: 缺少经纬度字段（lon/lng/longitude 与 lat/latitude）`);
+      if (!pos) return warn(`${where}: no longitude / latitude field (lon / lng / longitude and lat / latitude)`);
       const { coordinates: _c, position: _p, id, ...props } = r;
       return add(id, toNumber(pos[0]), toNumber(pos[1]), pos[2], props, where);
     }
@@ -171,10 +171,10 @@ export function parsePoints(input: unknown): ParsedPoints {
       if (isObject(input.style)) out.style = input.style as PointStyle;
       if (Array.isArray(input.rules)) out.rules = input.rules.filter((r): r is PointRule => isObject(r) && isObject(r.when) && isObject(r.style));
     } else {
-      out.warnings.push('无法识别的数据：需要 GeoJSON 点要素、点记录数组或 { points: [...] }');
+      out.warnings.push('unrecognized data: expected GeoJSON point features, an array of point records or { points: [...] }');
     }
   } else {
-    out.warnings.push('无法识别的数据：需要 JSON 对象或数组');
+    out.warnings.push('unrecognized data: expected a JSON object or array');
   }
   return out;
 }

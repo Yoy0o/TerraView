@@ -1,4 +1,5 @@
 import type { GeoJsonLayer, GeoJsonLayerOptions, GeoViewer } from 'terra-view';
+import { describeError } from './errors';
 import { h, section } from './dom';
 import { GEOJSON_PRESETS } from './presets';
 
@@ -67,8 +68,8 @@ export class VectorPanel {
       if (flyTo && summary.bbox) void this.viewer.flyToBBox(summary.bbox);
       this.render();
     });
-    layer.events.on('error', ({ message }) => {
-      this.notify(`加载失败：${layer.name}：${message}`, 'error');
+    layer.events.on('error', ({ error }) => {
+      this.notify(`加载失败：${layer.name}：${describeError(error)}`, 'error');
       this.render();
     });
     return layer;
@@ -84,7 +85,7 @@ export class VectorPanel {
         const text = await file.text();
         this.load({ name: file.name.replace(/\.(geo)?json$/i, ''), data: text });
       } catch (err) {
-        this.notify(`读取 ${file.name} 失败：${(err as Error).message}`, 'error');
+        this.notify(`读取 ${file.name} 失败：${describeError(err)}`, 'error');
       }
     }
   }

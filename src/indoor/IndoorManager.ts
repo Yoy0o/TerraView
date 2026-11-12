@@ -7,6 +7,8 @@
  */
 import { Group, Sphere, Vector3, type Object3D, type PerspectiveCamera, type Raycaster } from 'three';
 import type { Ellipsoid } from '../core/Ellipsoid';
+import { TerraViewError } from '../core/errors';
+import { DEFAULT_LOCALE, MESSAGES, type ViewerMessages } from '../core/i18n';
 import { EventEmitter } from '../core/EventEmitter';
 import { DEG2RAD } from '../core/math';
 import { createCard, type CardOptions } from '../markers/cards';
@@ -83,6 +85,8 @@ export interface IndoorHost {
   followMove?: (delta: Vector3) => void;
   /** Called right before a level change alters what is shown (the viewer crossfades from the current frame). */
   beginTransition?: () => void;
+  /** Display text: names of the properties buildings add to entities; default `zh-CN`. */
+  readonly messages?: ViewerMessages;
 }
 
 export interface EnterOptions {
@@ -215,8 +219,8 @@ export class IndoorManager {
   /** Adds a building from a document (object or JSON text); `baseUrl` resolves model URIs. */
   add(input: BuildingDoc | unknown, baseUrl?: string): Building {
     const doc = parseBuildingDoc(input);
-    if (this.buildings.some((b) => b.id === doc.id)) throw new Error(`建筑 ${doc.id} 已加载`);
-    const building = new Building(doc, this.host.ellipsoid, this.host.loadModel, baseUrl, { batching: this.batchDevices });
+    if (this.buildings.some((b) => b.id === doc.id)) throw new TerraViewError('building-already-loaded', `building ${doc.id} is already loaded`, { id: doc.id });
+    const building = new Building(doc, this.host.ellipsoid, this.host.loadModel, baseUrl, { batching: this.batchDevices, messages: this.host.messages });
     this.buildings.push(building);
     this.root.add(building.root);
     showOutside(building);
@@ -520,7 +524,7 @@ export class IndoorManager {
     const def = e.label ?? defaultLabel(e);
     if (!def) return;
     const mode: LabelMode = def.mode ?? (e.type === 'building' ? 'always' : 'level');
-    const subtitle = def.subtitle ?? (e.type === 'room' ? String(e.properties['面积'] ?? '') : undefined);
+    const subtitle = def.subtitle ?? (e.type === 'room' ? String(e.properties[(this.host.messages ?? MESSAGES[DEFAULT_LOCALE]).entityProperties.area] ?? '') : undefined);
     const card: CardOptions = {
       title: def.title ?? e.name,
       subtitle,

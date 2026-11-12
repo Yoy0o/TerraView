@@ -7,6 +7,7 @@ import {
   type GeoViewer,
   IMAGERY_PRESETS,
   type ImageryProvider,
+  localize,
   lookAtHeadingPitchRange,
   mapboxTerrain,
   maptilerTerrain,
@@ -18,6 +19,7 @@ import {
   XYZImageryProvider,
 } from 'terra-view';
 import { h, section, slider, toggle } from './dom';
+import { describeError } from './errors';
 import { autoRotateLabel } from './NavigationBar';
 import { IndoorPanel } from './IndoorPanel';
 import { BOOKMARKS, TILESET_PRESETS, type Bookmark } from './presets';
@@ -101,9 +103,9 @@ export class ControlPanel {
     collapse.addEventListener('click', () => this.root.classList.toggle('collapsed'));
     if (window.matchMedia('(max-width: 640px)').matches) this.root.classList.add('collapsed');
     viewer.events.on('tilesets-changed', () => this.renderLayers());
-    const onImageryError = (msg: string) => this.notify(`${msg}，可在“底图影像”里切换其他服务。`, 'error');
+    const onImageryError = (err: Error) => this.notify(`${describeError(err)}，可在“底图影像”里切换其他服务。`, 'error');
     viewer.globe.onImageryError = onImageryError;
-    if (viewer.globe.imageryErrorMessage) onImageryError(viewer.globe.imageryErrorMessage);
+    if (viewer.globe.imageryError) onImageryError(viewer.globe.imageryError);
   }
 
   private save(): void {
@@ -124,7 +126,7 @@ export class ControlPanel {
   private basemapSection(): HTMLElement {
     const s = this.settings;
     const select = h('select', { 'aria-label': '底图' });
-    for (const p of IMAGERY_PRESETS) select.append(h('option', { value: p.id }, p.name));
+    for (const p of IMAGERY_PRESETS) select.append(h('option', { value: p.id }, localize(p.label)));
     select.append(h('option', { value: 'custom' }, '自定义 XYZ URL'));
     select.value = s.imagery;
 
@@ -222,7 +224,7 @@ export class ControlPanel {
       this.viewer.globe.setTerrain(source, this.settings.exaggeration);
       if (source && source !== AWS_TERRARIUM) this.notify(`地形：${source.name}`);
     } catch (err) {
-      this.notify(`地形加载失败：${(err as Error).message}`, 'error');
+      this.notify(`地形加载失败：${describeError(err)}`, 'error');
     }
   }
 

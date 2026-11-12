@@ -1,4 +1,4 @@
-import { findOverlayPreset, type GeoViewer, OVERLAY_PRESETS, type RasterOverlay } from 'terra-view';
+import { findOverlayPreset, type GeoViewer, localize, OVERLAY_PRESETS, type RasterOverlay } from 'terra-view';
 import { h } from './dom';
 import type { Settings } from './settings';
 
@@ -16,7 +16,7 @@ export class OverlayPanel {
     private readonly save: () => void,
     private readonly notify: Notify,
   ) {
-    const select = h('select', { 'aria-label': '叠加图层' }, ...OVERLAY_PRESETS.map((p) => h('option', { value: p.id }, p.name)));
+    const select = h('select', { 'aria-label': '叠加图层' }, ...OVERLAY_PRESETS.map((p) => h('option', { value: p.id }, localize(p.label))));
     const add = h('button', { class: 'btn' }, '叠加');
     add.addEventListener('click', () => {
       if (this.add(select.value)) this.persist();

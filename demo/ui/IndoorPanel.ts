@@ -1,5 +1,6 @@
 import type { BimEntity, Building, GeoViewer } from 'terra-view';
 import { createDemoBuilding } from '../data/demoBuilding';
+import { describeError } from './errors';
 import { h, section, slider, toggle } from './dom';
 
 type Notify = (text: string, kind?: 'info' | 'error') => void;
@@ -114,7 +115,7 @@ export class IndoorPanel {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       this.addBuilding(await res.json(), new URL(url, location.href).href, true);
     } catch (err) {
-      this.notify(`建筑加载失败：${(err as Error).message}`, 'error');
+      this.notify(`建筑加载失败：${describeError(err)}`, 'error');
     }
   }
 
@@ -122,7 +123,7 @@ export class IndoorPanel {
     try {
       this.addBuilding(JSON.parse(await file.text()), undefined, true);
     } catch (err) {
-      this.notify(`建筑加载失败：${(err as Error).message}`, 'error');
+      this.notify(`建筑加载失败：${describeError(err)}`, 'error');
     }
   }
 
@@ -135,7 +136,7 @@ export class IndoorPanel {
       if (enter) void this.viewer.indoor.enter(b);
       return b;
     } catch (err) {
-      this.notify(`建筑加载失败：${(err as Error).message}`, 'error');
+      this.notify(`建筑加载失败：${describeError(err)}`, 'error');
       return null;
     }
   }

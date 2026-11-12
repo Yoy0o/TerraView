@@ -20,6 +20,7 @@ import {
   type BBox,
 } from './geometry';
 import type { FeatureHit, FeatureKind, LabelCandidate, LayerSummary, VectorRequest, VectorResponse, VectorSource, VectorStyle } from './types';
+import { TerraViewError } from '../core/errors';
 
 declare const self: {
   postMessage(message: unknown, transfer?: Transferable[]): void;
@@ -68,6 +69,12 @@ const RANK_DESC = ['rank_max', 'RANK_MAX', 'pop_max', 'POP_MAX', 'population', '
 const MIN_ZOOM_FIELDS = ['min_label', 'MIN_LABEL', 'min_zoom', 'MIN_ZOOM', 'minzoom'];
 const EARTH_CIRCUMFERENCE = 2 * Math.PI * 6378137;
 
+/** Message, code and details of an error, for the main thread to rebuild it (`errorFromResponse`). */
+function errorFields(err: unknown): { message: string; code?: TerraViewError['code']; details?: TerraViewError['details'] } {
+  if (err instanceof TerraViewError) return { message: err.message, code: err.code, details: err.details };
+  return { message: err instanceof Error ? err.message : String(err) };
+}
+
 function post(msg: VectorResponse, transfer: Transferable[] = []): void {
   self.postMessage(msg, transfer);
 }
@@ -91,11 +98,11 @@ interface RawFeature {
 function toFeatures(json: unknown): RawFeature[] {
   const j = json as { type?: string; features?: RawFeature[]; geometry?: unknown; properties?: unknown };
   if (Array.isArray(json)) return json as RawFeature[];
-  if (!j || typeof j !== 'object') throw new Error('不是有效的 GeoJSON');
+  if (!j || typeof j !== 'object') throw new TerraViewError('geojson-invalid', 'not valid GeoJSON');
   if (j.type === 'FeatureCollection' && Array.isArray(j.features)) return j.features;
   if (j.type === 'Feature') return [j as RawFeature];
   if (typeof j.type === 'string') return [{ geometry: j as RawFeature['geometry'], properties: {} }];
-  throw new Error('不支持的 GeoJSON 类型');
+  throw new TerraViewError('geojson-invalid', 'not valid GeoJSON: the object has no "type"');
 }
 
 function addGeometry(g: RawFeature['geometry'], f: Feature, types: Record<string, number>): void {
@@ -542,7 +549,7 @@ function drainRasterQueue(): void {
       const bitmap = rasterize(req);
       post({ type: 'raster', id: req.id, bitmap }, bitmap ? [bitmap] : []);
     } catch (err) {
-      post({ type: 'error', id: req.id, message: err instanceof Error ? err.message : String(err) });
+      post({ type: 'error', id: req.id, ...errorFields(err) });
     }
   }
   if (rasterQueue.length > 0) scheduleDrain();
@@ -566,7 +573,7 @@ self.onmessage = (event: MessageEvent<VectorRequest>) => {
           layers.set(msg.layerId, layer);
           post({ type: 'loaded', layerId: msg.layerId, summary: summarize(layer, msg.labelField) });
         })
-        .catch((err: unknown) => post({ type: 'error', layerId: msg.layerId, message: err instanceof Error ? err.message : String(err) }));
+        .catch((err: unknown) => post({ type: 'error', layerId: msg.layerId, ...errorFields(err) }));
       break;
     case 'style': {
       const layer = layers.get(msg.layerId);
@@ -608,7 +615,7 @@ self.onmessage = (event: MessageEvent<VectorRequest>) => {
       try {
         post({ type: 'query', id: msg.id, hit: query(msg) });
       } catch (err) {
-        post({ type: 'error', id: msg.id, message: err instanceof Error ? err.message : String(err) });
+        post({ type: 'error', id: msg.id, ...errorFields(err) });
       }
       break;
   }

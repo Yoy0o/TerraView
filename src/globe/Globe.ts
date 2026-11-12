@@ -18,6 +18,7 @@ import {
   Vector4,
 } from 'three';
 import { Ellipsoid, cartographic, type Cartographic } from '../core/Ellipsoid';
+import { TerraViewError } from '../core/errors';
 import { geodeticNormal, geodeticToEcef, isScaledSpacePointVisible, WGS84_A } from '../core/geodesy';
 import { clamp, wrapPi } from '../core/math';
 import { GlobeTile, SharedTexture, type LoadChannel } from './GlobeTile';
@@ -229,10 +230,13 @@ export class Globe {
   prefetchImagery: boolean;
   /** Stop refining and loading (debug). */
   freeze = false;
-  /** Called (at most a few times per provider) when imagery requests fail. */
-  onImageryError: ((message: string) => void) | null = null;
+  /**
+   * Called once per provider when its imagery requests keep failing (after 3 failures), with an
+   * `imagery-unreachable` error (`details.provider`, `details.reason`).
+   */
+  onImageryError: ((error: TerraViewError) => void) | null = null;
   /** Last reported imagery failure for the current provider (null when healthy). */
-  imageryErrorMessage: string | null = null;
+  imageryError: TerraViewError | null = null;
   private imageryErrors = 0;
   private wireframe = false;
 
@@ -337,7 +341,7 @@ export class Globe {
     this.imagery = provider;
     this.imageryGen++;
     this.imageryErrors = 0;
-    this.imageryErrorMessage = null;
+    this.imageryError = null;
     this.capColors[0].clear();
     this.capColors[1].clear();
     for (const t of this.active.img) t.img.loading?.abort();
@@ -1127,8 +1131,13 @@ export class Globe {
     if (this.imageryErrors <= 3) console.warn(`[Globe] imagery ${tile.key} failed:`, err.message);
     if (this.imageryErrors === 3) {
       console.warn('[Globe] further imagery errors are suppressed');
-      this.imageryErrorMessage = `${this.imagery.name} 无法访问（${err.message}）`;
-      this.onImageryError?.(this.imageryErrorMessage);
+      this.imageryError = new TerraViewError(
+        'imagery-unreachable',
+        `${this.imagery.name} is unreachable (${err.message})`,
+        { provider: this.imagery.name, reason: err.message },
+        { cause: err },
+      );
+      this.onImageryError?.(this.imageryError);
     }
   }
 

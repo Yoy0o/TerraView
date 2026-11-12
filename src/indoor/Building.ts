@@ -42,6 +42,7 @@ import {
   type ThingDef,
   type Vec2,
 } from './schema';
+import { DEFAULT_LOCALE, MESSAGES, type ViewerMessages } from '../core/i18n';
 
 /** Loads a glTF model (resolved URL) into a scene graph. */
 export type ModelLoader = (uri: string) => Promise<Object3D>;
@@ -55,6 +56,8 @@ export interface BuildingOptions {
   batching?: boolean;
   /** Pool of shared geometries and materials (default: `sharedStylePool`). */
   pool?: StylePool;
+  /** Names of the properties the building adds to its entities (default `zh-CN`: 楼层数, 面积, ...). */
+  messages?: ViewerMessages;
 }
 
 /** Base material key of primitive devices (all share one shader and material per render state). */
@@ -262,6 +265,7 @@ export class Building extends BimEntity {
   private readonly templates = new Map<string, Promise<Object3D | null>>();
   private readonly batching: boolean;
   private readonly pool: StylePool;
+  private readonly propNames: ViewerMessages['entityProperties'];
   private disposed = false;
 
   constructor(
@@ -275,6 +279,7 @@ export class Building extends BimEntity {
     adopt(this, doc);
     this.batching = options.batching ?? true;
     this.pool = options.pool ?? sharedStylePool;
+    this.propNames = (options.messages ?? MESSAGES[DEFAULT_LOCALE]).entityProperties;
     this.root.name = `Building ${this.name}`;
     this.root.matrixAutoUpdate = false;
     this.root.add(this.group);
@@ -288,7 +293,8 @@ export class Building extends BimEntity {
 
     const [cx, cy] = polygonCentroid(footprint);
     this.labelAnchor.set(cx, cy, this.topElevation + (this.label?.offset ?? 3));
-    this.properties = { 楼层数: doc.floors.length, 建筑高度: `${this.topElevation.toFixed(1)} m`, ...this.properties };
+    const p = this.propNames;
+    this.properties = { [p.floorCount]: doc.floors.length, [p.buildingHeight]: `${this.topElevation.toFixed(1)} m`, ...this.properties };
     this.place(doc.anchor.height ?? 0);
   }
 
@@ -357,7 +363,14 @@ export class Building extends BimEntity {
     const floor = adopt(new BimEntity(def.id, 'floor', def.name ?? `${def.index + 1}F`, def.category ?? 'floor', def.properties ?? {}, labelOf(def) ?? undefined), def);
     floor.group.position.z = def.elevation;
     const outline = def.outline ?? footprint;
-    floor.properties = { 楼层: floor.name, 标高: `${def.elevation.toFixed(2)} m`, 层高: `${def.height.toFixed(2)} m`, 面积: `${polygonArea(outline).toFixed(1)} m²`, ...floor.properties };
+    const p = this.propNames;
+    floor.properties = {
+      [p.floor]: floor.name,
+      [p.elevation]: `${def.elevation.toFixed(2)} m`,
+      [p.storeyHeight]: `${def.height.toFixed(2)} m`,
+      [p.area]: `${polygonArea(outline).toFixed(1)} m²`,
+      ...floor.properties,
+    };
     const [cx, cy] = polygonCentroid(outline);
     floor.labelAnchor.set(cx, cy, def.height);
     this.add(floor);
@@ -374,7 +387,7 @@ export class Building extends BimEntity {
 
   private buildRoom(floor: BimEntity, def: RoomDef, floorHeight: number): void {
     const area = polygonArea(def.footprint);
-    const room = adopt(new BimEntity(def.id, 'room', def.name ?? def.id, def.category ?? 'room', { 面积: `${area.toFixed(1)} m²`, ...(def.properties ?? {}) }, labelOf(def) ?? undefined), def);
+    const room = adopt(new BimEntity(def.id, 'room', def.name ?? def.id, def.category ?? 'room', { [this.propNames.area]: `${area.toFixed(1)} m²`, ...(def.properties ?? {}) }, labelOf(def) ?? undefined), def);
     room.outline = def.footprint.map(([x, y]) => [x, y] as Vec2);
     floor.add(room);
     const height = def.height ?? floorHeight - 0.3;
@@ -487,7 +500,7 @@ export class Building extends BimEntity {
 
   private buildElement(floor: BimEntity, def: StructureDef, floorHeight: number): void {
     const el = adopt(
-      new BimEntity(def.id, 'element', def.name ?? def.kind, def.category ?? def.kind, { 类型: def.kind, ...(def.properties ?? {}) }, labelOf(def) ?? undefined),
+      new BimEntity(def.id, 'element', def.name ?? def.kind, def.category ?? def.kind, { [this.propNames.kind]: def.kind, ...(def.properties ?? {}) }, labelOf(def) ?? undefined),
       def,
       STRUCTURE_TAGGED_KINDS.has(def.kind) ? [def.kind, STRUCTURE_TAG] : [def.kind],
     );
