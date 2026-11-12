@@ -4,6 +4,30 @@
 
 ## [未发布]
 
+### 语言与错误（2026-11-12，路线图 §0.2 P1.2）
+
+SDK 里写死的中文改成可选语言（默认 `zh-CN`，另有 `en`），错误改成英文消息加稳定的 `code`。说明见 [docs/api.md](docs/api.md) §1.6。
+
+**新增**
+
+- `GeoViewerOptions.locale`（`'zh-CN' | 'en'`，默认 `'zh-CN'`）和 `messages`（逐项改写）；`viewer.locale`、`viewer.messages`。影响 BIM 实体的自动属性名（楼层数 / Floors、面积 / Area 等）、房间顶牌的默认副标题、点位图层的默认名。
+- `TerraViewError`（`code`、`details`）与 `isTerraViewError`；导出 `LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`、`TerraViewErrorCode`、`TerraViewErrorDetails`。
+- `GeoJsonLayer`、`PointLayer` 的 `error` 事件增加 `error`（原始错误，SDK 抛出的带 `code`）。
+- `BuildingOptions.messages`、`IndoorHost.messages`、`PointLayerHost.messages`（不传时为 `zh-CN`）。
+
+**破坏性变更**
+
+- 影像、叠加层预设的 `name` 改为 `label: LocalizedText`（`{ 'zh-CN', en }`），用 `localize(preset.label, locale)` 取显示名。
+- `globe.imageryErrorMessage`（字符串）改为 `globe.imageryError`（`TerraViewError`，code `imagery-unreachable`，`details.provider` / `details.reason`）；`globe.onImageryError` 的参数从字符串改为这个错误。
+- SDK 主动抛出的错误改为英文消息（原来是中文）并带 `code`：地形格式与投影、ion 资产类型、建筑重复加载、点位数据为空、GeoJSON 无法识别；建筑文档校验错误（`BuildingSchemaError`）现在也是 `TerraViewError`（code `building-invalid`，`details.path`），消息不变。
+- 点位解析告警（`parsePoints(...).warnings`）改为英文。
+- 天地图两个影像源的 `name` 改为英文（`Tianditu Imagery`、`Tianditu Labels`），与其他影像源一致；署名保持原文。
+
+**工程**
+
+- `tests/i18n.test.ts`：两种语言的文案齐全、改写合并、预设显示名、属性名随语言变化、错误码；并扫描 `src/`，注释以外出现中文就失败（输入字段别名、服务商署名、预设的中文显示名除外）。
+- 演示应用：`demo/ui/errors.ts` 把错误码译成中文，作为宿主处理错误的示例。
+
 ### SDK 化：迁移到 TerraView（2026-11-11）
 
 代码从 three-geo-global（`main`，提交 `be3bbbd`）迁移到本仓库，并改造成可复用的 npm 包 `terra-view`（私有，未发布）。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。功能没有删减；下面是对使用者和开发者可见的变化，路径对应见 [AGENTS.md](AGENTS.md) §8。

@@ -8,9 +8,12 @@
 
 ```ts
 import 'terra-view/style.css';
-import { GeoViewer } from 'terra-view';
+import { GeoViewer, IMAGERY_PRESETS } from 'terra-view';
 
-const viewer = await GeoViewer.create({ container: document.getElementById('map')! });
+const viewer = await GeoViewer.create({
+  container: document.getElementById('map')!,
+  imagery: IMAGERY_PRESETS[0].create(), // 底图影像源，必填
+});
 ```
 
 | 事项 | 说明 |
@@ -55,12 +58,45 @@ Esc 返回上一级之类的全局快捷键属于应用，SDK 不注册，写法
 glTF 的 Draco、KTX2（Basis）解码器默认用宿主安装的 three.js 自带的文件，由宿主的打包工具处理。要自己托管时：
 
 ```ts
-GeoViewer.create({ container, decoderPath: '/libs/draco/gltf/', transcoderPath: '/libs/basis/' });
+GeoViewer.create({ container, imagery, decoderPath: '/libs/draco/gltf/', transcoderPath: '/libs/basis/' });
 ```
 
 ### 1.5 凭证
 
 天地图、Cesium ion、Google、Mapbox、MapTiler 的密钥由宿主作为参数传入（`IMAGERY_PRESETS[i].create(key)`、`cesiumIonTerrain(token)`、`addTileset({ source: { type: 'google', apiKey } })` 等）。SDK 不保存、不内置任何凭证。
+
+### 1.6 语言与错误
+
+SDK 自己生成、会给最终用户看的文字只有几类，默认中文（`zh-CN`），可以切换成英文或逐项改写：
+
+```ts
+GeoViewer.create({ container, imagery, locale: 'en' });
+GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '建筑面积' }, pointLayerName: '站点' } });
+```
+
+| 文字 | 来源 | zh-CN / en |
+| --- | --- | --- |
+| BIM 实体的自动属性名 | `messages.entityProperties` | 楼层数 / Floors、建筑高度 / Building height、楼层 / Floor、标高 / Elevation、层高 / Storey height、面积 / Area、类型 / Type |
+| 房间顶牌的默认副标题 | 取 `area` 属性 | 同上 |
+| 没有名字、也没有 URL 的点位图层名 | `messages.pointLayerName` | 点位 / Points |
+| 内置影像、叠加层预设的显示名 | 预设的 `label`（`LocalizedText`），用 `localize(preset.label, locale)` 取 | 各预设两种语言都有 |
+
+`viewer.locale`、`viewer.messages` 是生效的语言和文字。属性名是实体 `properties` 的键：选择器和样式规则里要用当前语言的名字（`[面积>20]` 或 `[Area>20]`）。服务商署名（attribution）保持服务商要求的原文；输入数据里认的字段别名（"经度""名称"等）与语言无关。
+
+**错误**：SDK 主动抛出的错误都是 `TerraViewError`：`message` 是英文（给日志和开发者看），`code` 稳定、可以据此翻译或处理，`details` 带上相关的值。用 `isTerraViewError(err, code?)` 判断。
+
+| `code` | 何时 | `details` |
+| --- | --- | --- |
+| `imagery-unreachable` | 底图影像连续 3 次请求失败（`globe.onImageryError` 回调、`globe.imageryError`） | `provider`、`reason` |
+| `terrain-format-unsupported` | quantized-mesh 的 layer.json 格式不认识 | `format` |
+| `terrain-projection-unsupported` | quantized-mesh 不是 EPSG:4326 | `projection` |
+| `ion-asset-not-terrain` | Cesium ion 资产不是地形 | `assetId`、`type` |
+| `building-invalid` | 建筑文档校验失败（`parseBuildingDoc`、`indoor.add`） | `path`（如 `$.floors[0].height`） |
+| `building-already-loaded` | 同一 id 的建筑重复加载 | `id` |
+| `points-empty` | 点位数据里没有可用的点（`message` 带第一条解析告警） | 无 |
+| `geojson-invalid` | GeoJSON 无法识别（`addGeoJson`） | 无 |
+
+图层异步加载失败时，`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上原始错误（`{ message, error }`），可以照样按 `code` 处理。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
 
 ## 2. 约定
 
@@ -92,10 +128,10 @@ GeoViewer.create({ container, decoderPath: '/libs/draco/gltf/', transcoderPath: 
 | 导出 | 用途 |
 | --- | --- |
 | `ImageryProvider`、`XYZImageryProvider`、`EquirectangularImageryProvider`、`DebugImageryProvider` | 底图影像源；自定义源实现 `ImageryProvider` |
-| `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设 |
+| `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设；显示名是 `label`（`LocalizedText`），见 §1.6 |
 | `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源 |
 | `RasterOverlay`、`OverlayCompositor`（`viewer.overlays`） | 半透明栅格叠加层 |
-| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`stats`、`maxScreenSpaceError`、`terrainExaggeration`；[tile-loading.md](agents/tile-loading.md) |
+| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`stats`、`maxScreenSpaceError`、`terrainExaggeration`、`onImageryError` / `imageryError`（§1.6）；[tile-loading.md](agents/tile-loading.md) |
 | `tileDebugUniforms`、`refreshTileMaterials` | 瓦片着色器的调试开关（页面上所有 viewer 共用） |
 
 ### 3.3 3D Tiles
@@ -135,6 +171,8 @@ GeoViewer.create({ container, decoderPath: '/libs/draco/gltf/', transcoderPath: 
 
 `CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS`；`Ellipsoid`、`cartographic`、`geodeticToEcef`、`geodeticNormal`、`geoidUndulation`、`sunDirectionECEF`；`GpuTier`、`gpuProfile`、`classifyGpu`、`parseGpuTier`；`EventEmitter`；`DEG2RAD`、`RAD2DEG`、`clamp`、`formatDegrees`、`formatDistance`。
 
+语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError`。
+
 ## 4. 多个 viewer
 
 同一页面可以创建多个 `GeoViewer`（各自的容器、相机、图层、事件）。已实测两个 viewer 并排运行。需要知道的共享状态：
@@ -148,6 +186,6 @@ GeoViewer.create({ container, decoderPath: '/libs/draco/gltf/', transcoderPath: 
 ## 5. 还没有的东西
 
 - 没有发布到 npm（`package.json` 里是 `private`）。许可证 Apache-2.0，见仓库根目录的 `LICENSE`。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
-- 核心里还有少量写死的中文默认文案（房间顶牌副标题取 `面积` 属性、点位图层默认名、解析告警文本），没有 i18n 选项。
+- 显示文案只内置 `zh-CN` 和 `en` 两种语言（§1.6）；其他语言用 `messages` 逐项改写。
 - 没有 CommonJS / UMD 产物，只有 ES 模块。
 - 示例数据（`demo/data/`）和演示面板（`demo/ui/`）不随包发布。

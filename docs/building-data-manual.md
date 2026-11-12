@@ -427,6 +427,8 @@
 | 房间 | `面积` |
 | 构件 | `类型`（即 `kind`） |
 
+上表是默认语言（`zh-CN`）下的属性名。宿主以 `GeoViewer.create({ locale: 'en' })` 创建时改为英文：建筑 `Floors`、`Building height`，楼层 `Floor`、`Elevation`、`Storey height`、`Area`，房间 `Area`，构件 `Type`；也可以用 `messages.entityProperties` 逐个改名。选择器和样式规则里引用这些属性时（如 `[面积>20]`），要用当前语言的属性名。文档里自己写的属性名不受影响。
+
 ## 7. 使用 glTF 模型
 
 ### 7.1 整层模型（`floor.model`）

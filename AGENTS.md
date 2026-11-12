@@ -49,7 +49,7 @@
 src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ index.ts     包入口：公共 API 只从这里导出（§3.10）
 ├─ style.css    SDK 样式，发布为 `terra-view/style.css`，类名前缀 `tv-`
-├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、
+├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、i18n（显示文案与语言）、errors（TerraViewError）、
 │               gpuProfile（显存档位、预算表、帧缓冲估算，纯函数）
 ├─ globe/       四叉树地球：Globe（调度）、GlobeTile（状态）、tileSelection（选择规则纯函数）、
 │               tileMeshLayout（网格索引布局，Worker 与象限填充共用）、TileMaterial（TSL）、Worker 构网、影像源、地形源
@@ -77,7 +77,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -134,7 +134,7 @@ docs/agents/    子系统规范（本文档的展开）
 - TypeScript strict，开启 `noUnused*`。`any` 只允许出现在第三方库边界，并且要加 `eslint-disable-next-line` 注释。
 - 每个模块文件开头写清职责。导出的 API 写 JSDoc；注释解释"为什么"，不复述代码。
 - 公共 API 的单位、坐标系、取值范围必须写在类型或注释里。
-- 演示应用的 UI 文案用中文；DOM 用 `demo/ui/dom.ts` 的 `h()`；样式复用 `demo/style.css` 里的 CSS 变量。SDK（`src/`）里不要新增写死的界面文案，做成选项。
+- 演示应用的 UI 文案用中文；DOM 用 `demo/ui/dom.ts` 的 `h()`；样式复用 `demo/style.css` 里的 CSS 变量。SDK（`src/`）里不要新增写死的界面文案：给用户看的文字加到 `src/core/i18n.ts`（每种语言都要有，默认 `zh-CN`，经 `viewer.messages` 读取）；错误用 `TerraViewError`（英文消息 + `code` + `details`，新 code 同步 `demo/ui/errors.ts` 的中文和 docs/api.md §1.6）。`tests/i18n.test.ts` 会扫描 `src/`，注释以外出现中文就失败（输入字段别名、服务商署名等白名单除外）。
 
 ### 3.9 数据与合规
 
