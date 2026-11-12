@@ -176,13 +176,26 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 
 ## 4. 多个 viewer
 
-同一页面可以创建多个 `GeoViewer`（各自的容器、相机、图层、事件）。已实测两个 viewer 并排运行。需要知道的共享状态：
+同一页面可以创建多个 `GeoViewer`（各自的容器、相机、图层、事件），可以混用 WebGPU 和 WebGL 后端（`forceWebGL`）。
 
-- 按域名的请求队列跨 viewer 共享（浏览器的连接数本来就按页面算）。
-- `tileDebugUniforms` 和大气的全局参数是模块级的，所有 viewer 共用。
-- 点位聚合用一个共享 Worker，最后一个点位图层销毁时关闭。
+模块级的共享状态（2026-11-12 逐项核对）：
 
-反复创建、销毁已实测（创建 viewer、加聚合点位图层、销毁，连续 40 次）：Worker、canvas、`tv-*` 节点、窗口 / 文档监听、rAF 都回到基线，堆内存没有持续上升（路线图 §10.5）。共享的节点图和 uniform 跨 renderer（例如一个 WebGPU、一个 WebGL）是否安全，还没有逐项核对（路线图 §0.2 P1.4）。
+| 共享的东西 | 位置 | 为什么安全 |
+| --- | --- | --- |
+| 按域名的请求队列 | `globe/imagery/RequestScheduler` | 有意共享：浏览器的连接数本来就按页面算 |
+| 瓦片着色器的节点图、占位纹理、形变位置节点 | `globe/TileMaterial` | 节点和纹理对象由每个渲染器各自编译、上传；从不释放，不会被某个 viewer 的 `dispose()` 带走 |
+| `tileDebugUniforms` | `globe/TileMaterial` | 调试开关，有意让所有 viewer 一起变 |
+| 大气 uniform（太阳方向、相机位置与高度、光照 / 大气开关） | `atmosphere/AtmosphereNodes` | 每个 viewer 渲染前重写全部值（帧内在 `updateEnvironment` 里；帧外的截图和层级切换截帧也先重写，见下） |
+| 注记的相机 uniform 与节点 | `vector/LabelManager` | 同上，渲染前 `syncCamera` |
+| 3D Tiles 渐显遮罩节点 | `tiles3d/nodeMaterials` | 只读节点图，逐材质参数走 `materialReference` |
+| 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
+| 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
+| 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |
+| EGM96 网格 | `core/Geoid` | 只读数据，首次使用时解码 |
+
+实测（2026-11-12，Chrome，演示应用的 WebGPU viewer 旁边再建 viewer）：一个 WebGL viewer 与演示应用的 WebGPU viewer 同时加载同一栋建筑（共用样式池的材质），然后销毁；再轮流以 WebGPU / WebGL 创建 6 个 viewer，各加建筑和 300 个聚合点位、渲染后销毁。全程控制台无错误，演示应用的建筑照常渲染（材质没有被别的 viewer 的销毁释放），最后只剩一个 canvas。另外，反复创建、销毁 40 次的泄漏测试见路线图 §10.5：Worker、canvas、`tv-*` 节点、窗口 / 文档监听、rAF 都回到基线。
+
+**新增模块级状态时**：先想清楚它该按 viewer 持有还是全局共享（AGENTS.md §3.10）；共享的写进上表。存放"当前相机""当前开关"这类按 viewer 不同的值的共享 uniform，必须在该 viewer 的每次渲染前重写，包括帧循环之外的渲染。
 
 ## 5. 还没有的东西
 

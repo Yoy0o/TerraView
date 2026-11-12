@@ -245,6 +245,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **隐藏的东西不会被淘汰**：地球隐藏时 `Globe.update()` 不运行，缓存淘汰也不运行，几百块瓦片的纹理一直占显存（正好是 Google 3D Tiles 最缺显存的时候）。隐藏超过档位规定的时间由 `globe.releaseHidden` 释放。新增缓存时不要只靠"每帧 update 里顺便淘汰"。
 - **瓦片纹理参数要在上传前设**：GPU 纹理创建时就定了有没有 mip 链，之后改 `generateMipmaps` / 过滤方式不生效。3D Tiles 的纹理策略在 `processTileModel` 里做（`applyTexturePolicy`）。
 - **读不到显存大小，`powerPreference` 在 Windows 上无效**：浏览器不暴露显存容量和用量，档位只能按适配器厂商 / 架构猜（`classifyGpu`，可用 `?gpu=` 指定），`viewer.memory` 是自己分配量的估算。Chrome 在 Windows 上忽略 `powerPreference`，双显卡笔记本可能跑在集显上，测性能前先看状态栏徽标里的适配器名。
+- **共享 uniform 在帧外渲染时串 viewer**：大气、注记的相机 uniform 是模块级的，所有 viewer 共用，帧内渲染前由各自重写。截图、层级切换截帧这类帧外的 `renderer.render` 原来没有重写，同页有两个 viewer 时会画出另一个 viewer 的相机和大气。帧外渲染一律走 `GeoViewer.renderOutsideFrame()`；新增共享 uniform 时同样要在渲染前重写（docs/api.md §4）。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
