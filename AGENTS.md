@@ -248,6 +248,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **瓦片纹理参数要在上传前设**：GPU 纹理创建时就定了有没有 mip 链，之后改 `generateMipmaps` / 过滤方式不生效。3D Tiles 的纹理策略在 `processTileModel` 里做（`applyTexturePolicy`）。
 - **读不到显存大小，`powerPreference` 在 Windows 上无效**：浏览器不暴露显存容量和用量，档位只能按适配器厂商 / 架构猜（`classifyGpu`，可用 `?gpu=` 指定），`viewer.memory` 是自己分配量的估算。Chrome 在 Windows 上忽略 `powerPreference`，双显卡笔记本可能跑在集显上，测性能前先看状态栏徽标里的适配器名。
 - **共享 uniform 在帧外渲染时串 viewer**：大气、注记的相机 uniform 是模块级的，所有 viewer 共用，帧内渲染前由各自重写。截图、层级切换截帧这类帧外的 `renderer.render` 原来没有重写，同页有两个 viewer 时会画出另一个 viewer 的相机和大气。帧外渲染一律走 `GeoViewer.renderOutsideFrame()`；新增共享 uniform 时同样要在渲染前重写（docs/api.md §4）。
+- **注释里写了 `@internal` 字样，整条导出被裁掉**（2026-11-13，P1.1）：`stripInternal` 按字符串在前导注释里找 `@internal`，写在正文、反引号里都算。`src/index.ts` 文件头的说明提到这个标记，它是第一条导出的前导注释，`GeoViewer` 就从发布的声明里消失了；声明文件本身仍然合法，`tsconfig.dts.json` 看不出来，是打包宿主的类型检查发现的。现在 `build:types` 最后跑 `scripts/check-dts.mjs`，比对入口在源码和声明里的导出名。注释里提到这两个标记时不要带 `@`；分级规则见 docs/api.md §2。
 - **冒烟测试里 `window.viewer` 提前"存在"**：带 id 的元素会成为同名的 `window` 属性（演示应用的 `<div id="viewer">`、宿主的 `#left` / `#right`），等 viewer 要等 `window.viewer?.info` 之类的实例字段。
 - **软件渲染下"等瓦片加载完"会超时**（2026-11-13，CI 首跑宿主测试 150 s 超时）：无 GPU 时 SwiftShader 占满 CPU，画面约 4 fps，影像的 `createImageBitmap` 每次约 900 ms（有 GPU 时 1 ms），屏幕之外的低优先级加载（留作回退的祖先影像，按设计只用三分之一的并发）排空要再花一倍时间，2 核 runner 上跑不完。冒烟测试用 `probeBackend` 问浏览器是不是软件渲染：是的话只等"屏幕上的瓦片都有自己的影像"，有 GPU 时才要求队列排空。新增等待条件同样要分这两档，不要用软件渲染下的耗时判断 SDK 性能。本机 `SMOKE_NO_GPU=1` 只把 WebGL / WebGPU 放到 SwiftShader 上，页面合成仍走 GPU，比 CI 快好几倍：本机软件模式能过不代表 CI 有余量。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。

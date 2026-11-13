@@ -145,6 +145,9 @@ try {
     }
   }
 } catch (err) {
+  // `run` captures stdout (where tsc and vite print their errors): show it, or the failure says only "Command failed".
+  const stdout = /** @type {{ stdout?: unknown }} */ (err).stdout;
+  if (typeof stdout === 'string' && stdout.trim()) console.error(stdout.trimEnd());
   fail(err instanceof Error ? err.message : String(err));
 } finally {
   rmSync(work, { recursive: true, force: true });
