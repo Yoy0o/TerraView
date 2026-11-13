@@ -139,7 +139,18 @@
 
 | 编号 | 内容 | 来源 | 说明 |
 | --- | --- | --- | --- |
-| P2.1 | 按需渲染：相机、瓦片、动画、顶牌都没变化时不画新帧；宿主可调用 `requestRender()` | M3.3 前半（B1） | 大屏、仪表盘一类宿主最先关心功耗；也是静止超采样（P3.3）的前置。要处理云层、开场、拾取缓冲、遮挡代理各自的"有变化"信号 |
+| P2.1 | 按需渲染：相机、瓦片、动画、顶牌都没变化时不画新帧；宿主可调用 `requestRender()` | M3.3 前半（B1） | 大屏、仪表盘一类宿主最先关心功耗；也是静止超采样（P3.3）的前置。要处理云层、开场、拾取缓冲、遮挡代理各自的"有变化"信号。评估（2026-11-13）见下方 |
+
+**P2.1 评估**（2026-11-13，未开工）
+
+- API（只新增，不破坏）：`GeoViewerOptions.renderMode: 'continuous' | 'on-demand'`（默认 `continuous`）、可改的 `viewer.renderMode`、`viewer.requestRender()`。rAF 循环保留：每个 tick 先跑便宜的相机更新，再汇总"有没有活动"，没有就跳过整帧（地球遍历、3D Tiles 更新、渲染、顶牌放置）。最后一次活动之后多画一小段尾帧（约 0.5 s），收住各种去抖与淡出。
+- 要接的"有活动"信号：
+  - 已有的：相机控制器（动画、飞行、环绕、惯性、待完成的缩放，`markChanged`）；`IndoorManager.update` / `IndoorBackdrop.update` 返回值；P2.4 的 `loadState.pending`。
+  - 要补的：地球的淡入 / 形变集合、待上传队列；3D Tiles 渐显插件和自适应误差（按 `dt` 回落，停帧就停住）；注记淡入淡出；顶牌定时放置（150 ms / 50 ms）、尺寸测量、遮挡去抖（要连续几帧）；点位图层每帧限量建 DOM、贴地重试；拾取缓冲（按间隔节流、异步回读）；实体外观与显隐的 setter（`setStyle`、`visible`、`levelOpacity`、悬停高亮）要能通知 viewer；GeoJSON 高亮；容器尺寸变化。
+  - 只能常画或交给宿主的：云层漂移（`clouds.visible` 且速度不为 0）、`timeMultiplier ≠ 0`；宿主直接改 `viewer.scene` / 相机，要调 `requestRender()`。
+- 语义变化：静止时 `frame` 事件和 `stats.fps` 不再更新，演示应用状态栏、冒烟测试的 `framesOf` 要处理。
+- 工作量约 4–6 个工作日：机制 1 天，信号接入 2–3 天（涉及约 12 个模块），测试 1–1.5 天（判定规则的单测；冒烟里加一个按需模式的用例：静止后帧数不涨，滚轮、`requestRender()`、新瓦片到达后恢复），文档与演示开关 0.5 天。
+- 风险：漏接一个信号，画面就停在半截状态（瓦片淡入一半、顶牌位置旧、注记半透明），而且只在静止时出现，不容易发现。对策：默认仍是 `continuous`，按需模式先作为选项给宿主试；用尾帧兜住去抖；加 `stats` 计数（实际渲染帧数）方便核对。
 | P2.2 | 楼层模型按需加载，离开后按显存预算 LRU 卸载 | M3.8（B6） | 档位和预算机制已有（[gpu-memory.md](gpu-memory.md)），成本最低 |
 | P2.3 | 3D Tiles 要素拾取与属性查询（`EXT_mesh_features` / batch table），高亮，接入 `viewer.interaction` | progress-log C8 | README 近期项，业务有需要时可提前 |
 | P2.4 | 加载状态与错误事件 | 新增 | ✅ 2026-11-13：`viewer.events` 的 `error`（`ViewerError`，五种 `source`）、`viewer.loadState` + `load-progress` / `idle` 事件（规则在 `viewer/loadState.ts`，有单测）、错误码 `terrain-unreachable` / `tileset-load-failed`、`Tiles3DLayer.error` / `pending`，`error` 事件与另两种图层对齐；打包宿主冒烟检查 `idle` 和无 `error`。建筑模型加载不计入 `idle`（以后有需要再加）。原始说明：核对现有的 `viewer.events`、图层 `events`，补齐宿主需要的"图层就绪 / 加载进度 / 出错（带 `code`）"。现在 `ViewerEvents` 只有帧统计、图层增删和点位单击；影像出错只能通过 `globe.onImageryError` 回调拿到（P1.2 之后已是带 `code` 的 `TerraViewError`，但不在 `viewer.events` 上；P1.1 之后 `viewer.globe` 是高级 API，稳定 API 里没有拿到影像错误的途径）。`Tiles3DLayer` 的 `error` 事件只有 `message`，没有 GeoJSON / 点位图层那样的 `error` 字段。"加载完成"也只能轮询高级的 `globe.stats`（冒烟测试就是这样等的）。事件名没有在 P1.1 提前定，做时按 P1.1 的分级规则写 |
