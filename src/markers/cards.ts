@@ -59,6 +59,8 @@ function body(options: CardOptions, withIcon: boolean, withSubtitle: boolean): H
  * Builds a marker element. The bottom center of the element is the anchor
  * point (pivot [0.5, 1] with MarkerManager). An empty `title` draws only the
  * symbol (poi, pulse, beacon, badge).
+ *
+ * @advanced
  */
 export function createCard(options: CardOptions): HTMLElement {
   const style = options.style ?? 'card';

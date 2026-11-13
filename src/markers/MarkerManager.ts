@@ -265,7 +265,7 @@ export class Marker {
     return this.occlusion.occluded;
   }
 
-  /** @internal Dims the marker while occluded (`.marker.occluded`); writes only on change. */
+  /** @internal Dims the marker while occluded (`.tv-marker.tv-occluded`); writes only on change. */
   setFaded(faded: boolean): void {
     if (faded === this.faded) return;
     this.faded = faded;

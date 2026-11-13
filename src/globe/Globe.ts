@@ -201,14 +201,20 @@ function terrainAffinity(terrain: TerrainSource, level: number, x: number, y: nu
  * - selection remembers the previous frame (CesiumJS): a coarser tile replaces
  *   its descendants only once it shows as much detail as they did, so zooming
  *   out never flashes a blurry ancestor.
+ *
+ * @advanced Reached as `viewer.globe` and created by the viewer: swap
+ * imagery and terrain, read `stats`, tune the loading properties. Members
+ * the viewer drives each frame are internal.
  */
 export class Globe {
+  /** @internal */
   readonly group = new Group();
+  /** @internal */
   readonly scheme = new WebMercatorTilingScheme();
   readonly ellipsoid = Ellipsoid.WGS84;
   readonly stats: GlobeStats = { rendered: 0, cached: 0, loading: 0, queued: 0, maxLevel: 0, waitingImagery: 0, keptForDetail: 0, fills: 0, heldImagery: 0, prefetching: 0 };
   /**
-   * Hash of the drawn surface (tile meshes and fills, their geometries and
+   * @internal Hash of the drawn surface (tile meshes and fills, their geometries and
    * morph values), updated by `update()`: changes whenever the shape on
    * screen may have changed, even at equal draw and triangle counts (the GPU
    * pick buffer uses it to know its depth is out of date).
@@ -348,7 +354,7 @@ export class Globe {
     this.resetPrefetch();
   }
 
-  /** Drapes a tile overlay source (e.g. rasterized vector layers) over the imagery. */
+  /** @internal Drapes a tile overlay source (the viewer's `overlays`) over the imagery. */
   setOverlaySource(source: TileOverlaySource | null): void {
     if (source === this.overlaySource) return;
     this.overlaySource = source;
@@ -390,6 +396,7 @@ export class Globe {
   // ---------------------------------------------------------------------------
   // Per-frame update
 
+  /** @internal Called by the viewer every frame while the globe is shown. */
   update(camera: PerspectiveCamera, viewportHeightCss: number): void {
     // Frozen: keep the previous selection so it can be inspected from elsewhere.
     if (this.freeze) return;
@@ -1546,7 +1553,7 @@ export class Globe {
   }
 
   /**
-   * Frees tile content while the globe is not drawn (hidden under 3D Tiles,
+   * @internal Frees tile content while the globe is not drawn (hidden under 3D Tiles,
    * say): `update()` does not run then, so the regular eviction never would.
    * Unloads leaf first down to `keep` tiles; the root tiles always stay, so
    * the globe has something to show the moment it is back and reloads the
@@ -1667,10 +1674,12 @@ export class Globe {
   // Queries
 
   /**
-   * Terrain height (meters) at a position from the finest loaded tile, or null
-   * if unknown. With `maxCellSize`, estimates from data coarser than that grid
-   * spacing (meters) count as unknown: camera collision uses this so a coarse
-   * or interpolated surface cannot push the camera up by hundreds of meters.
+   * Terrain height (WGS84 ellipsoidal, meters) at a position (radians) from
+   * the finest loaded tile, or null if unknown. With `maxCellSize`, estimates
+   * from data coarser than that grid spacing (meters) count as unknown: camera
+   * collision uses this so a coarse or interpolated surface cannot push the
+   * camera up by hundreds of meters. Terrain only: to put things on the
+   * ground use `viewer.surfaceHeight`, which also covers 3D Tiles.
    */
   getHeight(longitude: number, latitude: number, maxCellSize = Infinity): number | null {
     const s = this.sampleHeight(longitude, latitude);
@@ -1678,7 +1687,7 @@ export class Globe {
   }
 
   /**
-   * Terrain height (WGS84 ellipsoidal, meters) at a position (radians) from the
+   * @internal Terrain height (WGS84 ellipsoidal, meters) at a position (radians) from the
    * finest loaded tile, with the grid spacing of the data it came from
    * (meters; Infinity for data not from a terrain tile, 0 without terrain,
    * where the ellipsoid is exact). Null while no tile there has heights.
@@ -1706,7 +1715,7 @@ export class Globe {
     return height === null ? null : { height, cellSize };
   }
 
-  /** Nearest intersection of a world-space ray with the rendered globe surface. */
+  /** @internal Nearest intersection of a world-space ray with the rendered globe surface (use `viewer.pick`). */
   raycast(ray: Ray): { point: Vector3; distance: number } | null {
     let bestDist = Infinity;
     const best = new Vector3();
@@ -1836,6 +1845,7 @@ export class Globe {
     }
   }
 
+  /** @internal Released by `viewer.dispose()`. */
   dispose(): void {
     this.forEachTile((t) => t.abortAll());
     for (const item of this.ready) item.discard();

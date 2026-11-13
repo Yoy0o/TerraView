@@ -89,7 +89,7 @@
 
 | 编号 | 内容 | 做法 | 验收 |
 | --- | --- | --- | --- |
-| P1.1 | 公共 API 收口（S7） | 2026-11-12：必填项检查已做（`create()` 先检查 `container` / `imagery`，缺了抛 `option-invalid`，不再拖到每帧报错）；分级见下方（2026-11-13 修正并确认，实施中）。`src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定。另：`GeoViewerOptions.imagery` 是必填，但不写类型的 JS 宿主漏传时不报错，之后每帧在 `Globe.update` 报错、`dispose()` 也抛错（2026-11-12 冒烟时发现）：`create()` 里校验必填项，缺了就抛 `TerraViewError`（或给默认影像） | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
+| P1.1 | 公共 API 收口（S7） | ✅ 2026-11-13。P2.1、P2.4 的 API 名字没有提前定：做到时按本节的分级规则写。2026-11-12：必填项检查已做（`create()` 先检查 `container` / `imagery`，缺了抛 `option-invalid`，不再拖到每帧报错）；分级见下方（2026-11-13 修正、确认并落地：`stripInternal` + `tsconfig.dts.json` 检查、`@advanced` 标记、入口移除 17 个内部导出、`viewer.highlightedFeature`；api.md §3 每行标了级别）。`src/index.ts` 的导出逐项分成稳定 / 高级 / 内部；`renderer` `scene` `camera` `globe` `controller` 等内部对象标 `@internal`（声明里用 `stripInternal` 去掉）或收进 `viewer.advanced`；P2.1、P2.4 要新增的 API 名字在这一步一起定。另：`GeoViewerOptions.imagery` 是必填，但不写类型的 JS 宿主漏传时不报错，之后每帧在 `Globe.update` 报错、`dispose()` 也抛错（2026-11-12 冒烟时发现）：`create()` 里校验必填项，缺了就抛 `TerraViewError`（或给默认影像） | [api.md](../api.md) 的清单与 `dist/types` 一致；变化记入 CHANGELOG |
 | P1.2 | 核心文案选项化（S7） | ✅ 2026-11-12。确认项：**默认 `zh-CN`**，**错误信息用英文**（带 `code`）。做法：`core/i18n.ts`（`GeoViewerOptions.locale` / `messages`，内置 `zh-CN`、`en`）管实体自动属性名、房间顶牌副标题、点位图层默认名；预设显示名改为 `label: LocalizedText`；`core/errors.ts` 的 `TerraViewError`（8 个 code，Worker 跨线程保留 code）；服务商署名和输入字段别名保留原文。演示应用用 `demo/ui/errors.ts` 把 code 译成中文。破坏性变更见 CHANGELOG | 除白名单（输入别名、署名、预设中文名）外 `src/` 无中文字面量，由 `tests/i18n.test.ts` 扫描守住；单测覆盖两种语言 |
 | P1.3 | 打包工具兼容余项（S6） | ✅ 2026-11-12。**EGM96 评估 ✅ 2026-11-12**：瓦片 Worker 197 KiB（gzip 102）里网格占 170 KiB（gzip 93），去掉后 Worker 只剩 27 KiB。结论：Worker 里保持内嵌（Worker 只下载一次并缓存；AWS Terrarium、Mapbox、MapTiler 等海拔类地形都要用它，改按需加载只对无地形或只用 quantized-mesh 的宿主有利，还要让首块地形多等一次请求）。另发现**主入口里也有一份网格**（170 KiB，只因 `src/index.ts` 导出了 `geoidUndulation`，演示应用和宿主都没用）：Vite 生产构建的宿主会摇树去掉（实测宿主产物里只有 Worker 那份），但开发服务器和不经打包的 CDN 用法会多下载这一份；改成按需加载的异步 API 或不再导出，归入 P1.1 决定。**Webpack 实测 ✅**：Webpack 5 宿主实测（2026-11-12，webpack 5.112、webpack-cli 6、style-loader / css-loader，装入打好的 tarball，生产构建，Chrome WebGPU）：用 three.js r187 示例里的 `ferrari.glb`（`KHR_draco_mesh_compression`）和 `facecap.glb`（`KHR_texture_basisu` + `EXT_meshopt_compression`）经 `viewer.loadModel()` 加载，Draco 解出 51 个网格、33.8 万顶点，KTX2 转码成 GPU 压缩纹理（BC7，1024²，11 级 mip），meshopt 正常；没有设 `decoderPath` / `transcoderPath`，解码器文件由 webpack 按 three 的 `new URL(..., import.meta.url)` 作为资源输出，请求全部 200，控制台无任何消息（测试工程和模型只在临时目录，不入库） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
 | P1.4 | 多实例余项（S5） | ✅ 2026-11-12：逐项核对模块级共享状态（结论表在 [api.md](../api.md) §4）。发现并修复一个问题：大气和注记的相机 uniform 是共享的，`captureFrame()` 和层级切换截帧在帧外渲染时没有重写，同页两个 viewer 时会画出另一个 viewer 的相机和大气；现在走 `renderOutsideFrame()`。浏览器实测：WebGL viewer 与演示应用的 WebGPU viewer 共用同一栋建筑的材质后销毁，再轮流以两种后端创建、销毁 6 个 viewer，无错误，演示应用的建筑照常渲染 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
@@ -102,7 +102,7 @@
 机制：**稳定**不加标记，0.x 期间也尽量不破坏，破坏记 CHANGELOG；**高级**加 TSDoc `@advanced`（自定义标记，在 api.md 说明含义：给扩展和调试用，次版本可以改、不预先废弃）；**内部**分两种处理：
 
 - 导出项：从 `src/index.ts` 去掉。声明文件还在（公开签名可以照常引用），只是宿主不能按名字 import。
-- 公开对象上的成员：加 `@internal`，`tsconfig.build.json` 开 `stripInternal`，从声明里去掉（宿主写了就编译不过）。被公开签名引用的声明不能这样标，否则发布的 `.d.ts` 断链；`build:types` 之后用 `tsconfig.dts.json`（`skipLibCheck: false`）检查一遍兜住。构造函数不标（去掉后类会显得有无参构造函数）。
+- 公开对象上的成员：加 `@internal`，`tsconfig.build.json` 开 `stripInternal`，从声明里去掉（宿主写了就编译不过）。被公开签名引用的声明不能这样标，否则发布的 `.d.ts` 断链；`build:types` 之后用 `tsconfig.dts.json`（`skipLibCheck: false`）检查一遍兜住，再用 `scripts/check-dts.mjs` 比对入口的导出名（`stripInternal` 按字符串匹配前导注释，注释里写到这个标记就会裁掉整条导出，AGENTS.md §7）。构造函数不标（去掉后类会显得有无参构造函数）。
 
 不引入 api-extractor。
 
@@ -116,6 +116,12 @@
 
 确认的三点（2026-11-13）：① 采用上面修正后的分级；② `geoidUndulation` 从入口去掉（演示应用和宿主都没用；瓦片 Worker 照用自己那份），以后有宿主需要再以 `loadGeoid(): Promise<(lon, lat) => number>` 或子路径的形式公开；③ 内部成员用 `stripInternal` 从声明里去掉。配套改动：演示应用读的 `viewer.vectors.highlighted` 改成稳定的 `viewer.highlightedFeature`；分级写进 api.md §3（每行标级别）。
 
+落地时的细化（2026-11-13）：
+
+- `OverlayCompositor`（`viewer.overlays`）和 `ContributionCuller`（`viewer.indoor.culling`）草案里整类列为高级，实际是经 viewer 成员日常使用的对象，按"通过成员的用法"算稳定。`ContributionCuller` 只给 `IndoorManager` 调用的 `update` / `forget` 标内部。`OverlayCompositor` 给地球调用的合成接口（`version` / `hasContent` / `isCurrent` / `requestOverlay`）标高级而不是内部：类声明保留 `implements TileOverlaySource`，裁掉这些成员声明就不成立。
+- `Globe.getHeight` 保留为高级（演示应用用它把 3D Tiles 抬到地形上；注释写明只看地形、贴地用 `viewer.surfaceHeight`），`sampleHeight` 标内部。
+- 效果：主入口 `dist/terraview.js` 从 673.5 KB（gzip 250.8）降到 500.6 KB（gzip 154.8），主要是 EGM96 网格不再进主入口。`scripts/check-package.mjs` 的体积预算（720 / 270 KiB）没有调低，留到发版前统一收紧。
+
 **首发准备清单**（P1.7；2026-11-12 决定先准备、暂不发布。发布、推标签、去掉 `private` 都要单独确认）
 
 | 项 | 状态 |
@@ -126,7 +132,7 @@
 | 发布流程演练 | 待做：在 GitHub Actions 页面手动运行 Release 工作流（演练模式：验证、打包自检、打包，不建 Release、不发布） |
 | 仓库密钥 `NPM_TOKEN` | 待配置（npm 自动化令牌，发布前加到仓库密钥） |
 | GitHub 仓库是否公开 | 待决定：公开仓库才会带 provenance；包里的 `repository` 链接对私有仓库的使用者打不开 |
-| 首发前的代码项 | P1.1（P1.2–P1.6 ✅） |
+| 首发前的代码项 | 无（P1.1–P1.6 ✅） |
 | 发版当天 | 改 `package.json` 的 `version`（`package-lock.json` 两处同步）→ CHANGELOG「未发布」整理成该版本 → 去掉 `private` → 合并到 main → 打标签推送（AGENTS.md §8.5） |
 
 **P2 嵌入体验与性能**（P1 之后；P2.1 可与 P1 并行）
@@ -711,7 +717,7 @@ flowchart LR
 | S4 | 完成 | 键盘监听 viewer 容器（`ControllerHost.keyboardTarget`），容器设 `tabindex`；`tests/keyboard.test.ts` |
 | S5 | 完成 | 聚合 Worker 在最后一个点位图层销毁时关闭；同页两个 viewer 实测正常；创建、加聚合点位图层、销毁连续 40 次无泄漏（§10.5）；模块级共享状态逐项核对、WebGPU 与 WebGL 混用实测，修复帧外渲染串 viewer 的问题（2026-11-12，§0.2 P1.4） |
 | S6 | 完成 | `decoderPath` / `transcoderPath` 选项；Webpack 5 宿主构建、运行，以及 Draco / KTX2 / meshopt 模型的实际解码（2026-11-12）；EGM96 评估：Worker 里保持内嵌，主入口的重复一份归 P1.1 决定（§0.2 P1.3） |
-| S7 | 部分 | 导出清单与 [docs/api.md](../api.md)、版本策略。默认中文文案已改成选项（2026-11-12，§0.2 P1.2）。未做：内部对象标 `@internal` 或收进 `advanced`（§0.2 P1.1） |
+| S7 | 完成 | 导出清单与 [docs/api.md](../api.md)、版本策略。默认中文文案已改成选项（2026-11-12，§0.2 P1.2）。API 分级（稳定 / `@advanced` / `@internal` + `stripInternal`，2026-11-13，§0.2 P1.1） |
 | CI/CD | 完成 | `.github/workflows/ci.yml`（typecheck、test、库与演示构建，Node 22 / 24；打包后装进宿主工程自检）和 `release.yml`（标签 `v<版本>` 触发：GitHub Release 附 tgz；`package.json` 去掉 `private` 后才发布到 npm）。本机用 `npm run check:package` 跑同一个自检。远端第 1 次运行（`441a82c`）三个 job 全部通过（2026-11-12 确认） |
 | S8 | 大部分完成 | Apache-2.0（`LICENSE`，`check:package` 检查它在包里）；包里带 `THIRD_PARTY_NOTICES.md`，示例数据和凭证不进包。three、3d-tiles-renderer 是 peer 依赖、不打进产物，不需要在包里附它们的声明。CesiumJS 改写部分与 EGM96 数据来源的声明、`package-lock.json` 根包 `license` 已于 2026-11-12 补齐（§0.2 P0.2、P0.3） |
 

@@ -12,11 +12,12 @@
 
 export type GpuTier = 'low' | 'medium' | 'high' | 'ultra';
 
+/** Tiers from smallest to largest budget. @advanced */
 export const GPU_TIERS: readonly GpuTier[] = ['low', 'medium', 'high', 'ultra'];
 
 const MB = 2 ** 20;
 
-/** What the page can find out about the graphics hardware before the renderer exists. */
+/** What the page can find out about the graphics hardware before the renderer exists. @advanced */
 export interface GpuHints {
   /** False when `navigator.gpu` gave no adapter (the renderer will fall back to WebGL 2). */
   webgpu: boolean;
@@ -185,13 +186,13 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
   },
 };
 
-/** The settings of a tier (a fresh copy, safe to modify). */
+/** The settings of a tier (a fresh copy, safe to modify). @advanced */
 export function gpuProfile(tier: GpuTier): GpuProfile {
   const p = PROFILES[tier];
   return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles } };
 }
 
-/** `low` / `medium` / `high` / `ultra` (any case, surrounding spaces ignored), else undefined. */
+/** `low` / `medium` / `high` / `ultra` (any case, surrounding spaces ignored), else undefined. @advanced */
 export function parseGpuTier(value: string | null | undefined): GpuTier | undefined {
   const s = value?.trim().toLowerCase();
   return GPU_TIERS.find((t) => t === s);
@@ -204,6 +205,8 @@ const INTEL_DISCRETE = /^xe\d*-hpg/;
  * Guesses the tier from what the browser reports. Conservative where the
  * hardware cannot be told apart: AMD (the same architecture names cover
  * integrated and discrete parts) and unknown vendors land on `medium`.
+ *
+ * @advanced
  */
 export function classifyGpu(hints: GpuHints): GpuTier {
   if (hints.fallbackAdapter || hints.mobile) return 'low';

@@ -5,6 +5,8 @@
  * instead of popping. The fade is a CSS opacity transition, run by the
  * compositor and independent of the render loop. HTML labels sit above it
  * and are not part of the copy.
+ *
+ * @advanced Reached as `viewer.levelTransition` (not exported from the package entry).
  */
 export class FrameCrossfade {
   /** Fade length in milliseconds; 0 turns the crossfade off. */

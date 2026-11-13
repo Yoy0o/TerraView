@@ -202,14 +202,14 @@ export class ContributionCuller {
     return any;
   }
 
-  /** Drops the entities of a removed building (the stats follow on the next pass). */
+  /** @internal Drops the entities of a removed building (the stats follow on the next pass). */
   forget(root: BimEntity): void {
     for (const e of this.culled) if (e === root || e.isDescendantOf(root)) this.culled.delete(e);
     this.dirty = true;
   }
 
   /**
-   * Runs a pass when due (camera matrices must be current); returns true
+   * @internal Runs a pass when due (camera matrices must be current); returns true
    * when an entity was culled or restored (the pick buffer is then stale).
    */
   update(): boolean {

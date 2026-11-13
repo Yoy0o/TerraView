@@ -8,9 +8,21 @@
 
 导出和公开成员分成稳定 / 高级 / 内部三级，规则见 [docs/api.md](docs/api.md) §2，每项的级别见 §3。
 
+**新增**
+
+- `viewer.highlightedFeature`：`highlightFeature` 设的要素（`{ layerId, featureId }`，没有时为 null），取代原来读 `viewer.vectors.highlighted` 的写法。
+- 高级 API 在源码和类型声明里标 `@advanced`：`viewer.renderer` / `scene` / `camera` / `globe` / `pickBuffer` / `levelTransition`、`Globe`、`PickBuffer`、相机数学、GPU 档位函数、`createCard`、点位纯函数、瓦片调试开关。
+
+**破坏性变更**
+
+- 从包入口移除（改为内部）：`geoidUndulation`、`FrameCrossfade`、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme`、`MERCATOR_MAX_LATITUDE`、`GeoRect`、`greenwichMeanSiderealTime`、`buildClusterTree`、`clusterLeaves`、`ClusterSelector`、`ClusterTree`、`ClusterTreeInput`、`ClusterTreeOptions`、`ClusterView`、`createClusterCard`、`setClusterCount`。去掉 `geoidUndulation` 后，主入口不再带 EGM96 网格：`dist/terraview.js` 从 673.5 KB（gzip 250.8）降到 500.6 KB（gzip 154.8）；瓦片 Worker 照旧内嵌自己那份。
+- 以下成员从类型声明里去掉（`@internal`，运行时仍在，随时可能变）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Marker` 原来已标 `@internal` 的放置与测量方法（`measure`、`place`、`cull`、`hide` 等）。
+
 **工程**
 
-- 类型声明构建开 `stripInternal`：标了 `@internal` 的成员不再出现在 `dist/types` 里。`build:types` 之后再用 `tsconfig.dts.json`（`skipLibCheck: false`）检查一遍发布的声明，防止公开签名引用被裁掉的声明（宿主工程开着 `skipLibCheck`，原来发现不了）。
+- 类型声明构建开 `stripInternal`：标了 `@internal` 的成员不再出现在 `dist/types` 里。`build:types` 之后再用 `tsconfig.dts.json`（`skipLibCheck: false`）检查一遍发布的声明，防止公开签名引用被裁掉的声明（宿主工程开着 `skipLibCheck`，原来发现不了），再用 `scripts/check-dts.mjs` 比对入口在 `src/index.ts` 和 `dist/types/index.d.ts` 里的导出名（前导注释里出现内部标记的字样，`stripInternal` 会把整条导出裁掉，声明仍然合法）。
+- `check:package` 里宿主工程的类型检查或构建失败时，打印 tsc / vite 的输出（原来只有 "Command failed"）。
+- 演示应用改用 `viewer.highlightedFeature`。
 
 ### 浏览器冒烟测试（2026-11-12，路线图 §0.2 P1.5）
 

@@ -20,15 +20,17 @@ export interface HeadingPitch {
   pitch: number;
 }
 
-/** Camera view direction (-Z) in world space. */
+/** Camera view direction (-Z) in world space. @advanced */
 export function cameraDirection(q: Quaternion, out = new Vector3()): Vector3 {
   return out.set(0, 0, -1).applyQuaternion(q);
 }
 
+/** Camera up (+Y) in world space. @advanced */
 export function cameraUp(q: Quaternion, out = new Vector3()): Vector3 {
   return out.set(0, 1, 0).applyQuaternion(q);
 }
 
+/** Camera right (+X) in world space. @advanced */
 export function cameraRight(q: Quaternion, out = new Vector3()): Vector3 {
   return out.set(1, 0, 0).applyQuaternion(q);
 }
@@ -44,6 +46,8 @@ export function cameraRight(q: Quaternion, out = new Vector3()): Vector3 {
  * Using only the view direction made the heading jump by 180° whenever a
  * top-down camera drifted a hair past the nadir (e.g. while zooming), which
  * flipped the whole view upside down.
+ *
+ * @advanced
  */
 export function getHeadingPitch(ellipsoid: Ellipsoid, position: Vector3, q: Quaternion, out: HeadingPitch = { heading: 0, pitch: 0 }): HeadingPitch {
   ellipsoid.eastNorthUp(position, _e, _n, _u);
@@ -58,7 +62,7 @@ export function getHeadingPitch(ellipsoid: Ellipsoid, position: Vector3, q: Quat
   return out;
 }
 
-/** Zero-roll orientation for a heading/pitch at a position. */
+/** Zero-roll orientation for a heading/pitch at a position. @advanced */
 export function orientationFromHeadingPitch(ellipsoid: Ellipsoid, position: Vector3, heading: number, pitch: number, out = new Quaternion()): Quaternion {
   ellipsoid.eastNorthUp(position, _e, _n, _u);
   const ch = Math.cos(heading);
@@ -95,6 +99,8 @@ export function levelOrientation(ellipsoid: Ellipsoid, position: Vector3, q: Qua
 /**
  * Camera placement that looks at `target` from `range` meters away with the
  * given heading and pitch (Cesium's HeadingPitchRange convention).
+ *
+ * @advanced
  */
 export function lookAtHeadingPitchRange(
   ellipsoid: Ellipsoid,

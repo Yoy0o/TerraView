@@ -101,7 +101,7 @@ function validLonLat(lon: number, lat: number): boolean {
   return Number.isFinite(lon) && Number.isFinite(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90;
 }
 
-/** Normalizes point data (see the module comment for the accepted shapes). */
+/** Normalizes point data (see the module comment for the accepted shapes). @advanced */
 export function parsePoints(input: unknown): ParsedPoints {
   const out: ParsedPoints = { points: [], skipped: 0, warnings: [] };
   const warn = (msg: string) => {
@@ -200,13 +200,13 @@ function compare(value: unknown, cond: Condition): boolean {
   return true;
 }
 
-/** Whether all conditions of a rule hold for these properties. */
+/** Whether all conditions of a rule hold for these properties. @advanced */
 export function matchesRule(properties: Record<string, unknown>, when: Record<string, Condition>): boolean {
   for (const [key, cond] of Object.entries(when)) if (!compare(properties[key], cond)) return false;
   return true;
 }
 
-/** Base style, then every matching rule in order, then the point's own `style` property (an object). */
+/** Base style, then every matching rule in order, then the point's own `style` property (an object). @advanced */
 export function resolvePointStyle(point: PointRecord, base: PointStyle, rules: readonly PointRule[] = []): PointStyle {
   const style: PointStyle = { ...base };
   for (const rule of rules) if (matchesRule(point.properties, rule.when)) Object.assign(style, rule.style);
@@ -215,7 +215,7 @@ export function resolvePointStyle(point: PointRecord, base: PointStyle, rules: r
   return style;
 }
 
-/** Replaces `{key}` with the property value (empty when missing). Text without braces is used as is. */
+/** Replaces `{key}` with the property value (empty when missing). Text without braces is used as is. @advanced */
 export function fillTemplate(template: string, properties: Record<string, unknown>): string {
   return template.replace(/\{([^{}]+)\}/g, (_, key: string) => {
     const v = properties[key.trim()];
@@ -223,13 +223,13 @@ export function fillTemplate(template: string, properties: Record<string, unknow
   });
 }
 
-/** Title shown when the style has none: the first name-like property. */
+/** Title shown when the style has none: the first name-like property. @advanced */
 export function defaultTitle(point: PointRecord): string {
   const hit = pick(point.properties, TITLE_KEYS);
   return hit ? String(hit[1]) : point.id;
 }
 
-/** Bounding box [west, south, east, north] in degrees of some points. */
+/** Bounding box [west, south, east, north] in degrees of some points. @advanced */
 export function pointsBBox(points: readonly PointRecord[]): [number, number, number, number] | null {
   if (points.length === 0) return null;
   let w = Infinity;

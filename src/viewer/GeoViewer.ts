@@ -228,32 +228,46 @@ const GROUND_PROBE_MS = 15_000;
  * Depth uses a reversed-Z float buffer when available.
  */
 export class GeoViewer {
+  /** @advanced The three.js renderer (positioning DOM over the canvas, custom passes). */
   readonly renderer: WebGPURenderer;
+  /**
+   * @advanced The three.js scene. World space is ECEF meters: put added
+   * meshes' origin in `position` near their geometry to keep float32 precision.
+   */
   readonly scene = new Scene();
+  /**
+   * @advanced The camera, for projecting positions. Move it with `setView` /
+   * `flyTo` / `navigation` / `controller.playAnimation`, not directly.
+   */
   readonly camera: PerspectiveCamera;
   readonly ellipsoid = Ellipsoid.WGS84;
+  /** @advanced Quadtree globe: imagery and terrain swaps, load tuning, `stats`. */
   readonly globe: Globe;
   readonly controller: GlobeCameraController;
+  /** @internal */
   readonly stars = new StarField();
   /** Animated cloud layer over the imagery (hidden by default: `clouds.visible = true`). */
   readonly clouds: CloudLayer;
   /** UI-free navigation commands: zoom, rotate, tilt, home, orbit, fullscreen, screenshot, opening spin. */
   readonly navigation: NavigationControls;
+  /** @internal */
   readonly sunLight = new DirectionalLight(0xffffff, 3);
+  /** @internal */
   readonly skyLight = new HemisphereLight(0xbcd7ff, 0x4a4136, 1.1);
   readonly events = new EventEmitter<ViewerEvents>();
   readonly info: RendererInfo;
   readonly stats: FrameStats = { fps: 0, frameMs: 0, gpuMs: null, drawCalls: 0, triangles: 0 };
   readonly tilesets: Tiles3DLayer[] = [];
-  /** Worker-backed vector pipeline (draped rasterization, queries). */
+  /** @internal Worker-backed vector pipeline (draped rasterization, queries). */
   readonly vectors = new VectorService();
   /** Raster overlay layers + rasterized vectors, draped over the base imagery. */
   readonly overlays = new OverlayCompositor(this.vectors);
+  /** @internal */
   readonly labels: LabelManager;
   readonly vectorLayers: GeoJsonLayer[] = [];
   /** HTML markers / top cards (顶牌) anchored to world positions. */
   readonly markers: MarkerManager;
-  /** Occlusion queries behind markers with `occlusion: 'hide' | 'fade'` (M2.2). */
+  /** @internal Occlusion queries behind markers with `occlusion: 'hide' | 'fade'` (M2.2). */
   readonly markerOcclusion: OcclusionProxies;
   /** Data-driven point marker layers (点位), drawn through `markers`. */
   readonly pointLayers: PointLayer[] = [];
@@ -261,13 +275,14 @@ export class GeoViewer {
   readonly interaction: InteractionManager;
   /** Buildings, floors, rooms and equipment; indoor level navigation. */
   readonly indoor: IndoorManager;
-  /** Ground grid and studio sky under a building shown without any ground (see `indoorBackdrop`). */
+  /** @internal Ground grid and studio sky under a building shown without any ground (see `indoorBackdrop`). */
   readonly backdrop: IndoorBackdrop;
-  /** Crossfade over level changes; `levelTransition.duration = 0` turns it off. */
+  /** @advanced Crossfade over level changes; `levelTransition.duration = 0` turns it off. */
   readonly levelTransition: FrameCrossfade;
   /**
-   * GPU pick buffer (M2.1): hover and click picks read it while it matches
+   * @advanced GPU pick buffer (M2.1): hover and click picks read it while it matches
    * the current view, else cast CPU rays. Null on the WebGL backend.
+   * Call `invalidate()` after changes its signature cannot see.
    */
   readonly pickBuffer: PickBuffer<Tiles3DLayer> | null;
   /**
@@ -786,7 +801,7 @@ export class GeoViewer {
   }
 
   /**
-   * Where a ray at normalized device coordinates meets the ground when no
+   * @internal Where a ray at normalized device coordinates meets the ground when no
    * globe is drawn (globe hidden, e.g. for Google 3D Tiles, and the tiles
    * suppressed inside a building): the ellipsoid raised to the entered
    * building's ground, or to the last 3D Tiles surface picked. Null with the
@@ -1024,6 +1039,14 @@ export class GeoViewer {
   /** Highlights a picked feature (null clears). */
   highlightFeature(hit: FeatureHit | null): void {
     this.vectors.setHighlight(hit);
+  }
+
+  /**
+   * The feature set by `highlightFeature`, or null. `layerId` is the
+   * `GeoJsonLayer.id`; removing that layer clears the highlight.
+   */
+  get highlightedFeature(): { layerId: number; featureId: number } | null {
+    return this.vectors.highlighted;
   }
 
   private getLoaders(): LoaderKit {

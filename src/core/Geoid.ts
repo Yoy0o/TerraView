@@ -1,3 +1,9 @@
+/**
+ * EGM96 geoid lookup. Internal: only the tile mesh Worker uses it (MSL
+ * terrain to ellipsoidal heights). Not exported from the package entry, so
+ * the 170 KiB grid stays out of the main bundle; a public, lazily loaded
+ * variant can be added when a host needs one (roadmap P1.1).
+ */
 import { EGM96_COLS, EGM96_GRID_BASE64, EGM96_ROWS } from './egm96Grid';
 
 let grid: Int16Array | null = null;

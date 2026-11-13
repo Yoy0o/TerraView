@@ -72,6 +72,7 @@ export const EMPTY_OVERLAY = new DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1)
 EMPTY_OVERLAY.colorSpace = SRGBColorSpace;
 EMPTY_OVERLAY.needsUpdate = true;
 
+/** Debug switches of the tile shader (tile borders, level tint), shared by every viewer on the page. @advanced */
 export const tileDebugUniforms = {
   showTileBorders: uniform(0).setGroup(renderGroup),
   levelTint: uniform(0).setGroup(renderGroup),
@@ -261,6 +262,8 @@ export function createTileMaterial(texture: Texture = placeholder, level = 0): T
  * Rebuilds every tile material after a pipeline-level change such as
  * `wireframe`. `needsUpdate` on an instance does nothing: instances share
  * the version of their node material.
+ *
+ * @advanced
  */
 export function refreshTileMaterials(): void {
   if (shared) shared.base.needsUpdate = true;

@@ -111,71 +111,85 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 
 ## 3. 导出清单
 
+"级别"一列见 §2：没写的都是稳定。一个类经 viewer 的成员使用时（如 `viewer.indoor`），级别指通过这个成员的用法；类里只给 viewer 自己调用的方法是内部，不在声明里。
+
 ### 3.1 viewer
 
-| 导出 | 用途 |
-| --- | --- |
-| `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`；`pick` / `pickAt`；`surfaceHeight`；`loadModel`；`captureFrame`；`playIntro`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe`；`dispose` |
-| `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions` | 创建参数与视点类型 |
-| `viewer.events`（`ViewerEvents`） | 图层增删、帧统计等事件 |
-| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`）、`viewer.gpu`（`GpuProfile`） | 后端与适配器、帧耗时、显存估算、档位预算 |
-| `viewer.canvas` | 渲染用的 canvas |
-| `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) |
-| `NavigationControls`（`viewer.navigation`） | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) |
-| `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`、`ListenerOptions`、`PauseScope`、`PickInfo` |
-| `PickBuffer`（`viewer.pickBuffer`） | GPU 拾取缓冲；改了签名看不到的东西后调用 `invalidate()` |
-| `SurfaceHeight` 等 | `viewer.surfaceHeight(lon, lat)` 的结果类型（地形或可见 3D Tiles 的高度，带可信度） |
-| `getHeadingPitch`、`lookAtHeadingPitchRange`、`orientationFromHeadingPitch`、`cameraDirection` / `cameraUp` / `cameraRight` | 相机数学（弧度） |
+| 导出 | 用途 | 级别 |
+| --- | --- | --- |
+| `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
+| `viewer.renderer`、`viewer.scene`、`viewer.camera` | three.js 的渲染器、场景、相机（定位 DOM、投影坐标、加自己的对象）。不要直接改相机位姿（§2） | 高级 |
+| `viewer.levelTransition` | 层级切换淡出（`duration = 0` 关闭）；类型 `FrameCrossfade` 不从入口导出 | 高级 |
+| `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
+| `viewer.events`（`ViewerEvents`） | 图层增删、帧统计等事件 | 稳定 |
+| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
+| `viewer.canvas` | 渲染用的 canvas | 稳定 |
+| `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
+| `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
+| `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`、`ListenerOptions`、`PauseScope`、`PickInfo` | 稳定 |
+| `PickBuffer`（`viewer.pickBuffer`）、`GpuPick`、`PickTarget`、`PickBufferOptions` | GPU 拾取缓冲；改了签名看不到的东西后调用 `invalidate()`。拾取本身用 `viewer.pick` / `pickAt` | 高级 |
+| `SurfaceHeight`、`SurfaceSample`、`SurfaceSource`、`SurfaceHeightOptions` | `viewer.surfaceHeight(lon, lat)` 的结果类型（地形或可见 3D Tiles 的高度，带可信度） | 稳定 |
+| `getHeadingPitch`、`lookAtHeadingPitchRange`、`orientationFromHeadingPitch`、`cameraDirection` / `cameraUp` / `cameraRight` | 相机数学（弧度） | 高级 |
 
 ### 3.2 globe
 
-| 导出 | 用途 |
-| --- | --- |
-| `ImageryProvider`、`XYZImageryProvider`、`EquirectangularImageryProvider`、`DebugImageryProvider` | 底图影像源；自定义源实现 `ImageryProvider` |
-| `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设；显示名是 `label`（`LocalizedText`），见 §1.6 |
-| `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源 |
-| `RasterOverlay`、`OverlayCompositor`（`viewer.overlays`） | 半透明栅格叠加层 |
-| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`stats`、`maxScreenSpaceError`、`terrainExaggeration`、`onImageryError` / `imageryError`（§1.6）；[tile-loading.md](agents/tile-loading.md) |
-| `tileDebugUniforms`、`refreshTileMaterials` | 瓦片着色器的调试开关（页面上所有 viewer 共用） |
+| 导出 | 用途 | 级别 |
+| --- | --- | --- |
+| `ImageryProvider`、`XYZImageryProvider`、`EquirectangularImageryProvider`、`DebugImageryProvider` | 底图影像源；自定义源实现 `ImageryProvider` | 稳定 |
+| `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设；显示名是 `label`（`LocalizedText`），见 §1.6 | 稳定 |
+| `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源 | 稳定 |
+| `RasterOverlay`、`OverlayCompositor`（`viewer.overlays`） | 半透明栅格叠加层：`addRaster` / `removeRaster` / `setOpacity` / `setVisible` / `move` / `rasterLayers`。地球调用的合成接口（`version`、`hasContent`、`isCurrent`、`requestOverlay`）是高级 | 稳定 |
+| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`setImagery` / `setTerrain`、`imageryProvider` / `terrainSource` / `terrainExaggeration`、`onImageryError` / `imageryError`（§1.6）、`stats`、`gpuBytes`、加载调参（`maxScreenSpaceError` 等）、`getHeight`（只看地形，弧度；贴地用 `viewer.surfaceHeight`）、调试（`setWireframe`、`freeze`）；[tile-loading.md](agents/tile-loading.md) | 高级 |
+| `tileDebugUniforms`、`refreshTileMaterials` | 瓦片着色器的调试开关（页面上所有 viewer 共用） | 高级 |
 
 ### 3.3 3D Tiles
 
-`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready` 等）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。
+`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready` 等）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
 
 ### 3.4 矢量
 
-`GeoJsonLayer`（`viewer.addGeoJson`）、`GeoJsonLayerOptions`、`VectorStyle`、`LabelStyle`、`DEFAULT_VECTOR_STYLE`、`DEFAULT_LABEL_STYLE`、`FeatureHit`、`LayerSummary`；`lonLatToMerc` / `mercToLonLat`。
+`GeoJsonLayer`（`viewer.addGeoJson`）、`GeoJsonLayerOptions`、`VectorStyle`、`LabelStyle`、`DEFAULT_VECTOR_STYLE`、`DEFAULT_LABEL_STYLE`、`FeatureHit`、`LayerSummary`；`lonLatToMerc` / `mercToLonLat`。级别：稳定。
 
 ### 3.5 顶牌与点位
 
-| 导出 | 用途 |
-| --- | --- |
-| `MarkerManager`（`viewer.markers`）、`Marker`、`MarkerOptions` | HTML 顶牌：`add({ element, position, ... })`、`remove`；遮挡 `occlusion: 'none' \| 'hide' \| 'fade'` |
-| `createCard`、`createClusterCard`、`setClusterCount`、`CardOptions` | 内置顶牌样式模板 |
-| `PointLayer`（`viewer.addPoints`）、`PointLayerOptions`、`ClusterOptions` | 点位图层：数据、样式规则、聚合 |
-| `parsePoints`、`resolvePointStyle`、`matchesRule`、`fillTemplate`、`pointsBBox`、`MARKER_STYLES` | 点位解析与规则（纯函数） |
-| `buildClusterTree`、`ClusterSelector`、`clusterLeaves` | 层级聚合树（纯函数） |
+| 导出 | 用途 | 级别 |
+| --- | --- | --- |
+| `MarkerManager`（`viewer.markers`）、`Marker`、`MarkerOptions` | HTML 顶牌：`add({ element, position, ... })`、`remove`；遮挡 `occlusion: 'none' \| 'hide' \| 'fade'` | 稳定 |
+| `PointLayer`（`viewer.addPoints`）、`PointLayerOptions`、`ClusterOptions`、`MARKER_STYLES` | 点位图层：数据、样式规则、聚合 | 稳定 |
+| `createCard`、`CardOptions` | 内置顶牌样式模板（自己拼顶牌时用） | 高级 |
+| `parsePoints`、`resolvePointStyle`、`matchesRule`、`fillTemplate`、`pointsBBox`、`defaultTitle` | 点位解析与规则（纯函数，`PointLayer` 内部用的同一套） | 高级 |
 
 格式与规则见 [markers.md](agents/markers.md)。
 
 ### 3.6 室内 / BIM
 
-| 导出 | 用途 |
-| --- | --- |
-| `IndoorManager`（`viewer.indoor`） | `add(doc, baseUrl?)`、`remove`、`enter(entity)`、`back()`、`query(selector)`、`getById`、`events`（`beforeEnterLevel` / `enterLevel` / `leaveLevel`）、`registerLevelControl` |
-| `Building`、`BimEntity`、`EntitySet` | 建筑、实体（`setStyle`、`visible`、`levelOpacity`、`refreshTransform`）、查询结果的批量操作 |
-| `parseBuildingDoc`、`BuildingDoc`、`FloorDef`、`RoomDef`、`ThingDef`、`StructureDef` 等 | `three-geo-building` 文档格式与校验；[building-data-manual.md](building-data-manual.md) |
-| `compileSelector`、`SelectorError`、`matchesSelector`、`closestMatching` | 选择器 |
-| `LevelControl`、`BUILTIN_LEVEL_CONTROLS`、`buildingLevelControl` 等 | 层级的显隐、半透明、取景策略，可替换 |
-| `ContributionCuller`（`viewer.indoor.culling`）、`ContributionCullingOptions` | 贡献剔除，默认关闭 |
+| 导出 | 用途 | 级别 |
+| --- | --- | --- |
+| `IndoorManager`（`viewer.indoor`） | `add(doc, baseUrl?)`、`remove`、`enter(entity)`、`back()`、`query(selector)`、`getById`、`events`（`beforeEnterLevel` / `enterLevel` / `leaveLevel`）、`registerLevelControl` | 稳定 |
+| `Building`、`BimEntity`、`EntitySet` | 建筑、实体（`setStyle`、`visible`、`levelOpacity`、`refreshTransform`）、查询结果的批量操作 | 稳定 |
+| `parseBuildingDoc`、`BuildingDoc`、`FloorDef`、`RoomDef`、`ThingDef`、`StructureDef` 等 | `three-geo-building` 文档格式与校验；[building-data-manual.md](building-data-manual.md) | 稳定 |
+| `compileSelector`、`SelectorError`、`matchesSelector`、`closestMatching` | 选择器 | 稳定 |
+| `LevelControl`、`BUILTIN_LEVEL_CONTROLS`、`buildingLevelControl` 等 | 层级的显隐、半透明、取景策略，可替换 | 稳定 |
+| `ContributionCuller`（`viewer.indoor.culling`）、`ContributionCullingOptions`、`DEFAULT_CULLING` | 贡献剔除，默认关闭：`enabled`、`configure`、`options`、`stats`、`invalidate` | 稳定 |
 
 格式、层级事件和选择器语法见 [indoor-bim.md](agents/indoor-bim.md)。
 
 ### 3.7 大气与 core
 
-`CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS`；`Ellipsoid`、`cartographic`、`geodeticToEcef`、`geodeticNormal`、`geoidUndulation`、`sunDirectionECEF`；`GpuTier`、`gpuProfile`、`classifyGpu`、`parseGpuTier`；`EventEmitter`；`DEG2RAD`、`RAD2DEG`、`clamp`、`formatDegrees`、`formatDistance`。
+| 导出 | 级别 |
+| --- | --- |
+| `CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS` | 稳定 |
+| `Ellipsoid`、`cartographic`、`WGS84_A` / `WGS84_B`、`geodeticToEcef`、`geodeticNormal`、`sunDirectionECEF` | 稳定 |
+| `EventEmitter`；`DEG2RAD`、`RAD2DEG`、`clamp`、`formatDegrees`、`formatDistance` | 稳定 |
+| `GpuTier`、`GpuProfile`、`TilesQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
+| `gpuProfile`、`classifyGpu`、`parseGpuTier`、`GPU_TIERS`、`GpuHints` | 高级 |
+| 语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError` | 稳定 |
 
-语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError`。
+### 3.8 内部（不再导出）
+
+2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（类型仍经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
+
+公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Marker` 的放置与测量方法。
 
 ## 4. 多个 viewer
 
@@ -194,7 +208,7 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
 | 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |
-| EGM96 网格 | `core/Geoid` | 只读数据，首次使用时解码 |
+| EGM96 网格 | `core/Geoid` | 只读数据，首次使用时解码；只在瓦片 Worker 里用（每个 Worker 一份） |
 
 实测（2026-11-12，Chrome，演示应用的 WebGPU viewer 旁边再建 viewer）：一个 WebGL viewer 与演示应用的 WebGPU viewer 同时加载同一栋建筑（共用样式池的材质），然后销毁；再轮流以 WebGPU / WebGL 创建 6 个 viewer，各加建筑和 300 个聚合点位、渲染后销毁。全程控制台无错误，演示应用的建筑照常渲染（材质没有被别的 viewer 的销毁释放），最后只剩一个 canvas。另外，反复创建、销毁 40 次的泄漏测试见路线图 §10.5：Worker、canvas、`tv-*` 节点、窗口 / 文档监听、rAF 都回到基线。
 

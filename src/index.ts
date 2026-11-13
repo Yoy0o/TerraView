@@ -5,6 +5,13 @@
  * exported is internal and may change without notice. The stylesheet is a
  * separate import: `import 'terra-view/style.css'`.
  *
+ * API tiers (docs/api.md §2): exports are stable unless their declaration is
+ * tagged advanced (engine objects and implementation details for extensions
+ * and debugging; may change in a minor version). Members tagged internal are
+ * stripped from the published declarations. Do not write the tags themselves
+ * (at sign + name) in this comment: `stripInternal` matches the text of any
+ * leading comment, and this one leads the first export.
+ *
  * Units and frames (see docs/api.md): world coordinates are ECEF meters, the
  * public API takes degrees and meters above the WGS84 ellipsoid, internals use
  * radians.
@@ -45,7 +52,6 @@ export type { InteractionEvent, InteractionType, ListenerOptions, PauseScope, Pi
 export { PickBuffer } from './viewer/PickBuffer';
 export type { GpuPick, PickBufferOptions, PickTarget } from './viewer/PickBuffer';
 export type { SurfaceHeight, SurfaceHeightOptions, SurfaceSample, SurfaceSource } from './viewer/SurfaceHeight';
-export { FrameCrossfade } from './viewer/FrameCrossfade';
 export {
   cameraDirection,
   cameraRight,
@@ -59,27 +65,17 @@ export type { HeadingPitch } from './viewer/cameraMath';
 // ---------------------------------------------------------------- globe
 export { Globe } from './globe/Globe';
 export type { GlobeOptions, GlobeStats } from './globe/Globe';
-export { XYZImageryProvider, decodeImage } from './globe/imagery/ImageryProvider';
+export { XYZImageryProvider } from './globe/imagery/ImageryProvider';
 export type { ImageryProvider, XYZImageryOptions } from './globe/imagery/ImageryProvider';
 export { EquirectangularImageryProvider } from './globe/imagery/EquirectangularImageryProvider';
 export type { EquirectangularImageryOptions } from './globe/imagery/EquirectangularImageryProvider';
 export { DebugImageryProvider } from './globe/imagery/DebugImageryProvider';
 export { IMAGERY_PRESETS, OVERLAY_PRESETS, findImageryPreset, findOverlayPreset } from './globe/imagery/presets';
 export type { ImageryPreset, OverlayPreset } from './globe/imagery/presets';
-export {
-  AWS_TERRARIUM,
-  cesiumIonTerrain,
-  isQuantizedMesh,
-  mapboxTerrain,
-  maptilerTerrain,
-  quantizedMeshFromLayerJson,
-} from './globe/terrain/TerrainSource';
+export { AWS_TERRARIUM, cesiumIonTerrain, mapboxTerrain, maptilerTerrain, quantizedMeshFromLayerJson } from './globe/terrain/TerrainSource';
 export type { QuantizedMeshTerrainSource, RasterTerrainSource, TerrainEncoding, TerrainSource } from './globe/terrain/TerrainSource';
 export { OverlayCompositor } from './globe/OverlayCompositor';
 export type { RasterOverlay } from './globe/OverlayCompositor';
-export { WebMercatorTilingScheme, MERCATOR_MAX_LATITUDE } from './globe/TilingScheme';
-export type { GeoRect } from './globe/TilingScheme';
-/** Debug switches of the globe tile shader (wireframe tint, tile borders): shared by every viewer on the page. */
 export { tileDebugUniforms, refreshTileMaterials } from './globe/TileMaterial';
 
 // ---------------------------------------------------------------- 3D Tiles
@@ -97,7 +93,7 @@ export { lonLatToMerc, mercToLonLat } from './vector/geometry';
 export { Marker, MarkerManager } from './markers/MarkerManager';
 export type { MarkerEventType, MarkerOptions, MarkerStats } from './markers/MarkerManager';
 export type { MarkerOcclusion, OcclusionMode } from './markers/occlusion';
-export { createCard, createClusterCard, setClusterCount } from './markers/cards';
+export { createCard } from './markers/cards';
 export type { CardOptions } from './markers/cards';
 export { PointLayer } from './markers/PointLayer';
 export type { ClusterOptions, PointLayerEvents, PointLayerOptions, PointLayerStats } from './markers/PointLayer';
@@ -111,8 +107,6 @@ export {
   resolvePointStyle,
 } from './markers/points';
 export type { Condition, MarkerStyleName, ParsedPoints, PointRecord, PointRule, PointStyle } from './markers/points';
-export { buildClusterTree, clusterLeaves, ClusterSelector } from './markers/clusterTree';
-export type { ClusterTree, ClusterTreeInput, ClusterTreeOptions, ClusterView } from './markers/clusterTree';
 
 // ---------------------------------------------------------------- indoor / BIM
 export { IndoorManager } from './indoor/IndoorManager';
@@ -173,8 +167,7 @@ export { Ellipsoid, cartographic } from './core/Ellipsoid';
 export type { Cartographic } from './core/Ellipsoid';
 export { EventEmitter } from './core/EventEmitter';
 export { WGS84_A, WGS84_B, geodeticNormal, geodeticToEcef } from './core/geodesy';
-export { geoidUndulation } from './core/Geoid';
-export { greenwichMeanSiderealTime, sunDirectionECEF } from './core/SunPosition';
+export { sunDirectionECEF } from './core/SunPosition';
 export { GPU_TIERS, classifyGpu, gpuProfile, parseGpuTier } from './core/gpuProfile';
 export type { GpuHints, GpuProfile, GpuTier, TilesQuality } from './core/gpuProfile';
 export { DEG2RAD, RAD2DEG, clamp, formatDegrees, formatDistance } from './core/math';

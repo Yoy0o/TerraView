@@ -32,14 +32,14 @@ import type { TSLNode } from '../atmosphere/AtmosphereNodes';
 import { isTileMaterial, tileMorphPositionNode } from '../globe/TileMaterial';
 import { bufferPixel, decodeTexel, transformDirection, transformPoint, viewPositionFromDepth } from './pickMath';
 
-/** What a drawn object stands for (the caller's classification; null = not drawn in the pick pass). */
+/** What a drawn object stands for (the caller's classification; null = not drawn in the pick pass). @advanced */
 export interface PickTarget<L = unknown> {
   kind: 'entity' | 'tiles' | 'globe';
   /** The 3D Tiles layer for `kind: 'tiles'`. */
   layer?: L;
 }
 
-/** A pick buffer sample resolved to a scene object and world position. */
+/** A pick buffer sample resolved to a scene object and world position. @advanced */
 export interface GpuPick<L = unknown> {
   object: Object3D;
   /** Instance index for instanced draws (batched devices), 0 otherwise. */
@@ -227,6 +227,7 @@ export class PickMaterials {
   }
 }
 
+/** @advanced */
 export interface PickBufferOptions<L> {
   renderer: WebGPURenderer;
   scene: Scene;
@@ -249,6 +250,8 @@ export interface PickBufferOptions<L> {
  * the result back asynchronously. `lookup()` answers from the latest buffer
  * only while it is `fresh` (camera, size and scene signature unchanged since
  * it was rendered), else returns `undefined` so the caller casts a ray.
+ *
+ * @advanced Reached as `viewer.pickBuffer`; use `viewer.pick` / `pickAt` to pick.
  */
 export class PickBuffer<L = unknown> {
   /** Turn GPU picking on or off (off: lookups always return undefined). */

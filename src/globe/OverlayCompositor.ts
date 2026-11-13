@@ -38,6 +38,7 @@ export class OverlayCompositor implements TileOverlaySource {
 
   constructor(private readonly vectors: TileOverlaySource & { readonly tileSize: number }) {}
 
+  /** @advanced Changes whenever the composited overlay may have (`TileOverlaySource`). */
   get version(): number {
     return this.rasterVersion * VECTOR_SPAN + this.vectors.version;
   }
@@ -90,18 +91,22 @@ export class OverlayCompositor implements TileOverlaySource {
   }
 
   // ---------------------------------------------------------------------------
-  // TileOverlaySource
+  // TileOverlaySource: called by the globe. Advanced rather than internal only
+  // because the declaration keeps `implements TileOverlaySource`.
 
+  /** @advanced */
   hasContent(level: number, x: number, y: number): boolean {
     return this.activeRasters(level).length > 0 || this.vectors.hasContent(level, x, y);
   }
 
+  /** @advanced */
   isCurrent(level: number, x: number, y: number, tileVersion: number): boolean {
     const tileRaster = Math.floor(tileVersion / VECTOR_SPAN);
     if (tileRaster !== this.rasterVersion) return false;
     return this.vectors.isCurrent(level, x, y, tileVersion - tileRaster * VECTOR_SPAN);
   }
 
+  /** @advanced */
   async requestOverlay(level: number, x: number, y: number, signal: AbortSignal): Promise<ImageBitmap | null> {
     const rasters = this.activeRasters(level);
     const vector = this.vectors.hasContent(level, x, y) ? this.vectors.requestOverlay(level, x, y, signal) : Promise.resolve(null);

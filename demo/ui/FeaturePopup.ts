@@ -52,7 +52,7 @@ export class FeaturePopup {
       else if (this.entity) this.close();
     });
     viewer.events.on('vectors-changed', (layers) => {
-      const hl = viewer.vectors.highlighted;
+      const hl = viewer.highlightedFeature;
       if (hl && !layers.some((l) => l.id === hl.layerId)) this.close();
     });
     viewer.events.on('point-click', ({ point, layer, event }) => this.showPoint(point, layer, event.clientX, event.clientY));
