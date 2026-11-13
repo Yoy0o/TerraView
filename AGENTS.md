@@ -42,7 +42,7 @@
 
 - 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
 
-- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），以及 `#lon,lat,height,heading,pitch`。
+- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`（见 docs/api.md §1.8），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
 
 ## 2. 目录与职责
@@ -71,7 +71,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
                 FrameCrossfade（层级切换淡出）、IndoorBackdrop（无地表时的展台背景）、
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
-                PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、
+                PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、framePacing（静止降帧，纯函数）、
                 OcclusionProxies（顶牌遮挡查询代理）
 demo/           演示应用，不进包；只通过 `terra-view` 入口使用 SDK
 ├─ main.ts      启动、URL 参数、hash 同步、Esc 返回、文件拖放
@@ -79,7 +79,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -178,6 +178,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 聚合用加载时建一次的层级聚合树（借鉴 Supercluster），每帧按节点距离选层；顶牌按需创建 DOM，避让走网格索引并定时放置。见 markers.md §5。
   - 共 8 种样式（card / pin / tag / poi / pulse / beacon / badge / label），见 markers.md。
 - **矢量**：GeoJSON 在 Worker 中解析和栅格化，按瓦片贴地；注记做屏幕空间避让。
+- **帧率**：画面安静 1 秒后按 `idleFrameRate`（默认 10）降帧，有变化立刻恢复（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`，或像云层那样给出最低帧率；否则静止时它只按 10 fps 推进，看起来发顿。按帧计数的逻辑（每帧预算、每 N 帧一次）在降帧时会变慢，能按时间算的就按时间算。
 - **开场动画、云层、导航控制**：核心 API 是 `viewer.playIntro()`、`viewer.clouds`、`viewer.navigation`，演示界面（`ui/NavigationBar`、面板开关、URL 参数）只调用它们。脚本化的相机运动走 `controller.playAnimation`，程序缩放 / 环绕走 `zoomBy` / `orbitBy`，不要直接改相机位姿，否则手势打断不了。见 [intro-and-navigation.md](docs/agents/intro-and-navigation.md)。
 
 ## 5. 常见任务

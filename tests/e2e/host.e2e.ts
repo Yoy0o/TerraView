@@ -5,8 +5,24 @@
  * of three, Workers loaded from the package, and disposing one viewer leaves the other running.
  * Imagery and terrain come from the local stand-in tiles (tests/e2e/server.mjs).
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { backendOf, framesOf, liveWorkers, probeBackend, waitForGlobe, waitForViewer, watch, type SmokeWindow } from './smoke';
+
+/** Frames a viewer draws in `ms` milliseconds. */
+function frameCount(page: Page, name: string, ms: number): Promise<number> {
+  return page.evaluate(
+    ([n, duration]) =>
+      new Promise<number>((resolve) => {
+        let frames = 0;
+        const off = (window as unknown as SmokeWindow)[n as string]!.events.on('frame', () => frames++);
+        setTimeout(() => {
+          off();
+          resolve(frames);
+        }, duration as number);
+      }),
+    [name, ms] as const,
+  );
+}
 
 /** What scripts/host-fixture/main.ts records from the viewers' events. */
 interface HostEvents {
@@ -35,6 +51,14 @@ test('host: two viewers from the package, dispose one then the other', async ({ 
         }),
       )
       .toBe(true);
+
+    // Idle frame-rate throttling (default 10 fps) once the left view has been quiet for a second,
+    // and back to the full rate on requestRender().
+    await expect.poll(() => page.evaluate(() => (window as unknown as SmokeWindow).left!.stats.throttled), { timeout: 15_000 }).toBe(true);
+    const idle = await frameCount(page, 'left', 1000);
+    expect(idle, 'frames per second while quiet').toBeLessThanOrEqual(15);
+    await page.evaluate(() => (window as unknown as SmokeWindow).left!.requestRender());
+    expect(await frameCount(page, 'left', 500), 'frames in 0.5 s after requestRender()').toBeGreaterThan(idle);
   }
 
   // Right: the sample building is entered. Left: the point in view (the other one lies behind the
@@ -55,6 +79,13 @@ test('host: two viewers from the package, dispose one then the other', async ({ 
   expect(outside, 'markers outside their viewer').toEqual([]);
   await framesOf(page, 'right');
   expect(await liveWorkers(page)).toBeGreaterThan(0);
+
+  // A container that is not displayed draws nothing, and draws again once shown.
+  await page.evaluate(() => (document.getElementById('right')!.style.display = 'none'));
+  await page.waitForTimeout(300);
+  expect(await frameCount(page, 'right', 600), 'frames while the container is hidden').toBe(0);
+  await page.evaluate(() => (document.getElementById('right')!.style.display = ''));
+  await framesOf(page, 'right');
 
   // Dispose the left viewer: its DOM and container changes go, the right one keeps drawing.
   await page.evaluate(() => (window as unknown as SmokeWindow).left!.dispose());

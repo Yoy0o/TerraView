@@ -55,6 +55,7 @@ import { PickBuffer, type PickTarget } from './PickBuffer';
 import { checkViewerOptions } from './viewerOptions';
 import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
 import { LoadTracker, summarizeLoad, type LoadState } from './loadState';
+import { cloudFrameRate, DEFAULT_IDLE_FRAME_RATE, FramePacer, MAX_IDLE_FRAME_RATE, normalizeIdleFrameRate } from './framePacing';
 
 export interface ViewPosition {
   /** Degrees. */
@@ -133,6 +134,13 @@ export interface GeoViewerOptions extends GlobeOptions {
   locale?: LocaleId;
   /** Overrides individual texts of `locale`. */
   messages?: ViewerMessageOverrides;
+  /**
+   * Frames per second once the view has been quiet for a second (default 10): nothing loading,
+   * no camera motion, input or transition. Saves most of the CPU and GPU time a static view
+   * costs (docs/api.md §1.8). 0 draws every animation frame; other values are kept within
+   * 10–60 (below 10 the saving is unreliable and time-based motion would slow down).
+   */
+  idleFrameRate?: number;
 }
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 110, latitude: 28, height: 1.8e7 };
@@ -171,11 +179,14 @@ export interface MemoryReport {
 }
 
 export interface FrameStats {
+  /** Frames drawn per second (the idle frame rate while `throttled`). */
   fps: number;
   frameMs: number;
   gpuMs: number | null;
   drawCalls: number;
   triangles: number;
+  /** Frames are currently drawn at `idleFrameRate` because the view has been quiet. */
+  throttled: boolean;
 }
 
 export interface ViewerEvents extends Record<string, unknown> {
@@ -246,6 +257,8 @@ const CENTER_NDC = new Vector2(0, 0);
 const SURFACE_RAY_TOP = 10_000;
 /** …and reach this far below it (Dead Sea shore, ellipsoid below the geoid). */
 const SURFACE_RAY_BOTTOM = 1_000;
+/** Input on the container that wakes the frame loop up (passive listeners; the camera and interaction handle the input itself). */
+const INPUT_EVENTS = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const;
 /** How long suppressed 3D Tiles keep loading for a building still waiting for ground, after the last loading activity, ms. */
 const GROUND_PROBE_MS = 15_000;
 
@@ -286,7 +299,7 @@ export class GeoViewer {
   readonly skyLight = new HemisphereLight(0xbcd7ff, 0x4a4136, 1.1);
   readonly events = new EventEmitter<ViewerEvents>();
   readonly info: RendererInfo;
-  readonly stats: FrameStats = { fps: 0, frameMs: 0, gpuMs: null, drawCalls: 0, triangles: 0 };
+  readonly stats: FrameStats = { fps: 0, frameMs: 0, gpuMs: null, drawCalls: 0, triangles: 0, throttled: false };
   readonly tilesets: Tiles3DLayer[] = [];
   /** @internal Worker-backed vector pipeline (draped rasterization, queries). */
   readonly vectors = new VectorService();
@@ -368,6 +381,13 @@ export class GeoViewer {
   private resizeObserver: ResizeObserver;
   private disposed = false;
   private timestampPending = false;
+  /** Idle frame-rate throttling (P2.1a). */
+  private readonly pacer: FramePacer;
+  /** Whether the container intersects the viewport; frames stop while it does not. */
+  private onScreen = true;
+  private intersectionObserver: IntersectionObserver | null = null;
+  /** Input on the container wakes the frame loop up to the full rate. */
+  private readonly onInput = () => this.requestRender();
 
   static async create(options: GeoViewerOptions): Promise<GeoViewer> {
     // Fail fast (before any GPU work) on what plain JavaScript hosts can get wrong.
@@ -388,6 +408,7 @@ export class GeoViewer {
 
   private constructor(options: GeoViewerOptions, renderer: WebGPURenderer, profile: GpuProfile) {
     this.container = options.container;
+    this.pacer = new FramePacer(normalizeIdleFrameRate(options.idleFrameRate ?? DEFAULT_IDLE_FRAME_RATE), performance.now());
     this.renderer = renderer;
     this.gpu = profile;
     this.locale = options.locale ?? DEFAULT_LOCALE;
@@ -494,6 +515,10 @@ export class GeoViewer {
       this.info.backend === 'WebGPU' ? new PickBuffer<Tiles3DLayer>({ renderer, scene: this.scene, camera: this.camera, classify: (o) => this.classifyPick(o) }) : null;
     // Level changes show and hide content without necessarily changing the draw statistics.
     for (const type of ['enterLevel', 'leaveLevel', 'buildings-changed'] as const) this.indoor.events.on(type, () => this.pickBuffer?.invalidate());
+    // Level changes, selection and hover change what is drawn: back to the full frame rate.
+    for (const type of ['beforeEnterLevel', 'enterLevel', 'leaveLevel', 'buildings-changed', 'select', 'hover'] as const) {
+      this.indoor.events.on(type, () => this.requestRender());
+    }
 
     const host: ControllerHost = {
       camera: this.camera,
@@ -510,6 +535,10 @@ export class GeoViewer {
       toCartographic: (p) => this.ellipsoid.cartesianToCartographic(p),
     });
     this.controller.doubleClickHandler = (e) => this.interaction.dispatchDoubleClick(e);
+    // Camera motion of any origin (gestures, flights, animations, inertia, auto-orbit) keeps the full frame rate.
+    this.controller.events.on('change', () => this.requestRender());
+    this.controller.events.on('interactionstart', () => this.requestRender());
+    for (const type of ['tilesets-changed', 'vectors-changed', 'points-changed'] as const) this.events.on(type, () => this.requestRender());
     // Labels sit above the canvas: their clicks reach the interaction listeners as clicks on the entity.
     this.markers.eventProxy = (type, marker, event) => {
       const entity = marker.options.userData?.entity;
@@ -524,10 +553,23 @@ export class GeoViewer {
     this.setView(v);
     this.navigation = new NavigationControls(this, this.container, options.homeView ?? v);
 
-    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver = new ResizeObserver(() => {
+      this.resize();
+      this.requestRender();
+    });
     this.resizeObserver.observe(this.container);
     this.resize();
-    void renderer.setAnimationLoop((t: number) => this.frame(t));
+    for (const type of INPUT_EVENTS) this.container.addEventListener(type, this.onInput, { passive: true });
+    // Nothing to see while the container is scrolled away or not displayed: stop drawing.
+    if (typeof IntersectionObserver !== 'undefined') {
+      this.intersectionObserver = new IntersectionObserver((entries) => {
+        const visible = entries[entries.length - 1]?.isIntersecting ?? true;
+        if (visible && !this.onScreen) this.requestRender();
+        this.onScreen = visible;
+      });
+      this.intersectionObserver.observe(this.container);
+    }
+    void renderer.setAnimationLoop((t: number) => this.tick(t));
   }
 
   // ---------------------------------------------------------------------------
@@ -540,6 +582,7 @@ export class GeoViewer {
   /** Real sun position and day/night shading (otherwise imagery is shown unlit). */
   set lighting(v: boolean) {
     this._lighting = v;
+    this.requestRender();
   }
 
   get atmosphere(): boolean {
@@ -548,6 +591,7 @@ export class GeoViewer {
 
   set atmosphere(v: boolean) {
     this._atmosphere = v;
+    this.requestRender();
   }
 
   get showGlobe(): boolean {
@@ -556,6 +600,7 @@ export class GeoViewer {
 
   set showGlobe(v: boolean) {
     this._showGlobe = v;
+    this.requestRender();
     this.globe.group.visible = v;
     if (v) {
       this.globeHiddenFor = 0;
@@ -587,6 +632,7 @@ export class GeoViewer {
 
   set showStars(v: boolean) {
     this._showStars = v;
+    this.requestRender();
     this.stars.mesh.visible = v;
   }
 
@@ -594,6 +640,7 @@ export class GeoViewer {
   // Camera
 
   setView(v: ViewPosition): void {
+    this.requestRender();
     const pos = this.ellipsoid.cartographicToCartesian(v.longitude * DEG2RAD, v.latitude * DEG2RAD, v.height);
     this.controller.setView(pos, (v.heading ?? 0) * DEG2RAD, (v.pitch ?? -90) * DEG2RAD);
   }
@@ -1077,6 +1124,7 @@ export class GeoViewer {
   /** Highlights a picked feature (null clears). */
   highlightFeature(hit: FeatureHit | null): void {
     this.vectors.setHighlight(hit);
+    this.requestRender();
   }
 
   /**
@@ -1154,6 +1202,53 @@ export class GeoViewer {
     for (const layer of this.tilesets) layer.tiles.setResolutionFromRenderer(this.camera, this.renderer as never);
   }
 
+  /**
+   * Frames per second once the view has been quiet for a second (see
+   * `GeoViewerOptions.idleFrameRate`): 0 draws every animation frame, other values are kept
+   * within 10–60.
+   */
+  get idleFrameRate(): number {
+    return this.pacer.idleFrameRate;
+  }
+
+  set idleFrameRate(value: number) {
+    this.pacer.idleFrameRate = normalizeIdleFrameRate(value);
+    this.requestRender();
+  }
+
+  /**
+   * Back to the full frame rate for at least a second. The viewer notices its own changes
+   * (input, camera motion, loading, level changes, layers added or removed); call this after
+   * changing the scene behind its back (objects added to `viewer.scene`, entity styles set
+   * from code) so the change shows at once rather than with the next idle frame.
+   */
+  requestRender(): void {
+    this.pacer.markActivity(performance.now());
+  }
+
+  /** Per animation frame: draw, unless the view is quiet and throttled, or the container is off screen. */
+  private tick(time: number): void {
+    if (this.disposed || !this.onScreen) return;
+    if (!this.pacer.shouldDraw(time, this.idleFloorRate())) return;
+    this.pacer.frameDrawn(time);
+    this.frame(time);
+  }
+
+  /** Frames per second that what still moves on its own needs while quiet: simulated time, cloud drift. */
+  private idleFloorRate(): number {
+    // Motion started from code since the last frame (flyTo, zoomBy, playAnimation...) shows at once.
+    if (this.timeMultiplier !== 0 || this.controller.inMotion) return MAX_IDLE_FRAME_RATE;
+    if (!this.clouds.mesh.visible) return 0;
+    const o = this.clouds.getOptions();
+    return cloudFrameRate({
+      speedDegPerSec: o.speed,
+      layerRadius: this.ellipsoid.radii.x + o.height,
+      distance: this.cameraCarto.height - o.height,
+      fovDeg: this.camera.fov,
+      viewportHeight: this.container.clientHeight,
+    });
+  }
+
   private frame(time: number): void {
     if (this.disposed) return;
     const dt = this.lastTime < 0 ? 1 / 60 : Math.min((time - this.lastTime) / 1000, 0.25);
@@ -1182,10 +1277,13 @@ export class GeoViewer {
       if (probe && layer.tiles.loadProgress < 1) this.extendGroundProbe();
     }
     // Floor expansion and re-grounding move content without changing the draw statistics.
-    if (this.indoor.update(dt)) this.pickBuffer?.invalidate();
+    if (this.indoor.update(dt)) {
+      this.pickBuffer?.invalidate();
+      this.requestRender();
+    }
     const building = this.currentBuilding();
     const bare = this.indoorBackdrop && building !== null && !this._showGlobe && !this.tilesets.some((l) => l.active);
-    this.backdrop.update(bare ? building : null, dt);
+    if (this.backdrop.update(bare ? building : null, dt)) this.requestRender();
     this.interaction.update();
     this.labels.update(this.camera, this.container.clientWidth, this.container.clientHeight, dt);
 
@@ -1193,6 +1291,7 @@ export class GeoViewer {
     // Point layers clamp to the terrain and cluster before the markers are placed.
     for (const layer of this.pointLayers) layer.update(this.camera, this.container.clientWidth, this.container.clientHeight);
     this.markers.update(this.camera, this.container.clientWidth, this.container.clientHeight);
+    if (this.markers.busy) this.requestRender();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const info = this.renderer.info as any;
     const drawCalls = info.render?.drawCalls ?? info.render?.calls ?? 0;
@@ -1221,6 +1320,7 @@ export class GeoViewer {
       layers,
     });
     this._loadState = state;
+    if (!state.idle) this.requestRender();
     const { progress, idle } = this.loadTracker.step(state);
     if (progress) this.events.emit('load-progress', state);
     if (idle) this.events.emit('idle', state);
@@ -1331,6 +1431,7 @@ export class GeoViewer {
     this.fpsTime += dt;
     this.stats.drawCalls = drawCalls;
     this.stats.triangles = triangles;
+    this.stats.throttled = this.pacer.throttled;
     this.stats.frameMs = this.stats.frameMs * 0.9 + cpuMs * 0.1;
     if (this.fpsTime >= 0.5) {
       this.stats.fps = this.fpsFrames / this.fpsTime;
@@ -1356,6 +1457,8 @@ export class GeoViewer {
     this.disposed = true;
     void this.renderer.setAnimationLoop(null);
     this.resizeObserver.disconnect();
+    this.intersectionObserver?.disconnect();
+    for (const type of INPUT_EVENTS) this.container.removeEventListener(type, this.onInput);
     this.controller.dispose();
     this.interaction.dispose();
     for (const layer of [...this.tilesets]) this.removeTileset(layer);

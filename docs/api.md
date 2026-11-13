@@ -99,7 +99,7 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | `geojson-invalid` | GeoJSON 无法识别（`addGeoJson`） | 无 |
 | `option-invalid` | `GeoViewer.create` 的必填项缺失或类型不对（`container` 要是元素，`imagery` 要是影像源）；在创建渲染器之前检查 | `option`、`expected` |
 
-图层异步加载失败时，`Tiles3DLayer`、`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上错误（`{ message, error }`），可以照样按 `code` 处理。
+图层异步加载失败时，`Tiles3DLayer`、`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上错误（`{ message, error }`），可以照样按 `code` 处理。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
 
 **统一监听**：`viewer.events.on('error', ({ source, error, layer }) => …)` 收到上面所有加载失败（`ViewerError`）：`source` 是 `imagery` / `terrain` / `tileset` / `geojson` / `points`，图层的失败带 `layer`。图层自己的 `error` 事件照常触发，两处选一处处理即可。
 
@@ -123,7 +123,22 @@ viewer.events.on('idle', () => {
 });
 ```
 
-`idle` 只看网络和解码：建筑模型（`indoor.add`）的加载不在其中。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
+`idle` 只看网络和解码：建筑模型（`indoor.add`）的加载不在其中。
+
+### 1.8 帧率与功耗
+
+画面静止时也按显示器刷新率每帧渲染，开销不小：实测（RTX 40 系列独显、1920×1080）地球静止约占 0.4–0.6 个 CPU 核，建筑场景 0.8–1.3 个核，GPU 每秒忙 100–230 毫秒；集显笔记本、4K 和高刷新率屏幕更高。所以 viewer 默认在画面**安静 1 秒后降到每秒 10 帧**，有变化立刻恢复全帧率；实测静止时的 CPU 占用降到原来的约三分之一到四分之一。
+
+| 项 | 说明 |
+| --- | --- |
+| `GeoViewerOptions.idleFrameRate`、`viewer.idleFrameRate` | 安静时每秒画几帧，默认 10。0 表示不降帧（每帧都画）；其他值限在 10–60（低于 10 时省电不稳定，按时间推进的运动也会变慢） |
+| 什么算"有变化" | 容器上的指针、滚轮、键盘输入；相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；层级切换、选中、悬停；图层增删；顶牌待放置；尺寸变化；场景开关（`lighting` 等）；`timeMultiplier` 不为 0 |
+| 云层 | 可见时按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画 |
+| `viewer.requestRender()` | 恢复全帧率至少 1 秒。viewer 自己的改动它都能发现；绕过它改了场景时调用，例如往 `viewer.scene` 加了对象、从代码改了实体样式，否则改动要等下一个安静帧（最多 100 ms）才出现 |
+| 容器不可见 | 容器滚出视口或 `display: none` 时完全不画（`IntersectionObserver`），回到视口立刻恢复。这期间加载不推进，`idle` 事件也不会触发 |
+| 统计 | `viewer.stats.throttled` 表示当前是否按安静帧率在画；`stats.fps` 和 `frame` 事件按实际画的帧走，安静时约为 10 |
+
+标签页隐藏时浏览器本来就会停掉渲染，不需要额外处理。
 
 ## 2. 约定
 
@@ -151,6 +166,7 @@ viewer.events.on('idle', () => {
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
 | `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
+| `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` | 安静时降帧与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
 | `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
 | `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`、`ListenerOptions`、`PauseScope`、`PickInfo` | 稳定 |

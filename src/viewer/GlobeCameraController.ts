@@ -235,6 +235,23 @@ export class GlobeCameraController {
     return this.animation !== null;
   }
 
+  /**
+   * @internal Something will move the camera on the next update: a flight, animation, orbit,
+   * pending zoom, inertia, drag or held key. The viewer then draws every frame (idle
+   * frame-rate throttling), also when the motion was started from code between two frames.
+   */
+  get inMotion(): boolean {
+    return (
+      this.flight !== null ||
+      this.animation !== null ||
+      this.orbitAnim !== null ||
+      this.zoomPending !== 0 ||
+      (this.spinVelocity > 1e-5 && this.mode === 'none') ||
+      this.mode !== 'none' ||
+      this.keys.size > 0
+    );
+  }
+
   /** True when the camera moved since the last call (used for render-on-demand). */
   consumeChanged(): boolean {
     const c = this.changed;

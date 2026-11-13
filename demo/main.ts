@@ -8,7 +8,7 @@ import { LevelBar } from './ui/IndoorPanel';
 import { NavigationBar } from './ui/NavigationBar';
 import { loadSettings } from './ui/settings';
 import { StatusBar } from './ui/StatusBar';
-import { hasStartupFlight, parseCloudParams, parseCullingParams, parseIntroParams } from './ui/urlOptions';
+import { hasStartupFlight, parseCloudParams, parseCullingParams, parseIntroParams, parseNumber } from './ui/urlOptions';
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 112, latitude: 26, height: 1.75e7, heading: 0, pitch: -90 };
 
@@ -78,6 +78,8 @@ async function main(): Promise<void> {
       forceWebGL: params.has('webgl'),
       // ?gpu=low|medium|high|ultra overrides the tier guessed from the adapter.
       gpuTier: parseGpuTier(params.get('gpu')),
+      // ?idleFps=0 draws every frame; 10–60 is the frame rate once the view is quiet (default 10).
+      idleFrameRate: parseNumber(params, 'idleFps', 0, 240),
       initialView: parseHashView() ?? DEFAULT_VIEW,
     });
   } catch (err) {

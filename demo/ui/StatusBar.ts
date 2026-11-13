@@ -89,7 +89,9 @@ export class StatusBar {
 
     const s = v.stats;
     const gpu = s.gpuMs !== null ? ` · GPU ${s.gpuMs.toFixed(1)} ms` : '';
-    this.perf.textContent = `${s.fps.toFixed(0)} FPS · CPU ${s.frameMs.toFixed(1)} ms${gpu} · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris`;
+    // "节能": the view is quiet and drawn at the idle frame rate (GeoViewerOptions.idleFrameRate).
+    const idle = s.throttled ? '（节能）' : '';
+    this.perf.textContent = `${s.fps.toFixed(0)} FPS${idle} · CPU ${s.frameMs.toFixed(1)} ms${gpu} · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris`;
     const g = v.globe.stats;
     let tilesText = `瓦片 ${g.rendered} / 缓存 ${g.cached} · L${g.maxLevel}`;
     if (g.waitingImagery > 0) tilesText += ` · 待影像 ${g.waitingImagery}`;

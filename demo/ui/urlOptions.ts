@@ -15,7 +15,8 @@
  *   ?cullHysteresis=0..1  ?cullInterval=<frames>   ?cullSelector=<entity selector, e.g. .thing>
  *
  * Read in main.ts: ?gpu=low|medium|high|ultra sets the GPU tier (memory budgets and default quality,
- * docs/agents/gpu-memory.md) instead of the one guessed from the adapter.
+ * docs/agents/gpu-memory.md) instead of the one guessed from the adapter; ?idleFps=<0, 10–60> sets
+ * the frame rate once the view is quiet (0 = every frame; docs/api.md §1.8).
  */
 import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
 

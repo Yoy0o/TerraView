@@ -351,6 +351,15 @@ export class MarkerManager {
     return this.markers.size;
   }
 
+  /**
+   * @internal A placement was requested (markers added, removed, resized, occlusion changed)
+   * or markers still wait for their first placement: the viewer keeps its full frame rate
+   * until they are placed (idle frame-rate throttling).
+   */
+  get busy(): boolean {
+    return this.placementRequested || this.pending;
+  }
+
   add(options: MarkerOptions): Marker {
     const marker = new Marker(options, this);
     this.markers.add(marker);
@@ -411,6 +420,9 @@ export class MarkerManager {
       stats.candidates = stats.decluttered = stats.shown = stats.occluded = 0;
       stats.ms = 0;
       this.setDense(false);
+      // Nothing to place (a request left over from the last removal would otherwise stay pending).
+      this.placementRequested = false;
+      this.pending = false;
       return;
     }
     camera.updateMatrixWorld();
