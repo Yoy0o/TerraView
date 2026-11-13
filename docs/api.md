@@ -104,7 +104,10 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
 - **事件**：各对象的 `events` 是 `EventEmitter`，`on(type, handler)` 返回取消函数。
 - **相机**：不要直接改 `viewer.camera` 的位姿，用 `setView` / `flyTo` / `viewer.navigation` / `controller.playAnimation`，否则手势打断不了，也不触发按需更新。
-- **内部对象**：`viewer.renderer`、`scene`、`camera`、`globe`、`controller` 是公开字段，方便调试和高级用法，但不属于稳定 API。
+- **API 分级**：§3 每项都标了级别。
+  - **稳定**：不加标记。0.x 期间也尽量不破坏，破坏时记入 CHANGELOG。
+  - **高级**：源码和声明里标 `@advanced`。给扩展和调试用，直接接触引擎对象（`viewer.renderer` / `scene` / `camera` / `globe` / `pickBuffer` / `levelTransition` 等）或暴露实现细节；次版本可以改，不预先废弃。
+  - **内部**：不从包入口导出，公开对象上的内部成员（`@internal`）也不出现在类型声明里。JavaScript 宿主仍能在运行时访问它们，但随时可能变。
 
 ## 3. 导出清单
 

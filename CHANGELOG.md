@@ -4,6 +4,14 @@
 
 ## [未发布]
 
+### 公共 API 分级（2026-11-13，路线图 §0.2 P1.1）
+
+导出和公开成员分成稳定 / 高级 / 内部三级，规则见 [docs/api.md](docs/api.md) §2，每项的级别见 §3。
+
+**工程**
+
+- 类型声明构建开 `stripInternal`：标了 `@internal` 的成员不再出现在 `dist/types` 里。`build:types` 之后再用 `tsconfig.dts.json`（`skipLibCheck: false`）检查一遍发布的声明，防止公开签名引用被裁掉的声明（宿主工程开着 `skipLibCheck`，原来发现不了）。
+
 ### 浏览器冒烟测试（2026-11-12，路线图 §0.2 P1.5）
 
 只涉及开发与 CI，包的内容不变。

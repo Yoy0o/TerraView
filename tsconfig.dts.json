@@ -1,0 +1,16 @@
+{
+  // Checks the published declarations (`dist/types`, after `build:types`) the way a host's
+  // compiler with `skipLibCheck: false` sees them: `stripInternal` must not leave a public
+  // signature pointing at a removed declaration.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["@webgpu/types"],
+    "strict": true,
+    "skipLibCheck": false,
+    "noEmit": true
+  },
+  "files": ["dist/types/index.d.ts"]
+}

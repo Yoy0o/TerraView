@@ -50,7 +50,7 @@
     "dev": "vite --config vite.demo.config.ts",
     "build": "npm run typecheck && npm run build:lib && npm run build:types",
     "build:lib": "vite build",
-    "build:types": "tsc -p tsconfig.build.json",
+    "build:types": "tsc -p tsconfig.build.json && tsc -p tsconfig.dts.json",
     "build:demo": "vite build --config vite.demo.config.ts",
     "preview": "vite preview --config vite.demo.config.ts",
     "typecheck": "tsc --noEmit",
