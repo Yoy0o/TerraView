@@ -6,16 +6,16 @@
  * Imagery and terrain come from the local stand-in tiles (tests/e2e/server.mjs).
  */
 import { expect, test } from '@playwright/test';
-import { backendOf, framesOf, liveWorkers, requireBackend, waitForGlobe, waitForViewer, watch, type SmokeWindow } from './smoke';
+import { backendOf, framesOf, liveWorkers, probeBackend, waitForGlobe, waitForViewer, watch, type SmokeWindow } from './smoke';
 
 test('host: two viewers from the package, dispose one then the other', async ({ page, baseURL }, info) => {
   const w = await watch(page, baseURL!);
   const backend = backendOf(info);
   await page.goto(backend === 'WebGL2' ? '/?webgl' : '/');
-  await requireBackend(page, info);
+  const { software } = await probeBackend(page, info);
 
   for (const name of ['left', 'right']) await waitForViewer(page, name, backend);
-  for (const name of ['left', 'right']) await waitForGlobe(page, name);
+  await waitForGlobe(page, ['left', 'right'], { drained: !software });
   expect(w.served.imagery, 'stand-in imagery tiles').toBeGreaterThan(0);
   expect(w.served.terrain, 'stand-in terrain tiles').toBeGreaterThan(0);
 

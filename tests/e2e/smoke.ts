@@ -6,7 +6,9 @@
  *   requests to other origins with the local tiles of tests/e2e/server.mjs (anything else from
  *   another origin is aborted and listed), so a run never depends on outside services.
  * - `backendOf(project)`: which renderer backend a project asks for.
- * - `waitForGlobe(...)`: waits until a viewer's globe has tiles on screen and nothing loading.
+ * - `probeBackend(page, info)`: skips when that backend is missing, tells whether it renders in
+ *   software (SwiftShader: CI, `SMOKE_NO_GPU=1`).
+ * - `waitForGlobe(...)`: waits until the viewers' globes are ready (stricter on a real GPU).
  *
  * Code inside `page.evaluate` runs in the browser: it may use imported types, not imported values.
  */
@@ -87,11 +89,31 @@ export function backendOf(info: TestInfo): 'WebGL2' | 'WebGPU' {
   return info.project.name.endsWith('webgpu') ? 'WebGPU' : 'WebGL2';
 }
 
-/** Skips the test when the browser has no WebGPU adapter (e.g. headless Linux CI without a GPU). */
-export async function requireBackend(page: Page, info: TestInfo): Promise<void> {
-  if (backendOf(info) !== 'WebGPU') return;
-  const adapter = await page.evaluate(async () => !!(await navigator.gpu?.requestAdapter()));
-  info.skip(!adapter, 'no WebGPU adapter in this browser');
+/**
+ * Skips the test when the browser has no adapter for the project's backend, and returns whether
+ * that backend renders in software (SwiftShader / llvmpipe / WARP): GPU-less CI runners, or
+ * `SMOKE_NO_GPU=1` locally. Asks the browser rather than reading the environment, so a runner
+ * that does have a GPU gets the strict checks.
+ */
+export async function probeBackend(page: Page, info: TestInfo): Promise<{ software: boolean }> {
+  const probe = await page.evaluate(async (backend) => {
+    const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|warp|microsoft basic render/i;
+    if (backend === 'WebGPU') {
+      const adapter = await navigator.gpu?.requestAdapter();
+      if (!adapter) return null;
+      const a = adapter.info as GPUAdapterInfo & { isFallbackAdapter?: boolean };
+      return { software: a.isFallbackAdapter === true || SOFTWARE.test(`${a.vendor} ${a.architecture} ${a.description}`) };
+    }
+    const gl = document.createElement('canvas').getContext('webgl2');
+    if (!gl) return null;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return { software: SOFTWARE.test(renderer) };
+  }, backendOf(info));
+  info.skip(!probe, `no ${backendOf(info)} adapter in this browser`);
+  info.annotations.push({ type: 'renderer', description: probe!.software ? 'software' : 'hardware' });
+  return probe!;
 }
 
 /** Waits for `window[name]` to be a viewer and checks its backend. */
@@ -102,15 +124,27 @@ export async function waitForViewer(page: Page, name: string, backend: 'WebGL2' 
   expect(actual, `${name} backend`).toBe(backend);
 }
 
-/** Waits until the viewer's globe shows tiles with nothing loading or waiting for imagery. */
-export async function waitForGlobe(page: Page, name: string): Promise<void> {
+/**
+ * Waits until the globes of the named viewers (all at once) are ready:
+ *
+ * - every tile on screen shows its own imagery (none magnified from an ancestor or blank);
+ * - `drained` (on a real GPU, a few seconds): also nothing loading or queued, so the scheduler
+ *   runs dry instead of stalling.
+ *
+ * In software rendering, imagery takes about a second per tile to decode while SwiftShader keeps
+ * the CPU busy, and the low-priority loads left after the screen is complete (ancestor imagery kept
+ * as fallbacks, a third of the slots by design) took longer than the whole on-screen part on a
+ * 2-core runner. That measures SwiftShader, not the SDK, so it is checked on a GPU only.
+ */
+export async function waitForGlobe(page: Page, names: string[], { drained }: { drained: boolean }): Promise<void> {
   await page.waitForFunction(
-    (n) => {
-      const s = (window as unknown as SmokeWindow)[n]!.globe.stats;
-      return s.rendered > 0 && s.loading === 0 && s.queued === 0 && s.waitingImagery === 0;
-    },
-    name,
-    { timeout: 150_000, polling: 250 },
+    ([ns, all]) =>
+      (ns as string[]).every((n) => {
+        const s = (window as unknown as SmokeWindow)[n]!.globe.stats;
+        return s.rendered > 0 && s.waitingImagery === 0 && (!all || (s.loading === 0 && s.queued === 0));
+      }),
+    [names, drained] as const,
+    { timeout: 180_000, polling: 250 },
   );
 }
 

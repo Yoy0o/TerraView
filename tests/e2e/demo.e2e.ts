@@ -5,16 +5,16 @@
  * another origin.
  */
 import { expect, test } from '@playwright/test';
-import { backendOf, framesOf, liveWorkers, requireBackend, waitForGlobe, waitForViewer, watch, type SmokeWindow } from './smoke';
+import { backendOf, framesOf, liveWorkers, probeBackend, waitForGlobe, waitForViewer, watch, type SmokeWindow } from './smoke';
 
 test('demo: globe, building levels, dispose', async ({ page, baseURL }, info) => {
   const w = await watch(page, baseURL!);
   const backend = backendOf(info);
   await page.goto(`/?imagery=debug&noterrain&intro=0&clouds=0&demo${backend === 'WebGL2' ? '&webgl' : ''}`);
-  await requireBackend(page, info);
+  const { software } = await probeBackend(page, info);
 
   await waitForViewer(page, 'viewer', backend);
-  await waitForGlobe(page, 'viewer');
+  await waitForGlobe(page, ['viewer'], { drained: !software });
 
   // ?demo adds the office building and enters it.
   await page.waitForFunction(() => (window as unknown as SmokeWindow).viewer!.indoor.current?.type === 'building', undefined, { timeout: 30_000 });
