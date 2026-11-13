@@ -612,6 +612,8 @@ export class Building extends BimEntity {
       });
       // Styles and level fading set before the model arrived apply to it too.
       entity.traverse((e) => e.refreshStyle());
+      // Not part of the viewer's load state: the model shows up at the full frame rate, picking sees it.
+      this.onChange?.(true);
     } catch (err) {
       console.warn(`[Building] model ${ref.uri} failed:`, (err as Error).message);
     }

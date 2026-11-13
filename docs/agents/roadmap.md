@@ -186,7 +186,7 @@
   | `?idleFps=0`（关闭） | 60 | 45.7% | — | — |
 
 - 实测中发现并修复：顶牌全部移除（或从没有顶牌）时，`MarkerManager.update` 提前返回，放置请求标志永远不清，viewer 会一直认为"顶牌待放置"而不降帧。
-- 接入的信号：容器上的指针 / 滚轮 / 键盘；相机 `change` / `interactionstart` 事件和 `controller.inMotion`（从代码发起的飞行、动画在下一帧就全速）；`loadState` 未空闲；`indoor.update`、`backdrop.update` 报告变化；室内层级、选中、悬停事件；图层列表变化；`markers.busy`；尺寸变化；场景开关；`timeMultiplier ≠ 0`；云层按漂移速度给最低帧率。没有接的（靠安静帧兜底，最多晚 100 ms）：宿主直接改 `viewer.scene`、从代码改实体样式、`clouds.set`。
+- 接入的信号：容器上的指针 / 滚轮 / 键盘；相机 `change` / `interactionstart` 事件和 `controller.inMotion`（从代码发起的飞行、动画在下一帧就全速）；`loadState` 未空闲；`indoor.update`、`backdrop.update` 报告变化；室内层级、选中、悬停事件；图层列表变化；`markers.busy`；尺寸变化；场景开关；`timeMultiplier ≠ 0`；云层按漂移速度给最低帧率。没有接的（靠安静帧兜底，最多晚 100 ms）：宿主直接改 `viewer.scene`、从代码改实体样式、`clouds.set`（后两项 2026-11-14 补上，见下方"收尾"）。
 
 **`idleFrameRate` 取值依据**（2026-11-13）
 
@@ -214,6 +214,33 @@
 - 显示器刷新率：rAF 跟随显示器刷新率，120 / 144 Hz 显示器上现在的每帧渲染要画 120 / 144 帧，开销约为上表 60 fps 一栏的 2–2.4 倍；降帧在这类屏幕上省得更多。
 - 结论：默认 10。取值只接受 0（不降帧）或 10–60，低于 10 的值按 10 处理，因为低于 10 时既不稳定省电，又破坏实时性。
 - 局限：只在一台高端台式机（RTX 40 系列独显、60 Hz、无头 Chrome）上测过；CPU 占用是时间不是能耗，浏览器里也测不到功率。集显笔记本上要再测一次（测量脚本可复用），关心续航时用系统电源报告看实际耗电。
+
+**P2.1a 收尾**（✅ 2026-11-14）
+
+评估：P2.1a 留下两类问题，原计划是"setter 通知 viewer"和"按帧计数改按时间"。逐项核对后，第一类按原方向做，并且范围比原来列的大；第二类改了方向。
+
+- 从代码做的改动：原来只列了实体样式和 `clouds.set`，核对公共 API 后同样漏掉的还有实体的 `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成（不计入 `loadState`）、`indoor.showLabels` / `expandFloors`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的样式与显隐、叠加图层、点位图层的 setter。另外发现一个实际问题：`refreshTransform()` 移动合批设备时绘制数和三角形数都不变，拾取缓冲的签名看不到，点击会命中设备的旧位置（AGENTS.md 要求调用方自己 `invalidate()`，但实体 API 没有做）。
+- 按帧计数的逻辑：每帧预算（点位每帧最多建 200 个顶牌）是为了限制单帧耗时，改成按时间算解决不了降帧时变慢的问题；正确做法是让还有活的模块报告 `busy`，做完之前保持全帧率。"每 N 帧一次"的逻辑（贡献剔除每 5 帧、遮挡去抖连续 2 次读数、注记地形遮挡每 4 帧、贴地轮询每帧 256 个点、地球淘汰每 30 帧）的输入只在相机运动、加载、层级切换或显式失效时变化，这些情况本来就是全帧率，或者会绕过间隔立即重算。把剔除的 `interval`（公共选项，单位是帧）改成毫秒是破坏性变更，换不来可见的改善，所以不改。遮挡去抖也不做"有未确认的读数就算 busy"：边缘上的查询结果来回跳时，viewer 会一直不降帧，而收益只是没有任何通知的改动（宿主直接改 `viewer.scene`）快 100 ms。
+- 不做：CI 上检查降帧（CI 用 SwiftShader，本来就只有约 4 fps，看不出降帧；判定规则有单测）、集显复测（需要那台硬件）、完全按需渲染（P2.1，见上）。
+
+做法：
+
+- 实体：`BimEntity.onChange`（内部）挂在建筑根上，实体改动沿父链找到根再调用；值没变时不通知。`IndoorManager` 收到后对几何变化让贡献剔除重算，再经 `IndoorHost.contentChanged` 转给 viewer：恢复全帧率，几何变化时让拾取缓冲失效。
+- 云层 `onChange`（内部）；3D Tiles 图层的 `visible` / `heightOffset` 发 `change` 事件（原来只在瓦片加载时发），GeoJSON 图层原有的 `change` 事件，viewer 都订阅。
+- `GeoViewer.workPending()`：每个动画帧（降帧时也是）查叠加层版本号、`markers.busy`、点位图层的 `busy`（内部，还有顶牌没建完、换了样式或聚合树刚建好）。
+
+实测（同一台机器、WebGPU、无头 Chrome、`?demo`，先等到降帧再从代码做改动，测改动后第一帧的延迟和之后 500 ms 的帧数）：
+
+| 改动 | 之前：首帧 / 500 ms 帧数 | 之后 |
+| --- | --- | --- |
+| `entity.setStyle` | 41 ms / 5 | 14 ms / 107 |
+| `entity.visible` | 31 ms / 5 | 10 ms / 89 |
+| `clouds.set` | 20 ms / 5 | 11 ms / 100 |
+| `indoor.showLabels` | 12 ms / 6 | 6 ms / 97 |
+| GeoJSON `setStyle` | 67 ms / 67（叠加层重画后才因加载恢复） | 7 ms / 75 |
+| `requestRender()`（对照） | 15 ms / 90 | 6 ms / 99 |
+
+无头 Chrome 不跟显示器同步，全帧率时 500 ms 能画到 90–100 帧。`refreshTransform()` 之后 `pickBuffer.fresh` 原来仍是 true（会命中旧位置），现在是 false。3000 个点位（视野内 769 个顶牌）建完 87–130 ms，之后约 1.1 s 回到降帧；整个场景静止后仍是每秒 10 帧，没有哪个信号一直亮着。控制台无错误。
 
 **P3 画质**（按需求排期；单项方案见 §3 M3）
 

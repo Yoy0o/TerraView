@@ -41,6 +41,7 @@ export interface Tiles3DLayerEvents extends Record<string, unknown> {
    * (`details.url`, `details.reason`) with the library's error as `cause`.
    */
   error: { message: string; error: Error };
+  /** Something to draw changed: tiles loaded, `visible` or `heightOffset` set. */
   change: void;
 }
 
@@ -189,8 +190,10 @@ export class Tiles3DLayer {
   }
 
   set visible(v: boolean) {
+    if (v === this._visible) return;
     this._visible = v;
     this.tiles.group.visible = v && !this._suppressed;
+    this.events.emit('change', undefined);
   }
 
   /** Temporarily hidden by the viewer (e.g. while inside a building), independent of `visible`. */
@@ -227,6 +230,7 @@ export class Tiles3DLayer {
   set heightOffset(meters: number) {
     this._heightOffset = meters;
     this.applyPlacement();
+    this.events.emit('change', undefined);
   }
 
   /**

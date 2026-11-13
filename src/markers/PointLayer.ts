@@ -211,6 +211,15 @@ export class PointLayer {
     this.dirty = true;
   }
 
+  /**
+   * @internal The next `update` has work to do although the camera may stand still: markers
+   * left over from the per-frame creation budget, a new style, visibility or cluster tree.
+   * The viewer keeps its full frame rate until it is done (idle frame-rate throttling).
+   */
+  get busy(): boolean {
+    return this.dirty && this.ready && this.entries.length > 0;
+  }
+
   get cluster(): Required<ClusterOptions> | null {
     return this.clusterOptions;
   }

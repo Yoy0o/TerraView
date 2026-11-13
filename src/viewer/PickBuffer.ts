@@ -289,16 +289,16 @@ export class PickBuffer<L = unknown> {
     this.materials.idOf = (o) => this.ids.get(o) ?? 0;
   }
 
-  /**
-   * Forces a refresh: something changed that the signature cannot see
-   * (visibility, transforms). Takes effect at once: lookups in the same tick
-   * already fall back to rays.
-   */
   /** Video memory of the pick target in bytes: RGBA32Uint color (16 bytes per pixel) plus depth; 0 until the first pick renders it. */
   get gpuBytes(): number {
     return this.target ? this.target.width * this.target.height * (16 + 4) : 0;
   }
 
+  /**
+   * Forces a refresh: something changed that the signature cannot see
+   * (visibility, transforms). Takes effect at once: lookups in the same tick
+   * already fall back to rays.
+   */
   invalidate(): void {
     this.epoch++;
     this.current[36] = this.epoch;

@@ -121,7 +121,7 @@ viewer.flyToEntity(entity, { pitch: -40 });       // camera.fit
 
 `enter(target, options)` 的选项：`fly`（默认 true）、`duration`（秒）、`jumping`（默认 true，只在终点飞行；false 时每进入一级都飞一次）、`transition`（默认 true，切换时淡出上一帧，见 §7.1）。
 
-`BimEntity`：`id` `type` `name` `category` `properties` `tags` `viewpoint` `label` `parent` `children` `group`，以及 `setStyle({ color, opacity, emissive })`、`levelOpacity`（层级效果用的不透明度系数，与样式相乘）、`visible`、`effectivelyVisible`、`worldBounds()`、`labelPosition()`、`closest(type)`、`traverse(cb)`、`isDescendantOf(e)`、`meshes`（自有网格）、`instances`（合批实例，§5.2）、`refreshTransform()`（改了合批实体 `group` 的位姿后调用）。
+`BimEntity`：`id` `type` `name` `category` `properties` `tags` `viewpoint` `label` `parent` `children` `group`，以及 `setStyle({ color, opacity, emissive })`、`levelOpacity`（层级效果用的不透明度系数，与样式相乘）、`visible`、`effectivelyVisible`、`worldBounds()`、`labelPosition()`、`closest(type)`、`traverse(cb)`、`isDescendantOf(e)`、`meshes`（自有网格）、`instances`（合批实例，§5.2）、`refreshTransform()`（改了合批实体 `group` 的位姿后调用）。`setStyle`、`visible`、`levelOpacity`、`refreshTransform()` 会经建筑根上的 `onChange`（内部）通知 `IndoorManager`，再转给 viewer：恢复全帧率；显隐、移动还会让拾取缓冲和贡献剔除失效，宿主不用自己调 `requestRender()` 或 `pickBuffer.invalidate()`。
 
 `query()` 返回 `EntitySet`：它就是数组（`length`、下标、`forEach`、`map`），另有 `query(selector)`（在结果的后代里继续查）、`where(selector)`（筛选结果本身）、`setStyle(style)`、`visible`、`first`。`getById(id)` 直接比较 id，不经过选择器。
 

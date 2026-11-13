@@ -85,6 +85,12 @@ export interface IndoorHost {
   followMove?: (delta: Vector3) => void;
   /** Called right before a level change alters what is shown (the viewer crossfades from the current frame). */
   beginTransition?: () => void;
+  /**
+   * Called when an entity changed from code or a model arrived (`geometry`: shown, hidden,
+   * moved or new meshes, otherwise only the look), and when an option changes what is drawn:
+   * the viewer goes back to the full frame rate and, for geometry, refreshes picking.
+   */
+  contentChanged?: (geometry: boolean) => void;
   /** Display text: names of the properties buildings add to entities; default `zh-CN`. */
   readonly messages?: ViewerMessages;
 }
@@ -186,6 +192,7 @@ export class IndoorManager {
 
   set showLabels(v: boolean) {
     this._showLabels = v;
+    this.host.contentChanged?.(false);
   }
 
   /** Spread the floors of the entered building apart (楼层展开). */
@@ -196,6 +203,7 @@ export class IndoorManager {
   set expandFloors(v: boolean) {
     this._expandFloors = v;
     this.refresh();
+    this.host.contentChanged?.(true);
   }
 
   /** Re-applies the effects of the current level path (after changing options such as `hideTilesetsIndoor`). */
@@ -222,6 +230,7 @@ export class IndoorManager {
     if (this.buildings.some((b) => b.id === doc.id)) throw new TerraViewError('building-already-loaded', `building ${doc.id} is already loaded`, { id: doc.id });
     const building = new Building(doc, this.host.ellipsoid, this.host.loadModel, baseUrl, { batching: this.batchDevices, messages: this.host.messages });
     this.buildings.push(building);
+    building.onChange = (geometry) => this.entityChanged(geometry);
     this.root.add(building.root);
     showOutside(building);
     this.clampToGround(building, true);
@@ -245,8 +254,16 @@ export class IndoorManager {
     if (this.viewCache.get(null)?.building === building) this.viewCache.delete(null);
     this.buildings.splice(i, 1);
     this.culling.forget(building);
+    building.onChange = null;
     building.dispose();
     this.events.emit('buildings-changed', this.buildings);
+  }
+
+  /** An entity of a loaded building changed (`BimEntity.onChange`). */
+  private entityChanged(geometry: boolean): void {
+    // Shown, hidden or moved: what is too small on screen may differ now.
+    if (geometry) this.culling.invalidate();
+    this.host.contentChanged?.(geometry);
   }
 
   /**

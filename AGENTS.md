@@ -178,7 +178,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 聚合用加载时建一次的层级聚合树（借鉴 Supercluster），每帧按节点距离选层；顶牌按需创建 DOM，避让走网格索引并定时放置。见 markers.md §5。
   - 共 8 种样式（card / pin / tag / poi / pulse / beacon / badge / label），见 markers.md。
 - **矢量**：GeoJSON 在 Worker 中解析和栅格化，按瓦片贴地；注记做屏幕空间避让。
-- **帧率**：画面安静 1 秒后按 `idleFrameRate`（默认 10）降帧，有变化立刻恢复（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`，或像云层那样给出最低帧率；否则静止时它只按 10 fps 推进，看起来发顿。按帧计数的逻辑（每帧预算、每 N 帧一次）在降帧时会变慢，能按时间算的就按时间算。
+- **帧率**：画面安静 1 秒后按 `idleFrameRate`（默认 10）降帧，有变化立刻恢复（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`，或像云层那样给出最低帧率；否则静止时它只按 10 fps 推进，看起来发顿。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `GeoViewer.workPending()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
 - **开场动画、云层、导航控制**：核心 API 是 `viewer.playIntro()`、`viewer.clouds`、`viewer.navigation`，演示界面（`ui/NavigationBar`、面板开关、URL 参数）只调用它们。脚本化的相机运动走 `controller.playAnimation`，程序缩放 / 环绕走 `zoomBy` / `orbitBy`，不要直接改相机位姿，否则手势打断不了。见 [intro-and-navigation.md](docs/agents/intro-and-navigation.md)。
 
 ## 5. 常见任务

@@ -398,6 +398,62 @@ describe('level framing', () => {
   });
 });
 
+describe('entity change notifications', () => {
+  // Idle frame-rate throttling: changes made from code wake the viewer up; geometry changes also refresh picking.
+  function watched() {
+    const changes: boolean[] = [];
+    const m = manager(richDoc(), { contentChanged: (geometry) => changes.push(geometry) });
+    // Adding shows the building from outside: its floors are hidden (geometry changes).
+    expect(changes).toEqual([true, true]);
+    changes.length = 0;
+    return { ...m, changes };
+  }
+
+  it('reports style, level opacity, visibility and moves of any entity to the host', () => {
+    const { get, changes } = watched();
+    const cam = get('t1');
+    cam.setStyle({ color: '#ff0000' });
+    expect(changes).toEqual([false]);
+    cam.levelOpacity = 0.5;
+    expect(changes).toEqual([false, false]);
+    cam.visible = false;
+    expect(changes).toEqual([false, false, true]);
+    cam.refreshTransform();
+    expect(changes).toEqual([false, false, true, true]);
+    // Floors are hidden while the building is seen from outside.
+    get('f1').visible = true;
+    expect(changes).toEqual([false, false, true, true, true]);
+  });
+
+  it('stays quiet when nothing changes', () => {
+    const { get, changes } = watched();
+    const room = get('r1');
+    room.visible = room.visible;
+    room.levelOpacity = room.levelOpacity;
+    expect(changes).toEqual([]);
+  });
+
+  it('reports indoor options, and nothing once the building is removed', () => {
+    const { indoor, b, get, changes } = watched();
+    indoor.showLabels = false;
+    indoor.expandFloors = true;
+    expect(changes).toEqual([false, true]);
+    const cam = get('t1');
+    indoor.remove(b);
+    changes.length = 0;
+    cam.setStyle({ color: '#00ff00' });
+    expect(changes).toEqual([]);
+  });
+
+  it('works without an owner (a building that was never added)', () => {
+    const b = new Building(parseBuildingDoc(richDoc()), E, null);
+    expect(() => {
+      b.traverse((e) => e.setStyle({ opacity: 0.5 }));
+      b.visible = false;
+    }).not.toThrow();
+  });
+});
+
 describe('IndoorManager levels', () => {
   it('steps globe -> building -> floor -> room and back with events', async () => {
     const { indoor, b, get } = manager(minimalDoc());

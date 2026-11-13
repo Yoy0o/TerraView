@@ -4,6 +4,24 @@
 
 ## [未发布]
 
+### 降帧收尾：从代码做的改动立即恢复全帧率（2026-11-14，路线图 §0.2 P2.1a"收尾"）
+
+原来从代码改实体样式、显隐，改云层、图层属性时，viewer 不知道画面变了：改动要等下一个安静帧（最多 100 ms）才出现，之后的收尾（顶牌重新放置、遮挡判定、剔除）也按每秒 10 帧慢慢走。
+
+**变更**
+
+- 经 SDK API 做的改动都会在下一个动画帧恢复全帧率：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层、点位图层的 `visible` / `setStyle` / `setCluster`。只有绕过 SDK 直接改 three 对象（往 `viewer.scene` 加对象等）时才需要 `requestRender()`。
+- 点位顶牌分帧创建（每帧最多 200 个）没做完时保持全帧率。
+- `Tiles3DLayer` 的 `change` 事件在设 `visible` / `heightOffset` 时也会触发（原来只在瓦片加载时），值没变时不触发。
+
+**修复**
+
+- 设备移动后调用 `refreshTransform()`，拾取缓冲没有失效（绘制数不变，签名看不出来），点击仍命中设备原来的位置。现在实体显隐和移动都会让拾取缓冲和贡献剔除失效。
+
+**工程**
+
+- 单测：实体改动通知（含值不变时不通知、建筑移除后不再通知）、云层 `onChange`。
+
 ### 静止时降帧（2026-11-13，路线图 §0.2 P2.1a）
 
 画面静止时原来也按显示器刷新率每帧渲染。现在安静 1 秒后默认降到每秒 10 帧，有变化立刻恢复。实测（RTX 40 系列独显、1920×1080、静止后测 4 s）：地球 45.7% → 14.9%（CPU 时间占一个核的比例），建筑场景 80–126% → 19.7%，3000 个点位 17.7%。说明见 [docs/api.md](docs/api.md) §1.8，取值依据见路线图 P2.1a。
@@ -15,7 +33,7 @@
 
 **变更**
 
-- 静止时 `stats.fps` 和 `frame` 事件按降下来的帧率走（约 10）。绕过 viewer 改了场景（往 `viewer.scene` 加对象、从代码改实体样式）时，改动最多晚 100 ms 出现；需要立刻显示就调用 `requestRender()`。
+- 静止时 `stats.fps` 和 `frame` 事件按降下来的帧率走（约 10）。绕过 viewer 改了场景（往 `viewer.scene` 加对象、从代码改实体样式；后者见上面的"降帧收尾"）时，改动最多晚 100 ms 出现；需要立刻显示就调用 `requestRender()`。
 
 **修复**
 

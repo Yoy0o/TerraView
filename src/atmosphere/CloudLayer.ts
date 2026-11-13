@@ -110,6 +110,8 @@ export class CloudLayer {
   private map: Texture | null = null;
   private loadedUrl: string | null = null;
   private fade = 1;
+  /** @internal Called after the options changed or a cloud map arrived (the viewer draws at the full frame rate). */
+  onChange: (() => void) | null = null;
 
   constructor(private readonly ellipsoid: Ellipsoid) {
     const material = new MeshBasicNodeMaterial();
@@ -150,6 +152,7 @@ export class CloudLayer {
     if (o.height !== undefined) this.applyHeight();
     if (o.coverage !== undefined) this.uniforms.coverage.value = o.coverage;
     if (o.textureUrl !== undefined && o.textureUrl !== this.loadedUrl) this.loadTexture(o.textureUrl);
+    this.onChange?.();
   }
 
   /** Advances the drift and applies the height fade; call once per frame. */
@@ -197,6 +200,7 @@ export class CloudLayer {
         this.map?.dispose();
         this.map = tex;
         this.buildMaterial();
+        this.onChange?.();
       },
       undefined,
       () => {

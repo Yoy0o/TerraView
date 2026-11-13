@@ -132,9 +132,9 @@ viewer.events.on('idle', () => {
 | 项 | 说明 |
 | --- | --- |
 | `GeoViewerOptions.idleFrameRate`、`viewer.idleFrameRate` | 安静时每秒画几帧，默认 10。0 表示不降帧（每帧都画）；其他值限在 10–60（低于 10 时省电不稳定，按时间推进的运动也会变慢） |
-| 什么算"有变化" | 容器上的指针、滚轮、键盘输入；相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；层级切换、选中、悬停；图层增删；顶牌待放置；尺寸变化；场景开关（`lighting` 等）；`timeMultiplier` 不为 0 |
+| 什么算"有变化" | 容器上的指针、滚轮、键盘输入；相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；层级切换、选中、悬停；图层增删；尺寸变化；场景开关（`lighting` 等）；`timeMultiplier` 不为 0。从代码做的改动也算，在下一个动画帧（约 16 ms）就恢复全帧率：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层（`viewer.overlays`）的增删和属性、点位图层的 `visible` / `setStyle` / `setCluster`、顶牌增删。分几帧做完的工作（点位顶牌每帧最多建 200 个、顶牌放置）做完之前一直保持全帧率 |
 | 云层 | 可见时按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画 |
-| `viewer.requestRender()` | 恢复全帧率至少 1 秒。viewer 自己的改动它都能发现；绕过它改了场景时调用，例如往 `viewer.scene` 加了对象、从代码改了实体样式，否则改动要等下一个安静帧（最多 100 ms）才出现 |
+| `viewer.requestRender()` | 恢复全帧率至少 1 秒。经 SDK API 做的改动 viewer 都能发现（见上一行）；绕过 SDK 直接改 three 对象时调用，例如往 `viewer.scene` 加了对象、改了 `viewer.scene` 里对象的位置或材质，否则改动要等下一个安静帧（最多 100 ms）才出现 |
 | 容器不可见 | 容器滚出视口或 `display: none` 时完全不画（`IntersectionObserver`），回到视口立刻恢复。这期间加载不推进，`idle` 事件也不会触发 |
 | 统计 | `viewer.stats.throttled` 表示当前是否按安静帧率在画；`stats.fps` 和 `frame` 事件按实际画的帧走，安静时约为 10 |
 
@@ -187,7 +187,7 @@ viewer.events.on('idle', () => {
 
 ### 3.3 3D Tiles
 
-`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
+`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`：有瓦片加载完成，或设了 `visible` / `heightOffset`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
 
 ### 3.4 矢量
 

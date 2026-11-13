@@ -115,6 +115,13 @@ export class BimEntity implements Selectable {
   private _levelOpacity = 1;
   /** Hidden by contribution culling, kept apart from `visible`. */
   private _culled = false;
+  /**
+   * @internal Set on the root entity (the building) by its owner: called when this entity or
+   * one below it changed how it looks (`geometry` false: style, level opacity) or what it
+   * covers (`geometry` true: shown, hidden, moved), so the viewer draws at the full frame
+   * rate and refreshes picking. Not called for `culled`, which the viewer sets itself.
+   */
+  onChange: ((geometry: boolean) => void) | null = null;
 
   constructor(
     readonly id: string,
@@ -143,8 +150,10 @@ export class BimEntity implements Selectable {
 
   /** Shows or hides the entity (set this rather than `group.visible`: batched instances follow it). */
   set visible(v: boolean) {
+    const changed = v !== this.group.visible;
     this.group.visible = v;
     for (const i of this.instances) i.setActive(v && !this._culled);
+    if (changed) this.changed(true);
   }
 
   /**
@@ -182,6 +191,14 @@ export class BimEntity implements Selectable {
   refreshTransform(): void {
     this.group.updateMatrix();
     for (const i of this.instances) i.updateMatrix();
+    this.changed(true);
+  }
+
+  /** Tells the owner of the entity tree (see `onChange`) that something changed. */
+  private changed(geometry: boolean): void {
+    let root: BimEntity = this;
+    while (root.parent) root = root.parent;
+    root.onChange?.(geometry);
   }
 
   /** Visible including all ancestors (three.js raycasting ignores `visible`). */
@@ -226,6 +243,7 @@ export class BimEntity implements Selectable {
   setStyle(style: EntityStyle): void {
     this._style = { ...this._style, ...style };
     this.applyStyles();
+    this.changed(false);
   }
 
   /**
@@ -241,6 +259,7 @@ export class BimEntity implements Selectable {
     if (v === this._levelOpacity) return;
     this._levelOpacity = v;
     this.applyStyles();
+    this.changed(false);
   }
 
   /** Re-applies the current style and level opacity (after meshes were added, e.g. a model loaded). */

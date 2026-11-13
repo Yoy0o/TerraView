@@ -18,6 +18,7 @@ export interface GeoJsonLayerEvents extends Record<string, unknown> {
   ready: LayerSummary;
   /** Loading failed. `error` is the original error (a `TerraViewError` with a `code` when the SDK raised it); `message` is its message. */
   error: { message: string; error: Error };
+  /** `visible`, the style or the label style changed. */
   change: void;
 }
 

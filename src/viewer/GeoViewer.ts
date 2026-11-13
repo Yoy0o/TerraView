@@ -386,6 +386,8 @@ export class GeoViewer {
   /** Whether the container intersects the viewport; frames stop while it does not. */
   private onScreen = true;
   private intersectionObserver: IntersectionObserver | null = null;
+  /** Overlay version seen by the last tick: raster overlays or GeoJSON changed when it moves. */
+  private overlayVersion = -1;
   /** Input on the container wakes the frame loop up to the full rate. */
   private readonly onInput = () => this.requestRender();
 
@@ -468,6 +470,7 @@ export class GeoViewer {
     this.scene.add(this.labels.group);
     this.scene.add(this.stars.mesh);
     this.clouds = new CloudLayer(this.ellipsoid);
+    this.clouds.onChange = () => this.requestRender();
     if (options.clouds) this.clouds.set(options.clouds);
     this.scene.add(this.clouds.mesh);
     this.scene.add(this.sunLight, this.sunLight.target, this.skyLight);
@@ -484,6 +487,11 @@ export class GeoViewer {
     this.markers.occlusion = this.markerOcclusion;
     this.indoor = new IndoorManager({
       messages: this.messages,
+      // Entities changed from code (styles, visibility, moves), models arrived, indoor options set.
+      contentChanged: (geometry) => {
+        if (geometry) this.pickBuffer?.invalidate();
+        this.requestRender();
+      },
       ellipsoid: this.ellipsoid,
       camera: this.camera,
       markers: this.markers,
@@ -993,6 +1001,8 @@ export class GeoViewer {
     layer.suppressed = this.tilesetsSuppressed;
     layer.events.on('ready', () => this.extendGroundProbe());
     layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'tileset', error, layer }));
+    // Tiles loaded, `visible` or `heightOffset` set.
+    layer.events.on('change', () => this.requestRender());
     this.scene.add(layer.group);
     this.tilesets.push(layer);
     this.surface.clearHeld();
@@ -1029,6 +1039,8 @@ export class GeoViewer {
     this.vectorLayers.push(layer);
     layer.events.on('ready', () => this.events.emit('vectors-changed', this.vectorLayers));
     layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'geojson', error, layer }));
+    // Visibility, style and label style (labels are not part of the overlay version).
+    layer.events.on('change', () => this.requestRender());
     this.events.emit('vectors-changed', this.vectorLayers);
     return layer;
   }
@@ -1217,10 +1229,11 @@ export class GeoViewer {
   }
 
   /**
-   * Back to the full frame rate for at least a second. The viewer notices its own changes
-   * (input, camera motion, loading, level changes, layers added or removed); call this after
-   * changing the scene behind its back (objects added to `viewer.scene`, entity styles set
-   * from code) so the change shows at once rather than with the next idle frame.
+   * Back to the full frame rate for at least a second. The viewer notices changes made
+   * through the SDK (input, camera motion, loading, level changes, layers, entity styles and
+   * visibility, cloud and layer settings; docs/api.md §1.8); call this after changing three.js
+   * objects behind its back (objects added to `viewer.scene`, their transforms or materials)
+   * so the change shows at once rather than with the next idle frame.
    */
   requestRender(): void {
     this.pacer.markActivity(performance.now());
@@ -1229,9 +1242,23 @@ export class GeoViewer {
   /** Per animation frame: draw, unless the view is quiet and throttled, or the container is off screen. */
   private tick(time: number): void {
     if (this.disposed || !this.onScreen) return;
+    if (this.workPending()) this.requestRender();
     if (!this.pacer.shouldDraw(time, this.idleFloorRate())) return;
     this.pacer.frameDrawn(time);
     this.frame(time);
+  }
+
+  /**
+   * Work left for the next frames although the camera may stand still, also when started from
+   * code between two frames: overlays to composite again, markers to place, point markers to
+   * create (per-frame budget) or select again. Checked on every animation frame, so such work
+   * starts at once and finishes at the full frame rate instead of at the idle rate.
+   */
+  private workPending(): boolean {
+    const version = this.overlays.version;
+    const overlays = version !== this.overlayVersion;
+    this.overlayVersion = version;
+    return overlays || this.markers.busy || this.pointLayers.some((l) => l.busy);
   }
 
   /** Frames per second that what still moves on its own needs while quiet: simulated time, cloud drift. */
@@ -1291,7 +1318,6 @@ export class GeoViewer {
     // Point layers clamp to the terrain and cluster before the markers are placed.
     for (const layer of this.pointLayers) layer.update(this.camera, this.container.clientWidth, this.container.clientHeight);
     this.markers.update(this.camera, this.container.clientWidth, this.container.clientHeight);
-    if (this.markers.busy) this.requestRender();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const info = this.renderer.info as any;
     const drawCalls = info.render?.drawCalls ?? info.render?.calls ?? 0;

@@ -94,6 +94,19 @@ describe('CloudLayer', () => {
     expect(clouds.mesh.visible).toBe(true);
     clouds.dispose();
   });
+
+  it('tells its owner when the options change (the viewer leaves the idle frame rate)', () => {
+    const clouds = new CloudLayer(E);
+    let changes = 0;
+    clouds.onChange = () => changes++;
+    clouds.visible = true;
+    clouds.set({ coverage: 0.7 });
+    expect(changes).toBe(2);
+    // Drift is the viewer's own business (it asks for a frame rate from the speed).
+    clouds.update(0.1, 2e7);
+    expect(changes).toBe(2);
+    clouds.dispose();
+  });
 });
 
 describe('cloud noise band limit', () => {
