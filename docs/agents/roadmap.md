@@ -142,7 +142,7 @@
 | P2.1 | 按需渲染：相机、瓦片、动画、顶牌都没变化时不画新帧；宿主可调用 `requestRender()` | M3.3 前半（B1） | 大屏、仪表盘一类宿主最先关心功耗；也是静止超采样（P3.3）的前置。要处理云层、开场、拾取缓冲、遮挡代理各自的"有变化"信号 |
 | P2.2 | 楼层模型按需加载，离开后按显存预算 LRU 卸载 | M3.8（B6） | 档位和预算机制已有（[gpu-memory.md](gpu-memory.md)），成本最低 |
 | P2.3 | 3D Tiles 要素拾取与属性查询（`EXT_mesh_features` / batch table），高亮，接入 `viewer.interaction` | progress-log C8 | README 近期项，业务有需要时可提前 |
-| P2.4 | 加载状态与错误事件 | 新增 | 核对现有的 `viewer.events`、图层 `events`，补齐宿主需要的"图层就绪 / 加载进度 / 出错（带 `code`）"。现在 `ViewerEvents` 只有帧统计、图层增删和点位单击；影像出错只能通过 `globe.onImageryError` 回调拿到（P1.2 之后已是带 `code` 的 `TerraViewError`，但不在 `viewer.events` 上；P1.1 之后 `viewer.globe` 是高级 API，稳定 API 里没有拿到影像错误的途径）。`Tiles3DLayer` 的 `error` 事件只有 `message`，没有 GeoJSON / 点位图层那样的 `error` 字段。"加载完成"也只能轮询高级的 `globe.stats`（冒烟测试就是这样等的）。事件名没有在 P1.1 提前定，做时按 P1.1 的分级规则写 |
+| P2.4 | 加载状态与错误事件 | 新增 | ✅ 2026-11-13：`viewer.events` 的 `error`（`ViewerError`，五种 `source`）、`viewer.loadState` + `load-progress` / `idle` 事件（规则在 `viewer/loadState.ts`，有单测）、错误码 `terrain-unreachable` / `tileset-load-failed`、`Tiles3DLayer.error` / `pending`，`error` 事件与另两种图层对齐；打包宿主冒烟检查 `idle` 和无 `error`。建筑模型加载不计入 `idle`（以后有需要再加）。原始说明：核对现有的 `viewer.events`、图层 `events`，补齐宿主需要的"图层就绪 / 加载进度 / 出错（带 `code`）"。现在 `ViewerEvents` 只有帧统计、图层增删和点位单击；影像出错只能通过 `globe.onImageryError` 回调拿到（P1.2 之后已是带 `code` 的 `TerraViewError`，但不在 `viewer.events` 上；P1.1 之后 `viewer.globe` 是高级 API，稳定 API 里没有拿到影像错误的途径）。`Tiles3DLayer` 的 `error` 事件只有 `message`，没有 GeoJSON / 点位图层那样的 `error` 字段。"加载完成"也只能轮询高级的 `globe.stats`（冒烟测试就是这样等的）。事件名没有在 P1.1 提前定，做时按 P1.1 的分级规则写 |
 
 **P3 画质**（按需求排期；单项方案见 §3 M3）
 

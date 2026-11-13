@@ -32,4 +32,11 @@ const building = right.indoor.add(doc);
 void right.indoor.enter(building);
 right.interaction.on('click', (e) => console.log('click', e.object?.name ?? e.kind), { tag: 'host' });
 
-Object.assign(window, { left, right });
+// Load-state and error events, as a host would watch them (read by tests/e2e/host.e2e.ts).
+const hostEvents = { idle: { left: 0, right: 0 }, errors: [] as string[] };
+for (const [name, viewer] of [['left', left], ['right', right]] as const) {
+  viewer.events.on('idle', () => hostEvents.idle[name]++);
+  viewer.events.on('error', ({ source, error }) => hostEvents.errors.push(`${name} ${source}: ${error.message}`));
+}
+
+Object.assign(window, { left, right, hostEvents });

@@ -7,6 +7,8 @@ import { isTerraViewError, type TerraViewError, type TerraViewErrorCode } from '
 
 const ZH: Record<TerraViewErrorCode, (e: TerraViewError) => string> = {
   'imagery-unreachable': (e) => `${e.details.provider} 无法访问（${e.details.reason}）`,
+  'terrain-unreachable': (e) => `地形 ${e.details.source} 无法访问（${e.details.reason}）`,
+  'tileset-load-failed': (e) => `3D Tiles 加载失败（${e.details.reason}）`,
   'terrain-format-unsupported': (e) => `不支持的地形格式 ${e.details.format}`,
   'terrain-projection-unsupported': (e) => `只支持 EPSG:4326 的 quantized-mesh（当前 ${e.details.projection}）`,
   'ion-asset-not-terrain': (e) => `ion 资产 ${e.details.assetId} 不是地形（${e.details.type}）`,

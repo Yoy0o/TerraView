@@ -3,6 +3,7 @@ import { TilesRenderer } from '3d-tiles-renderer';
 import { CesiumIonAuthPlugin, GLTFExtensionsPlugin, GoogleCloudAuthPlugin, TilesFadePlugin, UnloadTilesPlugin } from '3d-tiles-renderer/plugins';
 import { EventEmitter } from '../core/EventEmitter';
 import type { Ellipsoid } from '../core/Ellipsoid';
+import { TerraViewError } from '../core/errors';
 import { gpuProfile, type TilesQuality } from '../core/gpuProfile';
 import { createAdaptiveErrorState, stepAdaptiveError, tilesFalloffDensity } from './lodPolicy';
 import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, type NodeMaterialLibrary } from './nodeMaterials';
@@ -34,7 +35,12 @@ export interface Tiles3DLayerOptions {
 
 export interface Tiles3DLayerEvents extends Record<string, unknown> {
   ready: { sphere: Sphere };
-  error: { message: string };
+  /**
+   * The root tileset failed to load (failures of single tiles after that are logged and
+   * retried by the library). `error` is a `tileset-load-failed` `TerraViewError`
+   * (`details.url`, `details.reason`) with the library's error as `cause`.
+   */
+  error: { message: string; error: Error };
   change: void;
 }
 
@@ -74,7 +80,7 @@ export interface TilesMemoryStats {
 
 /** The parts of the tile renderer this wrapper reads that its typings do not declare. */
 interface TilesInternals {
-  stats: { refused?: number };
+  stats: { refused?: number; queued?: number; downloading?: number; parsing?: number };
   usedSet?: Set<unknown>;
 }
 
@@ -94,6 +100,8 @@ export class Tiles3DLayer {
   readonly events = new EventEmitter<Tiles3DLayerEvents>();
   readonly source: TilesetSource;
   ready = false;
+  /** Message of the root tileset's load failure (see the `error` event), null otherwise. */
+  error: string | null = null;
   /** Bounding sphere in world (ECEF) space once the root tileset is loaded. */
   readonly boundingSphere = new Sphere();
   /** Target screen-space error in pixels as configured, before the tier and cache scaling. */
@@ -161,9 +169,13 @@ export class Tiles3DLayer {
     tiles.addEventListener('load-root-tileset', () => this.onRootLoaded());
     if (!loaders.nodeLibrary) tiles.addEventListener('load-model', (e: { scene: Object3D }) => this.onModelLoaded(e.scene));
     tiles.addEventListener('load-error', (e: { error: Error; url: string | URL }) => {
-      const message = `${e.error?.message ?? e.error} (${String(e.url)})`;
+      const reason = String(e.error?.message ?? e.error);
+      const message = `${reason} (${String(e.url)})`;
       console.warn('[3D Tiles]', message);
-      if (!this.ready) this.events.emit('error', { message });
+      if (this.ready || this.error !== null) return;
+      const error = new TerraViewError('tileset-load-failed', message, { url: String(e.url), reason }, { cause: e.error });
+      this.error = message;
+      this.events.emit('error', { message, error });
     });
     tiles.addEventListener('needs-update', () => this.events.emit('change', undefined));
   }
@@ -224,6 +236,19 @@ export class Tiles3DLayer {
    */
   get errorScale(): number {
     return this.adaptive.scale;
+  }
+
+  /**
+   * Tiles waiting for, or in, download and parsing: at least 1 while the root
+   * tileset loads, 0 after it failed and while the layer is not updated
+   * (hidden, or suppressed inside a building without probing for ground).
+   */
+  get pending(): number {
+    // Not updated means nothing loads, the root tileset included.
+    if (this.error !== null || !(this.active || (this._visible && this.probe))) return 0;
+    if (!this.ready) return 1;
+    const s = (this.tiles as unknown as TilesInternals).stats;
+    return (s.queued ?? 0) + (s.downloading ?? 0) + (s.parsing ?? 0);
   }
 
   /** Memory counters for the status bar and `viewer.memory`. */

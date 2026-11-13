@@ -38,9 +38,12 @@ export type {
   SphereFlightOptions,
   SurfacePick,
   TargetView,
+  ViewerError,
+  ViewerErrorSource,
   ViewerEvents,
   ViewPosition,
 } from './viewer/GeoViewer';
+export type { LoadState } from './viewer/loadState';
 export { GlobeCameraController } from './viewer/GlobeCameraController';
 export type { AutoOrbitOptions, CameraAnimationStep, ControllerEvents, FlyToOptions } from './viewer/GlobeCameraController';
 export { NavigationControls, AUTO_ROTATE_DEFAULTS } from './viewer/NavigationControls';

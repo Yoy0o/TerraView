@@ -243,7 +243,16 @@ export class Globe {
   onImageryError: ((error: TerraViewError) => void) | null = null;
   /** Last reported imagery failure for the current provider (null when healthy). */
   imageryError: TerraViewError | null = null;
+  /**
+   * Last reported terrain failure for the current terrain source (null when healthy): a
+   * `terrain-unreachable` error after 3 failed tile builds (`details.source`, `details.reason`).
+   * Tiles that fail keep their previous mesh and are retried with backoff.
+   */
+  terrainError: TerraViewError | null = null;
+  /** @internal The viewer's listener for imagery and terrain failures (`viewer.events` 'error'). */
+  reportError: ((source: 'imagery' | 'terrain', error: TerraViewError) => void) | null = null;
   private imageryErrors = 0;
+  private terrainErrors = 0;
   private wireframe = false;
 
   private imagery: ImageryProvider;
@@ -369,6 +378,10 @@ export class Globe {
 
   setTerrain(source: TerrainSource | null, exaggeration = this.exaggeration): void {
     if (source === this.terrain && exaggeration === this.exaggeration) return;
+    if (source !== this.terrain) {
+      this.terrainErrors = 0;
+      this.terrainError = null;
+    }
     this.terrain = source;
     this.exaggeration = exaggeration;
     this.geometryGen++;
@@ -1062,7 +1075,8 @@ export class Globe {
         this.finish('geo', tile, controller);
         if (controller.signal.aborted || isAbortError(err)) return;
         tile.geo.fail(performance.now());
-        console.warn(`[Globe] geometry ${tile.key} failed:`, (err as Error).message);
+        if (terrain && terrain === this.terrain && gen === this.geometryGen) this.reportTerrainError(tile, terrain, err as Error);
+        else console.warn(`[Globe] geometry ${tile.key} failed:`, (err as Error).message);
       });
   }
 
@@ -1145,6 +1159,23 @@ export class Globe {
         { cause: err },
       );
       this.onImageryError?.(this.imageryError);
+      this.reportError?.('imagery', this.imageryError);
+    }
+  }
+
+  /** Same scheme as imagery: a few warnings, then one `terrain-unreachable` per terrain source. */
+  private reportTerrainError(tile: GlobeTile, terrain: TerrainSource, err: Error): void {
+    this.terrainErrors++;
+    if (this.terrainErrors <= 3) console.warn(`[Globe] terrain ${tile.key} failed:`, err.message);
+    if (this.terrainErrors === 3) {
+      console.warn('[Globe] further terrain errors are suppressed');
+      this.terrainError = new TerraViewError(
+        'terrain-unreachable',
+        `${terrain.name} is unreachable (${err.message})`,
+        { source: terrain.name, reason: err.message },
+        { cause: err },
+      );
+      this.reportError?.('terrain', this.terrainError);
     }
   }
 

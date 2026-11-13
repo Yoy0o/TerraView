@@ -87,7 +87,9 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 
 | `code` | 何时 | `details` |
 | --- | --- | --- |
-| `imagery-unreachable` | 底图影像连续 3 次请求失败（`globe.onImageryError` 回调、`globe.imageryError`） | `provider`、`reason` |
+| `imagery-unreachable` | 底图影像累计 3 次请求失败（每个影像源一次；`viewer.events` 的 `error`，`source: 'imagery'`；高级 API 另有 `globe.onImageryError`、`globe.imageryError`） | `provider`、`reason` |
+| `terrain-unreachable` | 地形瓦片累计 3 次构建失败（每个地形源一次；`error` 事件，`source: 'terrain'`；`globe.terrainError`）。失败的瓦片保留原来的网格，之后退避重试 | `source`（地形源名称）、`reason` |
+| `tileset-load-failed` | 3D Tiles 的根 tileset 加载失败（图层的 `error` 事件、`layer.error`；`viewer.events` 的 `error`，`source: 'tileset'`）。之后单个瓦片的失败只记日志，由库重试 | `url`、`reason` |
 | `terrain-format-unsupported` | quantized-mesh 的 layer.json 格式不认识 | `format` |
 | `terrain-projection-unsupported` | quantized-mesh 不是 EPSG:4326 | `projection` |
 | `ion-asset-not-terrain` | Cesium ion 资产不是地形 | `assetId`、`type` |
@@ -97,7 +99,31 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | `geojson-invalid` | GeoJSON 无法识别（`addGeoJson`） | 无 |
 | `option-invalid` | `GeoViewer.create` 的必填项缺失或类型不对（`container` 要是元素，`imagery` 要是影像源）；在创建渲染器之前检查 | `option`、`expected` |
 
-图层异步加载失败时，`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上原始错误（`{ message, error }`），可以照样按 `code` 处理。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
+图层异步加载失败时，`Tiles3DLayer`、`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上错误（`{ message, error }`），可以照样按 `code` 处理。
+
+**统一监听**：`viewer.events.on('error', ({ source, error, layer }) => …)` 收到上面所有加载失败（`ViewerError`）：`source` 是 `imagery` / `terrain` / `tileset` / `geojson` / `points`，图层的失败带 `layer`。图层自己的 `error` 事件照常触发，两处选一处处理即可。
+
+### 1.7 加载状态
+
+`viewer.loadState`（`LoadState`，截至上一帧）：
+
+| 字段 | 含义 |
+| --- | --- |
+| `globe` | 地球瓦片正在请求和排队的数量（地形、影像、叠加层）；地球隐藏时为 0 |
+| `tilesets` | 正在绘制的 3D Tiles 图层里排队、下载、解析中的瓦片数（`Tiles3DLayer.pending`，根 tileset 加载中算 1） |
+| `layers` | 还在加载数据的 GeoJSON、点位图层数 |
+| `pending` | 以上三项之和 |
+| `idle` | 没有待加载的内容，并且屏幕上的地球瓦片都显示着自己的影像（不是放大的祖先影像）。影像源已报告不可达时，不再等它 |
+
+事件：`load-progress`（`loadState` 变化时，每帧最多一次）、`idle`（`idle` 变为 true 时；之后每轮加载结束都会再触发，启动时即使没有要加载的也触发一次）。等画面加载完再截图：
+
+```ts
+viewer.events.on('idle', () => {
+  const png = viewer.captureFrame().toDataURL();
+});
+```
+
+`idle` 只看网络和解码：建筑模型（`indoor.add`）的加载不在其中。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
 
 ## 2. 约定
 
@@ -121,7 +147,8 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | `viewer.renderer`、`viewer.scene`、`viewer.camera` | three.js 的渲染器、场景、相机（定位 DOM、投影坐标、加自己的对象）。不要直接改相机位姿（§2） | 高级 |
 | `viewer.levelTransition` | 层级切换淡出（`duration = 0` 关闭）；类型 `FrameCrossfade` 不从入口导出 | 高级 |
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
-| `viewer.events`（`ViewerEvents`） | 图层增删、帧统计等事件 | 稳定 |
+| `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
+| `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
 | `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
@@ -139,12 +166,12 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设；显示名是 `label`（`LocalizedText`），见 §1.6 | 稳定 |
 | `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源 | 稳定 |
 | `RasterOverlay`、`OverlayCompositor`（`viewer.overlays`） | 半透明栅格叠加层：`addRaster` / `removeRaster` / `setOpacity` / `setVisible` / `move` / `rasterLayers`。地球调用的合成接口（`version`、`hasContent`、`isCurrent`、`requestOverlay`）是高级 | 稳定 |
-| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`setImagery` / `setTerrain`、`imageryProvider` / `terrainSource` / `terrainExaggeration`、`onImageryError` / `imageryError`（§1.6）、`stats`、`gpuBytes`、加载调参（`maxScreenSpaceError` 等）、`getHeight`（只看地形，弧度；贴地用 `viewer.surfaceHeight`）、调试（`setWireframe`、`freeze`）；[tile-loading.md](agents/tile-loading.md) | 高级 |
+| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`setImagery` / `setTerrain`、`imageryProvider` / `terrainSource` / `terrainExaggeration`、`onImageryError` / `imageryError` / `terrainError`（§1.6；稳定的做法是 `viewer.events` 的 `error`）、`stats`、`gpuBytes`、加载调参（`maxScreenSpaceError` 等）、`getHeight`（只看地形，弧度；贴地用 `viewer.surfaceHeight`）、调试（`setWireframe`、`freeze`）；[tile-loading.md](agents/tile-loading.md) | 高级 |
 | `tileDebugUniforms`、`refreshTileMaterials` | 瓦片着色器的调试开关（页面上所有 viewer 共用） | 高级 |
 
 ### 3.3 3D Tiles
 
-`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready` 等）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
+`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
 
 ### 3.4 矢量
 

@@ -54,6 +54,7 @@ import { OcclusionProxies } from './OcclusionProxies';
 import { PickBuffer, type PickTarget } from './PickBuffer';
 import { checkViewerOptions } from './viewerOptions';
 import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
+import { LoadTracker, summarizeLoad, type LoadState } from './loadState';
 
 export interface ViewPosition {
   /** Degrees. */
@@ -184,6 +185,35 @@ export interface ViewerEvents extends Record<string, unknown> {
   'points-changed': PointLayer[];
   /** A point marker of a point layer was clicked. */
   'point-click': { point: PointRecord; layer: PointLayer; event: MouseEvent };
+  /** Something failed to load (one event per failure the SDK reports, see `ViewerError`). */
+  error: ViewerError;
+  /** `loadState` changed: emitted at most once per frame, after the frame's loads were scheduled. */
+  'load-progress': LoadState;
+  /**
+   * `loadState.idle` became true: everything for the current view has loaded. Emitted again
+   * after each later burst of loading (camera moves, new layers), and once at startup even
+   * when there was nothing to load.
+   */
+  idle: LoadState;
+}
+
+/** Where a `ViewerError` comes from. */
+export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 'points';
+
+/**
+ * A load failure, on `viewer.events` 'error'. One place to listen for what otherwise arrives
+ * per layer (their own `error` events, which still fire) or per globe channel.
+ *
+ * - `imagery`: the base imagery keeps failing (`imagery-unreachable`, once per provider).
+ * - `terrain`: terrain tiles keep failing (`terrain-unreachable`, once per terrain source).
+ * - `tileset`: a 3D Tiles root tileset failed to load (`tileset-load-failed`); `layer` is set.
+ * - `geojson`, `points`: a layer's data could not be loaded or parsed; `layer` is set.
+ */
+export interface ViewerError {
+  source: ViewerErrorSource;
+  /** A `TerraViewError` with a `code` when the SDK raised it, else the original error (network, parsing). */
+  error: Error;
+  layer?: Tiles3DLayer | GeoJsonLayer | PointLayer;
 }
 
 export interface FeaturePick {
@@ -330,6 +360,8 @@ export class GeoViewer {
   private tilesetsSuppressed = false;
   /** Until when suppressed 3D Tiles keep loading for buildings still waiting for ground (`performance.now()` ms). */
   private probeUntil = 0;
+  private _loadState: LoadState = { globe: 0, tilesets: 0, layers: 0, pending: 0, idle: false };
+  private readonly loadTracker = new LoadTracker();
   private lastTime = -1;
   private fpsFrames = 0;
   private fpsTime = 0;
@@ -397,6 +429,7 @@ export class GeoViewer {
       maxCachedTiles: options.maxCachedTiles ?? profile.globe.maxCachedTiles,
       maxAnisotropy: options.maxAnisotropy ?? profile.globe.maxAnisotropy,
     });
+    this.globe.reportError = (source, error) => this.events.emit('error', { source, error });
     this.surface = new SurfaceHeightQuery({
       globeShown: () => this._showGlobe,
       terrain: (lon, lat) => {
@@ -912,6 +945,7 @@ export class GeoViewer {
     layer.tiles.setResolutionFromRenderer(this.camera, this.renderer as never);
     layer.suppressed = this.tilesetsSuppressed;
     layer.events.on('ready', () => this.extendGroundProbe());
+    layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'tileset', error, layer }));
     this.scene.add(layer.group);
     this.tilesets.push(layer);
     this.surface.clearHeld();
@@ -947,6 +981,7 @@ export class GeoViewer {
     const layer = new GeoJsonLayer(options, this.vectors, this.labels);
     this.vectorLayers.push(layer);
     layer.events.on('ready', () => this.events.emit('vectors-changed', this.vectorLayers));
+    layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'geojson', error, layer }));
     this.events.emit('vectors-changed', this.vectorLayers);
     return layer;
   }
@@ -980,7 +1015,10 @@ export class GeoViewer {
     });
     this.pointLayers.push(layer);
     layer.events.on('ready', () => this.events.emit('points-changed', this.pointLayers));
-    layer.events.on('error', () => this.events.emit('points-changed', this.pointLayers));
+    layer.events.on('error', ({ error }) => {
+      this.events.emit('points-changed', this.pointLayers);
+      this.events.emit('error', { source: 'points', error, layer });
+    });
     layer.events.on('click', (e) => this.events.emit('point-click', e));
     this.events.emit('points-changed', this.pointLayers);
     return layer;
@@ -1162,6 +1200,30 @@ export class GeoViewer {
     // After the main render, whose statistics are part of the pick buffer's scene signature; counted in the frame time.
     this.pickBuffer?.update(performance.now(), drawCalls, triangles, this._showGlobe ? this.globe.surfaceSignature : 0);
     this.updateStats(dt, performance.now() - t0, drawCalls, triangles);
+    this.updateLoadState();
+  }
+
+  /** What is still loading, as of the last frame (see `LoadState`; the 'load-progress' and 'idle' events). */
+  get loadState(): Readonly<LoadState> {
+    return this._loadState;
+  }
+
+  private updateLoadState(): void {
+    let tilesets = 0;
+    for (const layer of this.tilesets) tilesets += layer.pending;
+    let layers = 0;
+    for (const layer of this.vectorLayers) if (!layer.ready && layer.error === null) layers++;
+    for (const layer of this.pointLayers) if (!layer.ready && layer.error === null) layers++;
+    const state = summarizeLoad({
+      globe: this._showGlobe ? this.globe.stats : null,
+      imageryUnreachable: this.globe.imageryError !== null,
+      tilesets,
+      layers,
+    });
+    this._loadState = state;
+    const { progress, idle } = this.loadTracker.step(state);
+    if (progress) this.events.emit('load-progress', state);
+    if (idle) this.events.emit('idle', state);
   }
 
   /**

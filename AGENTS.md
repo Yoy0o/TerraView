@@ -71,7 +71,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
                 FrameCrossfade（层级切换淡出）、IndoorBackdrop（无地表时的展台背景）、
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
-                PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、
+                PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、
                 OcclusionProxies（顶牌遮挡查询代理）
 demo/           演示应用，不进包；只通过 `terra-view` 入口使用 SDK
 ├─ main.ts      启动、URL 参数、hash 同步、Esc 返回、文件拖放
@@ -79,7 +79,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```

@@ -10,6 +10,8 @@
 /**
  * What went wrong. `details` per code:
  * - `imagery-unreachable`: `provider` (name), `reason` (last request error)
+ * - `terrain-unreachable`: `source` (terrain source name), `reason` (last tile error)
+ * - `tileset-load-failed`: `url` (what failed to load), `reason`
  * - `terrain-format-unsupported`: `format` (from layer.json)
  * - `terrain-projection-unsupported`: `projection` (from layer.json)
  * - `ion-asset-not-terrain`: `assetId`, `type` (the asset's type)
@@ -21,6 +23,8 @@
  */
 export type TerraViewErrorCode =
   | 'imagery-unreachable'
+  | 'terrain-unreachable'
+  | 'tileset-load-failed'
   | 'terrain-format-unsupported'
   | 'terrain-projection-unsupported'
   | 'ion-asset-not-terrain'

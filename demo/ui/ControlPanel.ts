@@ -103,9 +103,11 @@ export class ControlPanel {
     collapse.addEventListener('click', () => this.root.classList.toggle('collapsed'));
     if (window.matchMedia('(max-width: 640px)').matches) this.root.classList.add('collapsed');
     viewer.events.on('tilesets-changed', () => this.renderLayers());
-    const onImageryError = (err: Error) => this.notify(`${describeError(err)}，可在“底图影像”里切换其他服务。`, 'error');
-    viewer.globe.onImageryError = onImageryError;
-    if (viewer.globe.imageryError) onImageryError(viewer.globe.imageryError);
+    // Globe failures through the viewer's 'error' event; layer failures are reported where each layer is added.
+    viewer.events.on('error', ({ source, error }) => {
+      if (source === 'imagery') this.notify(`${describeError(error)}，可在“底图影像”里切换其他服务。`, 'error');
+      else if (source === 'terrain') this.notify(`${describeError(error)}，可在面板里换一个地形源或关闭地形。`, 'error');
+    });
   }
 
   private save(): void {
@@ -400,7 +402,7 @@ export class ControlPanel {
       }
       this.renderLayers();
     });
-    layer.events.on('error', ({ message }) => this.notify(`加载失败：${message}`, 'error'));
+    layer.events.on('error', ({ error }) => this.notify(`加载失败：${layer.name}：${describeError(error)}`, 'error'));
   }
 
   /** Lifts an ellipsoid-based tileset so its center sits on the current terrain. */

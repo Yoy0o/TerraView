@@ -8,6 +8,12 @@
 import { expect, test } from '@playwright/test';
 import { backendOf, framesOf, liveWorkers, probeBackend, waitForGlobe, waitForViewer, watch, type SmokeWindow } from './smoke';
 
+/** What scripts/host-fixture/main.ts records from the viewers' events. */
+interface HostEvents {
+  idle: { left: number; right: number };
+  errors: string[];
+}
+
 test('host: two viewers from the package, dispose one then the other', async ({ page, baseURL }, info) => {
   const w = await watch(page, baseURL!);
   const backend = backendOf(info);
@@ -18,6 +24,18 @@ test('host: two viewers from the package, dispose one then the other', async ({ 
   await waitForGlobe(page, ['left', 'right'], { drained: !software });
   expect(w.served.imagery, 'stand-in imagery tiles').toBeGreaterThan(0);
   expect(w.served.terrain, 'stand-in terrain tiles').toBeGreaterThan(0);
+  // The public load state agrees: once the globes drained (GPU only, see waitForGlobe), both
+  // viewers report idle through `loadState` and the 'idle' event.
+  if (!software) {
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const win = window as unknown as SmokeWindow & { hostEvents: HostEvents };
+          return ['left', 'right'].every((n) => win[n]!.loadState.idle && win.hostEvents.idle[n as 'left' | 'right'] > 0);
+        }),
+      )
+      .toBe(true);
+  }
 
   // Right: the sample building is entered. Left: the point in view (the other one lies behind the
   // camera and is culled) has a marker, and markers stay inside their container.
@@ -50,6 +68,8 @@ test('host: two viewers from the package, dispose one then the other', async ({ 
   await expect(page.locator('#right')).toBeEmpty();
   await expect.poll(() => liveWorkers(page)).toBe(0);
 
+  // No load failures reported through the viewers' 'error' events (the stand-ins answer everything).
+  expect(await page.evaluate(() => (window as unknown as { hostEvents: HostEvents }).hostEvents.errors), 'viewer error events').toEqual([]);
   expect(w.blocked, 'requests to other origins').toEqual([]);
   expect(w.threeCopies, 'one copy of three').toEqual([]);
   expect(w.errors).toEqual([]);

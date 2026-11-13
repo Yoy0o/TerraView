@@ -4,6 +4,27 @@
 
 ## [未发布]
 
+### 加载状态与错误事件（2026-11-13，路线图 §0.2 P2.4）
+
+宿主不必再轮询地球统计或给每个图层分别挂监听，就能知道"加载完了没有""哪里出错了"。说明见 [docs/api.md](docs/api.md) §1.6、§1.7。
+
+**新增**
+
+- `viewer.events` 的 `error`（`ViewerError`：`source` 为 `imagery` / `terrain` / `tileset` / `geojson` / `points`，`error`，图层的失败带 `layer`）。原来影像出错只能经高级 API `globe.onImageryError` 拿到，地形出错只有控制台告警。
+- `viewer.loadState`（`LoadState`：`globe`、`tilesets`、`layers`、`pending`、`idle`），事件 `load-progress`（每帧最多一次）和 `idle`（加载完成时；每轮加载结束都会再触发）。
+- 错误码 `terrain-unreachable`（地形瓦片累计 3 次构建失败，每个地形源报告一次；`globe.terrainError`）和 `tileset-load-failed`（3D Tiles 根 tileset 加载失败）。
+- `Tiles3DLayer.error`（失败消息）、`Tiles3DLayer.pending`（排队、下载、解析中的瓦片数）。
+- 导出类型 `LoadState`、`ViewerError`、`ViewerErrorSource`。
+
+**变更**
+
+- `Tiles3DLayer` 的 `error` 事件增加 `error` 字段（`TerraViewError`，code `tileset-load-failed`，`details.url` / `details.reason`，原始错误在 `cause`），与 GeoJSON、点位图层一致；同一图层只报告一次（原来根 tileset 加载前的每次失败都会触发）。
+
+**工程**
+
+- `tests/loadState.test.ts`：加载状态的汇总与事件时机。打包宿主（`scripts/host-fixture`）监听 `idle` 和 `error`，冒烟测试检查有 GPU 时两个 viewer 都报告 `idle`、全程没有 `error`。
+- 演示应用：影像、地形出错改用 `viewer.events` 的 `error`；状态栏的加载指示改用 `viewer.loadState`。
+
 ### 公共 API 分级（2026-11-13，路线图 §0.2 P1.1）
 
 导出和公开成员分成稳定 / 高级 / 内部三级，规则见 [docs/api.md](docs/api.md) §2，每项的级别见 §3。

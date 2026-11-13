@@ -97,12 +97,14 @@ export class StatusBar {
     if (g.keptForDetail > 0) tilesText += ` · 保留 ${g.keptForDetail}`;
     // Loaded imagery waiting to be revealed together with its siblings.
     if (g.heldImagery > 0) tilesText += ` · 待显示 ${g.heldImagery}`;
-    let busy = g.loading > 0;
     for (const t of v.tilesets) {
-      const ts = (t.tiles as unknown as { stats: { visible?: number; downloading?: number; parsing?: number } }).stats;
-      busy ||= (ts.downloading ?? 0) + (ts.parsing ?? 0) > 0;
+      const ts = (t.tiles as unknown as { stats: { visible?: number } }).stats;
       tilesText += ` · 3D ${ts.visible ?? 0}`;
     }
+    // The spinner follows the SDK's loading state (globe, 3D Tiles, layer data).
+    const load = v.loadState;
+    const busy = !load.idle;
+    if (load.pending > 0) tilesText += ` · 加载中 ${load.pending}`;
     // HTML markers shown / registered, with their per-frame CPU time (docs/agents/markers.md §5).
     const m = v.markers.stats;
     if (m.total > 0) tilesText += ` · 顶牌 ${m.shown} / ${m.total} (${m.ms.toFixed(1)} ms)`;
