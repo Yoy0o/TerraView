@@ -151,6 +151,26 @@
 - 语义变化：静止时 `frame` 事件和 `stats.fps` 不再更新，演示应用状态栏、冒烟测试的 `framesOf` 要处理。
 - 工作量约 4–6 个工作日：机制 1 天，信号接入 2–3 天（涉及约 12 个模块），测试 1–1.5 天（判定规则的单测；冒烟里加一个按需模式的用例：静止后帧数不涨，滚轮、`requestRender()`、新瓦片到达后恢复），文档与演示开关 0.5 天。
 - 风险：漏接一个信号，画面就停在半截状态（瓦片淡入一半、顶牌位置旧、注记半透明），而且只在静止时出现，不容易发现。对策：默认仍是 `continuous`，按需模式先作为选项给宿主试；用尾帧兜住去抖；加 `stats` 计数（实际渲染帧数）方便核对。
+
+**静止画面的实测开销**（2026-11-13，本机 RTX 40 系列独显、WebGPU、1920×1080、无头 Chrome；加载完成后各测 6 s。CPU 是各进程 CPU 时间占一个核的百分比，GPU 是时间戳查询的每帧耗时）
+
+| 场景 | 每帧渲染（60 fps） | 限到 10 fps | 停掉循环（按需渲染的下限） |
+| --- | --- | --- | --- |
+| 地球静止 | CPU 57%（页面 20 + GPU 进程 24 + 浏览器 14），每帧 CPU 1.3 ms、GPU 1.8 ms | 10.5% | 4.6% |
+| 建筑（`?demo`） | CPU 126%（页面 71 + GPU 进程 53），每帧 CPU 6.1 ms、GPU 3.8 ms | 17% | 4.8% |
+| 地球 + 3000 个点位 | 50% | 13.5% | 6.4% |
+| 地球 + 云层 | 45% | 11% | 4.6% |
+
+- 收益是实在的：画面一动不动时，高端台式机上也要占 0.5–1.3 个核，外加 GPU 每秒忙 110–230 ms。集显笔记本、4K 大屏每帧更贵，比例只会更高；笔记本上就是风扇和电量。浏览器在标签页隐藏时会自己停掉 rAF，所以这笔开销只出现在"页面开着、画面不动"的时候，正好是大屏、仪表盘的常态。
+- 限到 10 fps 已经拿到 80–86% 的收益；完全按需渲染再多省 6–12 个百分点（约 0.1 个核），风险却高得多。
+- 结论：完全按需渲染暂不做。先做**空闲降帧**（下面 P2.1a），完全按需渲染留给静止超采样（P3.3）真正需要时再做。
+
+**P2.1a 空闲降帧**（建议先做，约 1–1.5 天）
+
+- 画面"安静"（`loadState.idle`、相机没动、没有飞行和层级过渡、室内与展台背景的 `update` 都没报告变化）持续约 1 s 后，帧循环降到 `idleFrameRate`（建议默认 10，0 表示不降帧）；指针、滚轮、键盘、相机变化、加载开始、`requestRender()` 立刻恢复全帧率。容器不在视口内时（`IntersectionObserver`）直接停帧。
+- 与完全按需渲染的本质区别：所有逻辑照常按 `dt` 推进，只是画得慢。漏判一个信号的后果是那段动画在 10 fps 下发顿，不会停在半截状态。1 s 的安静期也盖住了瓦片淡入（0.3–0.5 s）、注记淡出这类收尾动画。
+- 信号的接法和完全按需渲染是同一套，以后要做 P2.1 时可以直接接着补全。
+- 新增 API：`GeoViewerOptions.idleFrameRate`、`viewer.idleFrameRate`、`viewer.requestRender()`。静止时 `stats.fps` 和 `frame` 事件按降下来的帧率走，要在文档里写明。
 | P2.2 | 楼层模型按需加载，离开后按显存预算 LRU 卸载 | M3.8（B6） | 档位和预算机制已有（[gpu-memory.md](gpu-memory.md)），成本最低 |
 | P2.3 | 3D Tiles 要素拾取与属性查询（`EXT_mesh_features` / batch table），高亮，接入 `viewer.interaction` | progress-log C8 | README 近期项，业务有需要时可提前 |
 | P2.4 | 加载状态与错误事件 | 新增 | ✅ 2026-11-13：`viewer.events` 的 `error`（`ViewerError`，五种 `source`）、`viewer.loadState` + `load-progress` / `idle` 事件（规则在 `viewer/loadState.ts`，有单测）、错误码 `terrain-unreachable` / `tileset-load-failed`、`Tiles3DLayer.error` / `pending`，`error` 事件与另两种图层对齐；打包宿主冒烟检查 `idle` 和无 `error`。建筑模型加载不计入 `idle`（以后有需要再加）。原始说明：核对现有的 `viewer.events`、图层 `events`，补齐宿主需要的"图层就绪 / 加载进度 / 出错（带 `code`）"。现在 `ViewerEvents` 只有帧统计、图层增删和点位单击；影像出错只能通过 `globe.onImageryError` 回调拿到（P1.2 之后已是带 `code` 的 `TerraViewError`，但不在 `viewer.events` 上；P1.1 之后 `viewer.globe` 是高级 API，稳定 API 里没有拿到影像错误的途径）。`Tiles3DLayer` 的 `error` 事件只有 `message`，没有 GeoJSON / 点位图层那样的 `error` 字段。"加载完成"也只能轮询高级的 `globe.stats`（冒烟测试就是这样等的）。事件名没有在 P1.1 提前定，做时按 P1.1 的分级规则写 |
