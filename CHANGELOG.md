@@ -10,8 +10,9 @@
 
 **工程**
 
-- 新增开发依赖 `@playwright/test`（1.65.0）。`npm run smoke:build` 构建库、演示应用和打包后的宿主工程，`npm run smoke` 在浏览器里冒烟：演示应用（瓦片就绪、建筑层级逐级进出与事件顺序、销毁）和打包宿主（两个 viewer、逐个销毁、Worker 归零、只有一份 three、顶牌留在容器内），WebGL / WebGPU 各一遍；外部影像与地形请求由本地替身瓦片应答，不依赖外网。本机用已装的 Chrome，CI 新增 `smoke` job（无 GPU，WebGL 走 SwiftShader）。
+- 新增开发依赖 `@playwright/test`（1.65.0）。`npm run smoke:build` 构建库、演示应用和打包后的宿主工程，`npm run smoke` 在浏览器里冒烟：演示应用（瓦片就绪、建筑层级逐级进出与事件顺序、销毁）和打包宿主（两个 viewer、逐个销毁、Worker 归零、只有一份 three、顶牌留在容器内），WebGL / WebGPU 各一遍；外部影像与地形请求由本地替身瓦片应答，不依赖外网。本机用已装的 Chrome；CI 在无 GPU 的 Chromium 里跑，WebGL / WebGPU 都走 SwiftShader。
 - `scripts/check-package.mjs` 新增 `--keep-host <dir>`：保留宿主工程的构建产物，供冒烟测试使用；宿主工程支持 `?webgl`。
+- 2026-11-13 修正 CI 首跑的超时：宿主测试要求地球加载队列完全排空，软件渲染下 2 核 runner 150 s 内做不到。现在测试先问浏览器是不是软件渲染，是的话只等屏幕上的瓦片都有自己的影像，有 GPU 时仍要求排空；两个 viewer 同时等。`SMOKE_NO_GPU=1` 不再用 `--disable-gpu`（它让 WebGPU 拿不到适配器），改为 WebGL 用 `--use-angle=swiftshader`、WebGPU 用 `--use-webgpu-adapter=swiftshader`，CI 上 WebGPU 两项因此不再跳过。冒烟不再重试。CI 的打包检查和冒烟合并成一个 `package` job（共用一次安装、构建和打包宿主，构建不再重复类型检查）。
 
 ### 语言与错误（2026-11-12，路线图 §0.2 P1.2）
 
