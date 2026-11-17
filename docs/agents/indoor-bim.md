@@ -111,7 +111,7 @@ await viewer.indoor.enter(viewer.indoor.getById('F3-R10'), { jumping: false }); 
 viewer.indoor.back();                             // 房间 → 楼层 → 建筑 → 地球（优先飞回进入前的视点）
 viewer.indoor.query('.room && [category=office]').setStyle({ color: '#ffcc00' });
 viewer.indoor.query('.floor').query('tags:or(alarm)'); // 链式查询：楼层下带 alarm 标签的实体
-viewer.indoor.select(entity);                     // 高亮并弹出属性
+viewer.indoor.select(entity);                     // 描边（selectOutline）并弹出属性
 viewer.indoor.filterObject(hit);                  // 当前层级下，拾取到的实体对应的交互单元
 viewer.indoor.expandFloors = true;                // 楼层展开（建筑层级生效）
 viewer.indoor.showLabels = false;
@@ -121,7 +121,7 @@ viewer.flyToEntity(entity, { pitch: -40 });       // camera.fit
 
 `enter(target, options)` 的选项：`fly`（默认 true）、`duration`（秒）、`jumping`（默认 true，只在终点飞行；false 时每进入一级都飞一次）、`transition`（默认 true，切换时淡出上一帧，见 §7.1）。
 
-`BimEntity`：`id` `type` `name` `category` `properties` `tags` `viewpoint` `label` `parent` `children` `group`，以及 `setStyle({ color, opacity, emissive })`、`levelOpacity`（层级效果用的不透明度系数，与样式相乘）、`visible`、`effectivelyVisible`、`worldBounds()`、`labelPosition()`、`closest(type)`、`traverse(cb)`、`isDescendantOf(e)`、`meshes`（自有网格）、`instances`（合批实例，§5.2）、`refreshTransform()`（改了合批实体 `group` 的位姿后调用）。`setStyle`、`visible`、`levelOpacity`、`refreshTransform()` 会经建筑根上的 `onChange`（内部）通知 `IndoorManager`，再转给 viewer：恢复全帧率；显隐、移动还会让拾取缓冲和贡献剔除失效，宿主不用自己调 `requestRender()` 或 `pickBuffer.invalidate()`。
+`BimEntity`：`id` `type` `name` `category` `properties` `tags` `viewpoint` `label` `parent` `children` `group`，以及 `setStyle({ color, opacity, emissive })`、`effects` / `setEffects({ outline, glow, glowColor })`（描边与发光，§5.5）、`levelOpacity`（层级效果用的不透明度系数，与样式相乘）、`visible`、`effectivelyVisible`、`worldBounds()`、`labelPosition()`、`closest(type)`、`traverse(cb)`、`isDescendantOf(e)`、`meshes`（自有网格）、`instances`（合批实例，§5.2）、`refreshTransform()`（改了合批实体 `group` 的位姿后调用）。`setStyle`、`visible`、`levelOpacity`、`refreshTransform()` 会经建筑根上的 `onChange`（内部）通知 `IndoorManager`，再转给 viewer：恢复全帧率；显隐、移动还会让拾取缓冲和贡献剔除失效，宿主不用自己调 `requestRender()` 或 `pickBuffer.invalidate()`。
 
 `query()` 返回 `EntitySet`：它就是数组（`length`、下标、`forEach`、`map`），另有 `query(selector)`（在结果的后代里继续查）、`where(selector)`（筛选结果本身）、`setStyle(style)`、`visible`、`first`。`getById(id)` 直接比较 id，不经过选择器。
 
@@ -151,7 +151,7 @@ viewer.flyToEntity(entity, { pitch: -40 });       // camera.fit
 - **分批规则**：同一楼层、同一几何、同一基础材质、同一渲染状态的设备是一个 `InstancedMesh`（`BatchMesh`），挂在楼层 `group` 下的 `batches` 组里，楼层显隐和楼层展开自动作用于整批。
   - 几何体：基本形状用单位几何（`unit:box` / `unit:cylinder` / `unit:sphere`），尺寸写进实例矩阵，所以不同尺寸、不同颜色的盒子是同一批。glTF 模型每个 URL 只加载一次（模板，不进场景），模型里的每个网格各成一批；带蒙皮、变形目标、多材质的模型退回逐设备挂载（`attachModel`）。
   - 渲染状态：不透明 / 半透明写深度 / 半透明不写深度（层级淡化）三种，各是一个 `NodeMaterialInstance`，共用基础节点材质的一次着色器构建。设备在状态之间切换时从一批移到另一批。
-- **逐实例样式**：颜色走 three 的 `instanceColor`（乘到漫反射上，贴图照常），发光和不透明度走实例属性 `bimStyle`（rgb = emissive，a = opacity），材质用 `referenceAttribute('bimStyle')` 按对象读取，所以所有批次共用一个着色器。共享材质本身的颜色、发光为白、不透明度为 1，实例携带完整值。`setStyle`、`levelOpacity`、悬停 / 选中高亮、选择器查询的行为与逐网格时一致：样式规则只写在 `resolveLook`（`BimEntity.ts`）一处，网格和实例共用。
+- **逐实例样式**：颜色走 three 的 `instanceColor`（乘到漫反射上，贴图照常），发光和不透明度走实例属性 `bimStyle`（rgb = emissive，a = opacity），材质用 `referenceAttribute('bimStyle')` 按对象读取，所以所有批次共用一个着色器。共享材质本身的颜色、发光为白、不透明度为 1，实例携带完整值。`setStyle`、`levelOpacity`、选择器查询的行为与逐网格时一致（悬停 / 选中是描边，不改实例属性，§5.5）：样式规则只写在 `resolveLook`（`BimEntity.ts`）一处，网格和实例共用。
 - **实例 id**：实例按"可见即在批内"紧凑排列，隐藏的设备离开批次（`count` 减一，末尾实例补位）。`BatchMesh.entityAt(instanceId)` 把实例下标映射回实体；CPU 拾取（`IndoorManager.pick`）用射线命中的 `instanceId`，M2.1 GPU 拾取读回的实例 id 也走这里。
 - **样式池**：几何和材质按唯一键共享并计引用数（`sharedStylePool`，所有建筑共用）：几何键为 `unit:<形状>` 或 `geo:<glTF 几何 uuid>`，基础材质键为 `thing:standard` 或 `mat:<glTF 材质 uuid>`，变体键再加渲染状态。批次在建筑移除时整体释放，引用数归零即 `dispose()`。用过的渲染状态在建筑存续期间保留（空批次 `visible = false`，不画），避免进出房间时反复建管线。`sharedStylePool.stats` 可查现存资源数。
 - **注意**：
@@ -203,6 +203,15 @@ viewer.indoor.culling.stats;           // { candidates, culled }：上一次评�
 - **关闭**：`indoor.lazyModels = false`（在 `add()` 之前设置，或 `new Building(..., { lazyModels: false })`）恢复原来的行为：所有模型随建筑加载，也不卸载。
 - **顺带修复**：移除建筑时，模型的纹理原来没有释放（只释放了几何和材质），现在一起释放；建筑移除后才到达的模型直接释放，不再挂到已移除的建筑上。
 - **不计入加载状态**：模型加载仍不算进 `viewer.loadState` / `idle`（docs/api.md §1.7）。
+
+### 5.5 描边与发光（M3.2）
+
+选中、悬停和告警用描边和发光表示，不改实体的材质和样式（原来改的是自发光颜色，会和 `setStyle({ emissive })` 互相覆盖，合批设备还要写实例属性）。API 见 [api.md](../api.md) §1.9，实现在 `src/post/`。
+
+- **两个槽位**：`entity.effects`（用户 / 业务设的，如告警 `{ outline: 'alarm', glow: 0.6 }`）和内部的 `entity.highlight`（`IndoorManager` 按 `selectOutline` / `hoverOutline` 设）。描边取 `highlight ?? effects.outline`，发光只看 `effects`；取消选中后自己的描边自动回来，同"层级半透明与用户样式分开"的做法。
+- **范围**：实体和它下面正在显示、未被剔除的内容（`collectDrawables`）：选中楼层描整层，选中合批设备只描它自己的实例（按实例矩阵单独画一次，不拆批）。从外面看建筑时设备是隐藏的，所以不画。
+- **登记**：`effects` / `highlight` 变化经建筑根上的 `onEffects`（内部）通知 `IndoorManager`，它维护 `markedEntities`，viewer 每帧只遍历这些实体；移除建筑时清掉。
+- **不要**为了高亮去改 `setStyle({ emissive })` 或网格材质；要换选中的样子，改 `indoor.selectOutline` 或 `viewer.effects.defineOutline('select', …)`。
 
 ## 6. 层级控制
 
@@ -279,7 +288,7 @@ viewer.indoor.unregisterLevelControls('my-app');
 | 双击楼层 / 楼层按钮 | 进入楼层：只显示该层，显示房间顶牌，相机俯视约 55° |
 | 双击房间 / 设备 | 进入并选中，同层其他实体变为 25% 不透明度，相机拉近 |
 | 单击 | 选中映射后的交互单元（地球层级是整栋，建筑层级是楼层），弹出属性面板；单击顶牌选中顶牌所属的实体 |
-| 悬停 | 高亮映射后的交互单元（当前所在层级本身不高亮） |
+| 悬停 | 描边映射后的交互单元（`indoor.hoverOutline`；当前所在层级本身和建筑不描边） |
 | 右键单击 / Esc / 面包屑 / ‹ 按钮 | 返回上一级（Esc 先关闭属性弹窗） |
 
 顶牌盖在 canvas 上。实体顶牌的单击、双击、右键单击经 `MarkerManager.eventProxy` 转成 `viewer.interaction` 上对该实体的事件（`event.marker` 指向顶牌），所有监听器都能收到；滚轮会转发给 canvas。

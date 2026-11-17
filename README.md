@@ -187,7 +187,8 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - 几何：程序生成（楼板、按类别着色的房间、内缩墙体与门洞、设备图元、玻璃幕墙外壳）或 glTF（按节点名 / `extras.id` 映射到实体，其余为静态几何）；楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出显存预算时卸载
 - 层级导航：双击进入、右键 / Esc / 面包屑返回、楼层切换条、楼层展开；沿层级路径逐级切换（可取消、可跳级），每一级都发 `beforeEnterLevel` / `enterLevel` / `leaveLevel`；往下钻时缓存视点，返回时飞回；相机取最近的对角视点（按视场归一化距离），文档可写 `viewpoint`
 - 层级控制策略：每一级的显隐、同级半透明聚焦、拾取映射（`filterObject`）和取景都可以按选择器 + 优先级注册替换（`indoor.registerLevelControl`）
-- 实体 API：选择器表达式（`.room && [温度>26]`、`tags:or(alarm, camera)`、`!` 与括号，编译后缓存）、链式查询与批量样式（`EntitySet`）、标签、样式（颜色 / 透明度 / 高亮）、包围体、属性面板
+- 实体 API：选择器表达式（`.room && [温度>26]`、`tags:or(alarm, camera)`、`!` 与括号，编译后缓存）、链式查询与批量样式（`EntitySet`）、标签、样式（颜色 / 透明度）、包围体、属性面板
+- 描边与发光：选中、悬停、告警用描边（可透视被遮挡部分、可闪烁）和选择性泛光表示，不改材质，合批设备可单独描边（`entity.effects`、`viewer.effects`）；所有帧经可扩展的后期管线（`viewer.postProcessing`）
 
 **交互、顶牌与相机（参考 ThingJS）**
 - 统一事件：`viewer.interaction.on('click' | 'dblclick' | 'rightclick' | 'mousemove' | 'mouseenter' | 'mouseleave', fn, { selector, tag, priority, once })`，选择器冒泡、标签批量注销、优先级、`stopPropagation()`、`preventDefault()` 屏蔽默认行为；顶牌上的单击 / 双击 / 右键经事件代理转成对实体的事件
@@ -284,7 +285,7 @@ tests/          vitest 单元测试
 - 已升级 three r187，瓦片材质改用 `NodeMaterialInstance`，并完成 GPU 拾取缓冲（M2.1）、顶牌遮挡查询（M2.2）、贡献剔除（M2.3）、设备合批（M3.6），见[路线图](docs/agents/roadmap.md)
 - ~~3D Tiles 要素拾取与属性查询（EXT_mesh_features / batch table），高亮；接入统一事件~~（已完成；要素编号纹理、按属性批量着色待做）
 - Worker 间共享高程缓存（临时到精确地形的几何形变过渡已完成）
-- 室内：IFC 直读（web-ifc）与按楼层流式加载、剖切面 / 剖切盒、室内导航、实体描边
+- 室内：IFC 直读（web-ifc）与按楼层流式加载、剖切面 / 剖切盒、室内导航、~~实体描边~~（已完成）
 
 **中期（v0.3）——深度用好 WebGPU**
 - 计算着色器预计算大气 LUT（透射率 / 多次散射 / 天空视图，Hillaire 2020），提升质量并降低每像素开销

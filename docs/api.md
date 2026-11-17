@@ -140,6 +140,25 @@ viewer.events.on('idle', () => {
 
 标签页隐藏时浏览器本来就会停掉渲染，不需要额外处理。
 
+### 1.9 描边、发光与后期处理
+
+每帧都经过后期管线（`viewer.postProcessing`，路线图 M3.1）：场景先画进 viewer 自己的 HDR 渲染目标，再跑启用的效果，最后一个全屏 pass 做色调映射并输出到画布。没有效果启用时，它做的事和 three 的 `renderer.render` 自己做的一样（开了色调映射的渲染器本来就先画进 HDR 目标再全屏输出），没有额外开销。
+
+描边和发光是两个内置效果，只在有对象用到时才运行：
+
+| 项 | 说明 |
+| --- | --- |
+| `entity.effects` / `entity.setEffects({ outline, glow, glowColor })`、`EntitySet.setEffects` | 实体的描边样式名（`'select'` / `'hover'` / `'alarm'` 或自定义）和发光强度（0..1）。覆盖实体和它下面正在显示的内容（楼层连同房间、设备；合批设备只描它自己那一个实例）。`setEffects` 合并，字段给 `null` 清除 |
+| `indoor.selectOutline` / `indoor.hoverOutline` | 选中、悬停用的描边样式（默认 `'select'` / `'hover'`，`null` 关闭；建筑悬停不描边）。选中期间顶替实体自己的描边，取消后还原。**原来的选中 / 悬停改的是自发光颜色，现在不改实体的材质和样式** |
+| `viewer.effects.set(object, effects)` | 给加进 `viewer.scene` 的 three.js 对象设描边 / 发光（对象可见时才画，`null` 移除）；`get`、`clear`。只画普通网格（实例化网格按单个几何画） |
+| `viewer.effects.defineOutline(name, { color, hiddenColor, fill, pulse })` | 定义或替换描边样式：边的颜色；被遮挡部分的颜色（透视显示，不给就只描可见部分）；可见表面的染色 0..1；闪烁周期（秒）。内置 `select`（蓝，透视，染色 0.18）、`hover`（浅蓝）、`alarm`（红，透视，1.2 s 闪烁），见 `BUILTIN_OUTLINES` |
+| `viewer.effects.outlineWidth` | 描边宽度，CSS 像素，1–6（默认 2） |
+| `viewer.effects.glowStrength` / `glowRadius` | 发光光晕的强度（默认 1）和扩散（0..1，默认 0.5）。发光颜色默认取描边样式的颜色，没有描边时为白色 |
+
+做法：被标记的网格单独再画一遍到小的遮罩里（与场景深度比较，分出可见和被遮挡的部分），描边在色调映射之后叠加（颜色和给定的一致），发光用 three 的 `BloomNode` 模糊遮罩后加到场景上。实体自己的材质不变，合批设备不拆批。闪烁的样式在用时让 viewer 保持全帧率（§1.8）。代价：有描边时每帧多一次只含被标记网格的绘制和一次全屏边缘搜索（高分屏上在半分辨率做）；有发光时再加遮罩和 bloom 的几个半分辨率 pass。显存计入 `viewer.memory.framebuffers`。
+
+自定义效果（高级）：实现 `PostEffect`（`name`、`stage: 'linear' | 'display'`、`order`、`active`、`graphVersion`、`build(input, inputs)`，可选 `attachments`、`prepare(frame)`、`animating`、`gpuBytes`、`dispose`），用 `viewer.postProcessing.add(effect)` 注册。`linear` 效果在色调映射之前（光照类：泛光、AO、调色），`display` 效果在之后（描边、叠加层）；同一阶段按 `order` 从小到大。`attachments` 声明需要场景额外输出的 MRT 附件（如 `{ normal: normalView }`），只在该效果启用时写；节点图只在启用的效果、`graphVersion` 或色调映射变化时重建。不要给场景材质设 `material.mrtNode`：带自己 MRT 的材质在任何渲染目标里都会替换输出（拾取缓冲也是）。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -160,11 +179,13 @@ viewer.events.on('idle', () => {
 | --- | --- | --- |
 | `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；3D Tiles 要素 `pickTileFeature`、`highlightTileFeature` / `highlightedTileFeature`（§3.3）；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
 | `viewer.renderer`、`viewer.scene`、`viewer.camera` | three.js 的渲染器、场景、相机（定位 DOM、投影坐标、加自己的对象）。不要直接改相机位姿（§2） | 高级 |
+| `ViewerEffects`（`viewer.effects`）、`ObjectEffects`、`OutlineStyle`、`BUILTIN_OUTLINES` | 三维对象的描边与发光、描边样式、宽度与光晕（§1.9） | 稳定 |
+| `PostPipeline`（`viewer.postProcessing`）、`PostEffect`、`PostFrame`、`PostInputs`、`PostStage` | 后期管线与自定义效果（§1.9） | 高级 |
 | `viewer.levelTransition` | 层级切换淡出（`duration = 0` 关闭）；类型 `FrameCrossfade` 不从入口导出 | 高级 |
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
 | `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
-| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`，含建筑模型 `buildings`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
+| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，含建筑模型 `buildings`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` | 安静时降帧与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
@@ -227,8 +248,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 | 导出 | 用途 | 级别 |
 | --- | --- | --- |
-| `IndoorManager`（`viewer.indoor`） | `add(doc, baseUrl?)`、`remove`、`enter(entity)`、`back()`、`query(selector)`、`getById`、`events`（`beforeEnterLevel` / `enterLevel` / `leaveLevel`）、`registerLevelControl`；模型按需加载 `lazyModels`（默认 true）、预算 `modelBytesTarget` / `modelUnloadDelayMs`（按显存档位给）、读数 `modelBytes`，见 [indoor-bim.md](agents/indoor-bim.md) §5.4 | 稳定 |
-| `Building`、`BuildingOptions`、`BimEntity`、`EntitySet` | 建筑（`modelsLoaded(entity)`：加载并等待该实体用到的模型，可用来预加载楼层；`modelBytes`）、实体（`setStyle`、`visible`、`levelOpacity`、`refreshTransform`）、查询结果的批量操作 | 稳定 |
+| `IndoorManager`（`viewer.indoor`） | `add(doc, baseUrl?)`、`remove`、`enter(entity)`、`back()`、`query(selector)`、`getById`、`events`（`beforeEnterLevel` / `enterLevel` / `leaveLevel`）、`registerLevelControl`；模型按需加载 `lazyModels`（默认 true）、预算 `modelBytesTarget` / `modelUnloadDelayMs`（按显存档位给）、读数 `modelBytes`，见 [indoor-bim.md](agents/indoor-bim.md) §5.4；选中 / 悬停的描边样式 `selectOutline` / `hoverOutline`（§1.9） | 稳定 |
+| `Building`、`BuildingOptions`、`BimEntity`、`EntitySet` | 建筑（`modelsLoaded(entity)`：加载并等待该实体用到的模型，可用来预加载楼层；`modelBytes`）、实体（`setStyle`、`effects` / `setEffects`（§1.9）、`visible`、`levelOpacity`、`refreshTransform`）、查询结果的批量操作（`setStyle`、`setEffects`、`visible`） | 稳定 |
 | `parseBuildingDoc`、`BuildingDoc`、`FloorDef`、`RoomDef`、`ThingDef`、`StructureDef` 等 | `three-geo-building` 文档格式与校验；[building-data-manual.md](building-data-manual.md) | 稳定 |
 | `compileSelector`、`SelectorError`、`matchesSelector`、`closestMatching` | 选择器 | 稳定 |
 | `LevelControl`、`BUILTIN_LEVEL_CONTROLS`、`buildingLevelControl` 等 | 层级的显隐、半透明、取景策略，可替换 | 稳定 |
@@ -251,7 +272,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（类型仍经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
-公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`，`BimEntity.releaseMeshes`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
+公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
 
 ## 4. 多个 viewer
 

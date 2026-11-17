@@ -4,6 +4,33 @@
 
 ## [未发布]
 
+### 后期管线、描边与发光（2026-11-17，路线图 §0.2 P3.1、P3.2）
+
+选中、悬停和告警改用描边与发光表示；所有帧经过一条可扩展的后期管线。说明见 [docs/api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
+
+**新增**
+
+- `entity.effects` / `entity.setEffects({ outline, glow, glowColor })`、`EntitySet.setEffects`：实体的描边样式和发光（0..1），覆盖实体和它下面正在显示的内容；合批设备只描自己的实例。
+- `viewer.effects`（`ViewerEffects`）：`set(object, effects)` / `get` / `clear` 给 three.js 对象设描边和发光；`defineOutline(name, { color, hiddenColor, fill, pulse })` 定义样式（内置 `select`、`hover`、`alarm`，导出为 `BUILTIN_OUTLINES`）；`outlineWidth`（CSS 像素，1–6）、`glowStrength`、`glowRadius`。导出类型 `ObjectEffects`、`OutlineStyle`。
+- `indoor.selectOutline` / `indoor.hoverOutline`：选中、悬停用的描边样式（默认 `'select'` / `'hover'`，null 关闭）。
+- 高级：`viewer.postProcessing`（`PostPipeline`）与 `PostEffect`、`PostFrame`、`PostInputs`、`PostStage`：自定义后期效果（色调映射前 / 后两段、按序、按需 MRT 附件）。
+- 演示应用：状态为"告警…"的设备显示告警描边和发光（"室内 / BIM"面板可关），描边宽度滑块。
+
+**变更（破坏性）**
+
+- 选中、悬停不再设置实体的 `emissive` 样式（原来是 `#1d4ed8` / `#0f2f66`），改为描边；实体材质和合批实例属性保持不变。依赖选中后自发光颜色的宿主改用 `indoor.selectOutline` 或 `viewer.effects.defineOutline('select', …)`。
+- `viewer.stats.drawCalls` / `triangles` 只算场景 pass（原来含输出 pass），不含后期和拾取。
+
+**变更**
+
+- 每帧经后期管线渲染：场景画进 viewer 自己的 HDR 目标（取代渲染器自带的那张，格式相同），没有效果时开销与原来一致；截图和层级切换截帧同样经过它。
+- 描边、发光的渲染目标计入 `viewer.memory.framebuffers`（只在使用时分配）。
+- WebGL 后端不再开 GPU 计时查询（从来没有读，`info.timestampQuery` 本来就是 false）。
+
+**工程**
+
+- `src/post/`（`PostPipeline`、`EffectMarks`、`OutlineEffect`、`GlowEffect`、`ViewerEffects`、`postMath`）与 `tests/post.test.ts`（效果排序与图键、附件、样式与闪烁、边缘采样、对象与实体的效果、选中 / 悬停描边、合批实例、移除建筑）；`tests/batching.test.ts` 的选中 / 悬停用例改为验证描边。
+
 ### 3D Tiles 要素拾取、属性查询与高亮（2026-11-17，路线图 §0.2 P2.3）
 
 点到 3D Tiles 上的某栋楼、某个构件时，可以拿到它的要素编号和属性，并把它高亮出来。说明见 [docs/api.md](docs/api.md) §3.3、[tile-loading.md](docs/agents/tile-loading.md) §7.1。

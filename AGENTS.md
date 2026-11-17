@@ -67,6 +67,8 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ markers/     MarkerManager（HTML 顶牌：投影、裁剪、避让、遮挡）、occlusion（遮挡代理池与规则，纯逻辑）、cards（顶牌样式模板）、
 │               points（点位解析 / 规则，纯函数）、clusterTree（层级聚合树，纯函数 + Worker）、
 │               PointLayer（点位图层）
+├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果）、EffectMarks（描边 / 发光对象登记）、
+│               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、postMath（纯函数）
 └─ viewer/      GeoViewer（总装、拾取、帧循环）、GlobeCameraController、cameraMath、CameraFlight（弧线 / 注视飞行）、
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
                 FrameCrossfade（层级切换淡出）、IndoorBackdrop（无地表时的展台背景）、
@@ -79,7 +81,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -172,6 +174,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 设备按楼层 × 几何 × 基础材质 × 渲染状态合成 `InstancedMesh`，颜色 / 发光 / 不透明度是实例属性，材质走样式池（indoor-bim.md §5.2）。设备显隐用 `entity.visible`，移动后调 `refreshTransform()`，改外观用 `setStyle` / `levelOpacity`，不要找设备的材质。
   - 楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出 `indoor.modelBytesTarget` 时卸载（indoor-bim.md §5.4）。要在显示前用到模型（取景、包围体）先 `await building.modelsLoaded(entity)`；不要假设 `add()` 之后房间、设备上已经有模型网格。
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
+- **后期与描边**（M3.1 / M3.2）：每帧都经 `viewer.postProcessing`：场景画进它自己的 HDR 目标（与渲染器自带的格式相同，场景材质不重编），再按阶段跑启用的效果，最后一个全屏 pass 色调映射输出；没有效果时等价于 `renderer.render`。帧外渲染（截图、层级截帧）也走它（`renderOutsideFrame`）。选中 / 悬停 / 告警是描边与发光（`entity.effects`、`indoor.selectOutline`、`viewer.effects`），不改材质，合批设备只描自己的实例。新效果实现 `PostEffect`，需要法线等附件用 `attachments` 声明（全局节点），**不要给场景材质设 `material.mrtNode`**。说明见 [api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
 - **顶牌 Marker**：HTML 元素锚定在世界坐标上，每帧用 float64 投影；做地平线、距离、视口裁剪，并按优先级避让；支持数据驱动的显示模式（always / level / hover / click）。`occlusion: 'hide' | 'fade'` 让锚点被建筑、地形挡住时隐藏或淡出（遮挡查询代理，markers.md §5.2.1）；不参与避让的重要顶牌只淡出。
 - **点位 PointLayer**：`viewer.addPoints({ data | url, style, rules, cluster })`。
   - 数据可以是 GeoJSON 点、点记录数组或点位文档；样式由图层默认值、属性规则、点自带 style 依次合并。
@@ -255,6 +258,8 @@ docs/agents/    子系统规范（本文档的展开）
 - **软件渲染下"等瓦片加载完"会超时**（2026-11-13，CI 首跑宿主测试 150 s 超时）：无 GPU 时 SwiftShader 占满 CPU，画面约 4 fps，影像的 `createImageBitmap` 每次约 900 ms（有 GPU 时 1 ms），屏幕之外的低优先级加载（留作回退的祖先影像，按设计只用三分之一的并发）排空要再花一倍时间，2 核 runner 上跑不完。冒烟测试用 `probeBackend` 问浏览器是不是软件渲染：是的话只等"屏幕上的瓦片都有自己的影像"，有 GPU 时才要求队列排空。新增等待条件同样要分这两档，不要用软件渲染下的耗时判断 SDK 性能。本机 `SMOKE_NO_GPU=1` 只把 WebGL / WebGPU 放到 SwiftShader 上，页面合成仍走 GPU，比 CI 快好几倍：本机软件模式能过不代表 CI 有余量。
 - **释放几何会删掉它的属性缓冲，即使属性是共享的**（2026-11-17，P2.3）：three 的 `Geometries` 在 `geometry.dispose()` 时对它的每个属性调用 `attributes.delete`，不管别的几何还在不在用。给已有网格做叠加（高亮、描边）时不要共享原几何的 `BufferAttribute`，复制一份（`tileFeatures.copyPositions`，保持存储类型和归一化，深度才和原表面一致）。
 - **3DTilesRendererJS 的元数据读取会建 WebGL 渲染器**：`MeshFeatures.getFeatures()` 一进来就经 `TextureReadUtility` 创建 `WebGLRenderer`（即使只读属性），`getPropertyTextureData()` 也一样。要素编号属性、属性表自己读（`tileFeatures.ts`），纹理类的元数据目前不读。
+- **材质的 `mrtNode` 会顶掉所有渲染目标里的输出**（2026-11-17，P3.1）：r187 的 `NodeMaterial` 在渲染到渲染目标时，渲染器没设 MRT 就直接用 `material.mrtNode` 当输出，拾取缓冲、渲染器自带的 HDR 目标都算渲染目标。three 官方选择性泛光示例那种"给材质挂 `mrtNode`"的写法在本仓库会弄坏拾取和画面。逐对象的后期效果走 `post/EffectMarks` 的遮罩重绘，逐材质的附件用 `PostEffect.attachments` 的全局节点。
+- **统计要取场景 pass 的**：后期管线和描边遮罩也会增加 `renderer.info` 的绘制数。拾取缓冲的签名和 `stats` 用 `scene.onAfterRender` 时记下的数，否则悬停改变描边就会让拾取缓冲失效。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
