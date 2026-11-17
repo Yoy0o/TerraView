@@ -48,6 +48,11 @@ import { VectorService } from '../vector/VectorService';
 import { cameraDirection, getHeadingPitch, lookAtHeadingPitchRange } from './cameraMath';
 import { GlobeCameraController, type AutoOrbitOptions, type ControllerHost } from './GlobeCameraController';
 import { FrameCrossfade } from './FrameCrossfade';
+import { EffectMarks } from '../post/EffectMarks';
+import { GlowEffect } from '../post/GlowEffect';
+import { OutlineEffect } from '../post/OutlineEffect';
+import { PostPipeline } from '../post/PostPipeline';
+import { ViewerEffects } from '../post/ViewerEffects';
 import { IndoorBackdrop } from './IndoorBackdrop';
 import { InteractionManager, type PickInfo } from './InteractionManager';
 import type { IntroSpinOptions } from './IntroAnimation';
@@ -324,6 +329,16 @@ export class GeoViewer {
   readonly indoor: IndoorManager;
   /** @internal Ground grid and studio sky under a building shown without any ground (see `indoorBackdrop`). */
   readonly backdrop: IndoorBackdrop;
+  /**
+   * Outlines and glow of three.js objects, outline styles and the look of both effects
+   * (entities: `entity.effects`; selection and hover: `indoor.selectOutline` / `hoverOutline`).
+   */
+  readonly effects: ViewerEffects;
+  /**
+   * @advanced Post-processing pipeline (M3.1): every frame goes through it; add custom
+   * effects with `postProcessing.add(effect)` (see `PostEffect`).
+   */
+  readonly postProcessing: PostPipeline;
   /** @advanced Crossfade over level changes; `levelTransition.duration = 0` turns it off. */
   readonly levelTransition: FrameCrossfade;
   /**
@@ -390,6 +405,11 @@ export class GeoViewer {
   /** Whether the container intersects the viewport; frames stop while it does not. */
   private onScreen = true;
   private intersectionObserver: IntersectionObserver | null = null;
+  /** Objects and entities drawn with outlines or glow. */
+  private readonly marks: EffectMarks;
+  /** Draw calls and triangles of the last scene pass (not the post-processing or pick passes). */
+  private sceneDrawCalls = 0;
+  private sceneTriangles = 0;
   /** Overlay version seen by the last tick: raster overlays or GeoJSON changed when it moves. */
   private overlayVersion = -1;
   /** Input on the container wakes the frame loop up to the full rate. */
@@ -423,6 +443,9 @@ export class GeoViewer {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const backend = renderer.backend as any;
     const isWebGPU = backend.isWebGPUBackend === true;
+    // GPU timings are only read on WebGPU (`info.timestampQuery`); on WebGL the timer queries cost
+    // a query per pass and warn when post-processing passes start them back to back.
+    if (!isWebGPU) backend.trackTimestamp = false;
     // Float64 model-view matrices: required for planet-scale coordinates.
     renderer.highPrecision = true;
     renderer.toneMapping = NeutralToneMapping;
@@ -521,6 +544,22 @@ export class GeoViewer {
       followMove: (delta) => this.controller.translate(delta),
     });
     this.scene.add(this.indoor.root);
+    this.marks = new EffectMarks(this.scene);
+    this.marks.extraSources = () => this.indoor.markedEntities;
+    this.marks.onChange = () => this.requestRender();
+    this.postProcessing = new PostPipeline(renderer, this.scene, this.camera);
+    const outline = new OutlineEffect(this.marks);
+    const glow = new GlowEffect(this.marks);
+    this.postProcessing.add(glow);
+    this.postProcessing.add(outline);
+    this.effects = new ViewerEffects(this.marks, outline, glow, () => this.requestRender());
+    // Statistics of the scene pass alone (the pick buffer's signature and `stats`); the pick pass renders the scene later.
+    this.scene.onAfterRender = (r) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const info = (r as any).info;
+      this.sceneDrawCalls = info.render?.drawCalls ?? info.render?.calls ?? 0;
+      this.sceneTriangles = info.render?.triangles ?? 0;
+    };
     this.indoor.modelBytesTarget = this.gpu.indoor.modelBytesTarget;
     this.indoor.modelUnloadDelayMs = this.gpu.indoor.unloadDelayMs;
     if (options.contributionCulling) this.indoor.culling.configure(options.contributionCulling);
@@ -625,7 +664,9 @@ export class GeoViewer {
   /** Estimated memory use of the viewer's own allocations, in bytes (see `MemoryReport`). */
   get memory(): MemoryReport {
     const canvas = this.renderer.domElement;
-    const framebuffers = estimateFramebufferBytes({ width: canvas.width, height: canvas.height, samples: this.info.samples }) + (this.pickBuffer?.gpuBytes ?? 0);
+    const framebuffers = estimateFramebufferBytes({ width: canvas.width, height: canvas.height, samples: this.info.samples }) +
+      (this.pickBuffer?.gpuBytes ?? 0) +
+      this.postProcessing.gpuBytes;
     const globe = this.globe.gpuBytes;
     let tilesGpu = 0;
     let tilesCache = 0;
@@ -1322,7 +1363,7 @@ export class GeoViewer {
   /** Frames per second that what still moves on its own needs while quiet: simulated time, cloud drift. */
   private idleFloorRate(): number {
     // Motion started from code since the last frame (flyTo, zoomBy, playAnimation...) shows at once.
-    if (this.timeMultiplier !== 0 || this.controller.inMotion) return MAX_IDLE_FRAME_RATE;
+    if (this.timeMultiplier !== 0 || this.controller.inMotion || this.postProcessing.animating) return MAX_IDLE_FRAME_RATE;
     if (!this.clouds.mesh.visible) return 0;
     const o = this.clouds.getOptions();
     return cloudFrameRate({
@@ -1372,14 +1413,13 @@ export class GeoViewer {
     this.interaction.update();
     this.labels.update(this.camera, this.container.clientWidth, this.container.clientHeight, dt);
 
-    this.renderer.render(this.scene, this.camera);
+    this.marks.refresh();
+    this.postProcessing.render();
     // Point layers clamp to the terrain and cluster before the markers are placed.
     for (const layer of this.pointLayers) layer.update(this.camera, this.container.clientWidth, this.container.clientHeight);
     this.markers.update(this.camera, this.container.clientWidth, this.container.clientHeight);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const info = this.renderer.info as any;
-    const drawCalls = info.render?.drawCalls ?? info.render?.calls ?? 0;
-    const triangles = info.render?.triangles ?? 0;
+    const drawCalls = this.sceneDrawCalls;
+    const triangles = this.sceneTriangles;
     // After the main render, whose statistics are part of the pick buffer's scene signature; counted in the frame time.
     this.pickBuffer?.update(performance.now(), drawCalls, triangles, this._showGlobe ? this.globe.surfaceSignature : 0);
     this.updateStats(dt, performance.now() - t0, drawCalls, triangles);
@@ -1459,7 +1499,8 @@ export class GeoViewer {
   private renderOutsideFrame(): void {
     this.updateEnvironment();
     this.labels.syncCamera(this.camera);
-    this.renderer.render(this.scene, this.camera);
+    this.marks.refresh();
+    this.postProcessing.render();
   }
 
   private updateEnvironment(): void {
@@ -1509,7 +1550,7 @@ export class GeoViewer {
     this.skyLight.updateMatrixWorld();
   }
 
-  /** Frame statistics; draw calls and triangles are those of the main render (not the pick pass). */
+  /** Frame statistics; draw calls and triangles are those of the scene pass (not the post-processing or pick passes). */
   private updateStats(dt: number, cpuMs: number, drawCalls: number, triangles: number): void {
     this.fpsFrames++;
     this.fpsTime += dt;
@@ -1550,6 +1591,8 @@ export class GeoViewer {
     for (const layer of [...this.pointLayers]) this.removePoints(layer);
     this.indoor.dispose();
     this.pickBuffer?.dispose();
+    this.postProcessing.dispose();
+    this.marks.dispose();
     this.markers.dispose();
     this.markerOcclusion.dispose();
     this.backdrop.dispose();

@@ -189,7 +189,7 @@ describe('device batching', () => {
     expect(styleAt(cam.mesh, cam.index)).toEqual([0, 0, 0, 1]);
   });
 
-  it('applies setStyle, hover and selection through instance attributes', () => {
+  it('applies setStyle through instance attributes; hover and selection outline instead', () => {
     const { indoor, b, get } = setup();
     const t1 = get('t1');
     t1.setStyle({ color: '#ff0000' });
@@ -197,16 +197,22 @@ describe('device batching', () => {
     expect(colorAt(s.mesh, s.index).getHexString()).toBe('ff0000');
     t1.setStyle({ color: null });
     expect(colorAt(s.mesh, s.index).getHexString()).toBe(new Color('#334155').getHexString());
+    t1.setStyle({ emissive: '#0000ff' });
+    expect(styleAt(s.mesh, s.index).slice(0, 3)).toEqual([0, 0, 1]);
+    t1.setStyle({ emissive: null });
 
+    // Hover and selection are outlines (M3.2): the instance keeps its look and its batch.
     indoor.setHovered(t1);
+    expect(t1.highlight).toBe('hover');
     s = slotOf(b, t1)!;
-    const hover = styleAt(s.mesh, s.index);
-    expect(hover.slice(0, 3).some((v) => v > 0)).toBe(true);
+    expect(styleAt(s.mesh, s.index)).toEqual([0, 0, 0, 1]);
     indoor.select(t1);
-    const selected = styleAt(s.mesh, s.index);
-    expect(selected).not.toEqual(hover);
+    expect(t1.highlight).toBe('select');
+    expect(slotOf(b, t1)!.mesh).toBe(s.mesh);
+    expect(styleAt(s.mesh, s.index)).toEqual([0, 0, 0, 1]);
     indoor.select(null);
     indoor.setHovered(null);
+    expect(t1.highlight).toBeNull();
     expect(styleAt(s.mesh, s.index)).toEqual([0, 0, 0, 1]);
     // Other devices in the batch are untouched.
     const t2 = slotOf(b, get('t2'))!;

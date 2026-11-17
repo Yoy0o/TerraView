@@ -9,6 +9,8 @@ type Notify = (text: string, kind?: 'info' | 'error') => void;
 export class IndoorPanel {
   readonly root: HTMLElement;
   private readonly list = h('div', { class: 'layer-list' });
+  /** Outline and glow on devices whose 状态 property is an alarm (告警…). */
+  private alarmEffects = true;
 
   constructor(
     private readonly viewer: GeoViewer,
@@ -58,13 +60,38 @@ export class IndoorPanel {
         (on) => (viewer.levelTransition.duration = on ? 450 : 0),
         '进出建筑、切换楼层时，从上一帧画面淡出过渡，避免 3D Tiles、外壳、楼层突然出现或消失',
       ),
+      ...this.effectControls(),
       ...this.cullingControls(),
       h('p', { class: 'hint' }, '双击建筑 / 楼层 / 房间逐级进入，右键单击或 Esc 返回上一级。'),
       this.list,
     );
-    indoor.events.on('buildings-changed', () => this.render());
+    indoor.events.on('buildings-changed', () => {
+      this.applyAlarmEffects();
+      this.render();
+    });
     indoor.events.on('enterLevel', () => this.render());
     this.render();
+  }
+
+  /** Outlines and glow (M3.2): alarm devices, outline width. Selection and hover outlines come from the SDK. */
+  private effectControls(): HTMLElement[] {
+    const effects = this.viewer.effects;
+    const width = slider('描边宽度', { min: 1, max: 6, step: 0.5, value: effects.outlineWidth, format: (v) => `${v} px` }, (v) => (effects.outlineWidth = v));
+    const alarms = toggle(
+      '告警设备描边与发光',
+      this.alarmEffects,
+      (on) => {
+        this.alarmEffects = on;
+        this.applyAlarmEffects();
+      },
+      '状态为“告警…”的设备显示闪烁的红色描边（被遮挡部分也显示）和发光；选中、悬停的描边由 SDK 提供',
+    );
+    return [alarms, width.root];
+  }
+
+  private applyAlarmEffects(): void {
+    const alarms = this.viewer.indoor.query((e) => String(e.properties['状态'] ?? '').startsWith('告警'));
+    alarms.setEffects(this.alarmEffects ? { outline: 'alarm', glow: 0.6 } : { outline: null, glow: null });
   }
 
   /** Contribution culling (M2.3): on / off, threshold, and how much is culled right now. */

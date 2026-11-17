@@ -127,8 +127,6 @@ interface CachedView {
 const MODEL_WAIT_MS = 1500;
 /** The globe view is only remembered when the camera was within this many building radii (else back = a wide view). */
 const GLOBE_CACHE_RADII = 50;
-const HIGHLIGHT = '#1d4ed8';
-const HOVER = '#0f2f66';
 
 const _sphere = new Sphere();
 const _p = new Vector3();
@@ -151,6 +149,10 @@ export class IndoorManager {
   selected: BimEntity | null = null;
   /** Hide 3D Tiles while inside a building. */
   hideTilesetsIndoor = true;
+  private _selectOutline: string | null = 'select';
+  private _hoverOutline: string | null = 'hover';
+  /** Entities with effects or a highlight (drawn by the viewer's outline and glow passes). */
+  private readonly marked = new Set<BimEntity>();
   /** Milliseconds a level waits for its models before the camera flies anyway. */
   modelWaitMs = MODEL_WAIT_MS;
   /**
@@ -254,6 +256,10 @@ export class IndoorManager {
     });
     this.buildings.push(building);
     building.onChange = (geometry) => this.entityChanged(geometry);
+    building.onEffects = (e) => {
+      if (e.resolvedEffects()) this.marked.add(e);
+      else this.marked.delete(e);
+    };
     this.root.add(building.root);
     showOutside(building);
     this.clampToGround(building, true);
@@ -277,7 +283,9 @@ export class IndoorManager {
     if (this.viewCache.get(null)?.building === building) this.viewCache.delete(null);
     this.buildings.splice(i, 1);
     this.culling.forget(building);
+    building.traverse((e) => this.marked.delete(e));
     building.onChange = null;
+    building.onEffects = null;
     building.dispose();
     this.events.emit('buildings-changed', this.buildings);
   }
@@ -530,9 +538,36 @@ export class IndoorManager {
     this.events.emit('hover', { entity });
   }
 
+  /**
+   * Outline style of the selected entity (a `viewer.effects` style; default `'select'`), null for
+   * none. Replaces the entity's own outline while it is selected.
+   */
+  get selectOutline(): string | null {
+    return this._selectOutline;
+  }
+
+  set selectOutline(v: string | null) {
+    this._selectOutline = v;
+    if (this.selected) this.restyle(this.selected);
+  }
+
+  /** Outline style of the hovered entity (default `'hover'`; buildings are not outlined on hover), null for none. */
+  get hoverOutline(): string | null {
+    return this._hoverOutline;
+  }
+
+  set hoverOutline(v: string | null) {
+    this._hoverOutline = v;
+    if (this.hovered) this.restyle(this.hovered);
+  }
+
+  /** @internal Entities with effects or a highlight, for the viewer's outline and glow passes. */
+  get markedEntities(): ReadonlySet<BimEntity> {
+    return this.marked;
+  }
+
   private restyle(e: BimEntity): void {
-    const color = e === this.selected ? HIGHLIGHT : e === this.hovered && e.type !== 'building' ? HOVER : null;
-    e.setStyle({ emissive: color });
+    e.highlight = e === this.selected ? this._selectOutline : e === this.hovered && e.type !== 'building' ? this._hoverOutline : null;
   }
 
   /** Closest visible entity hit by a ray (batched devices resolve through the hit's instance index). */

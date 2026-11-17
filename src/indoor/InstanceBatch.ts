@@ -21,6 +21,7 @@ import {
 import { materialEmissive, materialOpacity, referenceAttribute } from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshPhongNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type NodeMaterial } from 'three/webgpu';
 import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { DrawableSink } from '../post/EffectMarks';
 import type { BaseLook, BimEntity, EntityInstance, ResolvedLook } from './BimEntity';
 import { variantKey, type MaterialState, type StylePool } from './StylePool';
 
@@ -343,6 +344,12 @@ export class BatchedInstance implements EntityInstance {
 
   dispose(): void {
     this.setActive(false);
+  }
+
+  collectDrawable(add: DrawableSink): void {
+    const mesh = this.mesh;
+    if (!mesh || !this.active || !mesh.visible) return;
+    add(this.group.geometry, (mesh.material as Material).side, _m.multiplyMatrices(mesh.matrixWorld, this.matrix));
   }
 
   private join(): void {

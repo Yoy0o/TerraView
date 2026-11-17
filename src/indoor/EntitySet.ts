@@ -2,6 +2,7 @@
  * Query result of `IndoorManager.query` (ThingJS `Selector`): an array of
  * entities with batch operations and chained queries.
  */
+import type { ObjectEffects } from '../post/postMath';
 import { selectorPredicate, type BimEntity, type EntitySelector, type EntityStyle } from './BimEntity';
 
 /**
@@ -43,6 +44,12 @@ export class EntitySet extends Array<BimEntity> {
   /** Applies a style override to every entity (see `BimEntity.setStyle`). */
   setStyle(style: EntityStyle): this {
     for (const e of this) e.setStyle(style);
+    return this;
+  }
+
+  /** Merges effects into every entity's (outline, glow; see `BimEntity.setEffects`). */
+  setEffects(effects: ObjectEffects): this {
+    for (const e of this) e.setEffects(effects);
     return this;
   }
 

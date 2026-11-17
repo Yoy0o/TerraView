@@ -3,6 +3,8 @@
  * tree, per-entity style overrides, tags, and selector matching.
  */
 import { Box3, Color, Group, Sphere, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import type { DrawableSink } from '../post/EffectMarks';
+import { mergeEffects, resolveEffects, type ObjectEffects, type ResolvedEffects } from '../post/postMath';
 import { disposeModel } from './modelBudget';
 import type { LabelDef, Vec2, ViewpointDef } from './schema';
 import { compileSelector, type Selectable } from './selector';
@@ -15,7 +17,7 @@ export interface EntityStyle {
   color?: string | null;
   /** 0..1, null to restore. */
   opacity?: number | null;
-  /** Glow used for selection / hover highlight. */
+  /** Emissive color (CSS), null to restore. Selection and hover use outlines (`entity.effects`), not this. */
   emissive?: string | null;
 }
 
@@ -71,6 +73,8 @@ export interface EntityInstance {
   expandLocalBox(box: Box3): void;
   /** Leaves the batch for good. */
   dispose(): void;
+  /** @internal Reports the instance's geometry and world matrix to `add` when it is drawn (outline and glow passes). */
+  collectDrawable?(add: DrawableSink): void;
 }
 
 type StylableMaterial = Material & { color?: Color; emissive?: Color; opacity: number; transparent: boolean; depthWrite: boolean };
@@ -116,6 +120,9 @@ export class BimEntity implements Selectable {
   private _levelOpacity = 1;
   /** Hidden by contribution culling, kept apart from `visible`. */
   private _culled = false;
+  private _effects: ObjectEffects = {};
+  /** Outline style of a selection / hover highlight, kept apart from `effects`. */
+  private _highlight: string | null = null;
   /**
    * @internal Set on the root entity (the building) by its owner: called when this entity or
    * one below it changed how it looks (`geometry` false: style, level opacity) or what it
@@ -123,6 +130,11 @@ export class BimEntity implements Selectable {
    * rate and refreshes picking. Not called for `culled`, which the viewer sets itself.
    */
   onChange: ((geometry: boolean) => void) | null = null;
+  /**
+   * @internal Set on the root entity by its owner: called with the entity whose effects or
+   * highlight changed, so the viewer can keep the set of entities it draws effects for.
+   */
+  onEffects: ((entity: BimEntity) => void) | null = null;
 
   constructor(
     readonly id: string,
@@ -260,6 +272,77 @@ export class BimEntity implements Selectable {
     if (v === this._levelOpacity) return;
     this._levelOpacity = v;
     this.applyStyles();
+    this.changed(false);
+  }
+
+  /**
+   * Per-entity effects (roadmap M3.2): an outline style (`'select'`, `'hover'`, `'alarm'` or one
+   * defined with `viewer.effects.defineOutline`) and glow. They cover the entity and everything
+   * below it that is shown (a floor's rooms and devices, a building's shell from outside). A
+   * selection or hover highlight replaces the outline while it lasts and gives it back after.
+   */
+  get effects(): Readonly<ObjectEffects> {
+    return this._effects;
+  }
+
+  set effects(v: Readonly<ObjectEffects>) {
+    this._effects = mergeEffects({}, v ?? {});
+    this.effectsChanged();
+  }
+
+  /** Merges effects into the current ones (`null` clears a field), like `setStyle`. */
+  setEffects(effects: ObjectEffects): void {
+    this._effects = mergeEffects(this._effects, effects);
+    this.effectsChanged();
+  }
+
+  /**
+   * @internal Outline style of the selection / hover highlight (set by `IndoorManager`), or null;
+   * shown instead of `effects.outline` while set.
+   */
+  get highlight(): string | null {
+    return this._highlight;
+  }
+
+  set highlight(v: string | null) {
+    if (v === this._highlight) return;
+    this._highlight = v;
+    this.effectsChanged();
+  }
+
+  /** @internal Effects to draw (highlight over own outline), or null. */
+  resolvedEffects(): ResolvedEffects | null {
+    return resolveEffects(this._effects, this._highlight);
+  }
+
+  /**
+   * @internal Reports every mesh and batched instance drawn for this entity and its descendants
+   * (shown and not culled) to `add`, with its world matrix (outline and glow passes).
+   */
+  collectDrawables(add: DrawableSink): void {
+    // World matrices are those of the scene render that just happened.
+    if (!this.effectivelyVisible) return;
+    const visit = (e: BimEntity) => {
+      if (!e.group.visible) return;
+      for (const mesh of e.meshes) {
+        if (!mesh.visible || (mesh as Mesh & { isInstancedMesh?: boolean }).isInstancedMesh) continue;
+        // Meshes inside the entity group may sit under hidden sub-groups (model nodes).
+        let shown = true;
+        for (let o: Object3D | null = mesh.parent; o && o !== e.group; o = o.parent) if (!o.visible) shown = false;
+        if (!shown) continue;
+        const m = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        add(mesh.geometry, m?.side ?? 0, mesh.matrixWorld);
+      }
+      for (const i of e.instances) i.collectDrawable?.(add);
+      for (const c of e.children) visit(c);
+    };
+    visit(this);
+  }
+
+  private effectsChanged(): void {
+    let root: BimEntity = this;
+    while (root.parent) root = root.parent;
+    root.onEffects?.(this);
     this.changed(false);
   }
 

@@ -162,6 +162,13 @@ export type { Framing, LevelView } from './indoor/levelView';
 export { ContributionCuller, DEFAULT_CULLING } from './indoor/ContributionCulling';
 export type { ContributionCullingOptions, CullingRule } from './indoor/ContributionCulling';
 
+// ---------------------------------------------------------------- post-processing and per-object effects
+export { ViewerEffects } from './post/ViewerEffects';
+export { BUILTIN_OUTLINES } from './post/postMath';
+export type { ObjectEffects, OutlineStyle } from './post/postMath';
+export { PostPipeline } from './post/PostPipeline';
+export type { PostEffect, PostFrame, PostInputs, PostStage } from './post/PostPipeline';
+
 // ---------------------------------------------------------------- atmosphere
 export { CloudLayer, CLOUD_DEFAULTS } from './atmosphere/CloudLayer';
 export type { CloudOptions } from './atmosphere/CloudLayer';
