@@ -8,7 +8,10 @@ import type { Vector3 } from 'three';
 import type { Cartographic } from '../core/Ellipsoid';
 import { selectorPredicate, type BimEntity, type EntitySelector } from '../indoor/BimEntity';
 import type { Marker } from '../markers/MarkerManager';
+import type { TileFeature } from '../tiles3d/tileFeatures';
 import type { Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
+
+const noTileFeature = (): TileFeature | null => null;
 
 /** What lies under a screen point (closest along the view ray). */
 export interface PickInfo {
@@ -24,12 +27,24 @@ export interface PickInfo {
   clientY: number;
   /** The HTML label (顶牌) the event came through; null for picks in the 3D scene. */
   marker: Marker | null;
+  /**
+   * The 3D Tiles feature at this pick (feature ID and properties), resolved on the first
+   * call with a CPU ray from the camera pose of the pick, then cached; null when the pick
+   * is not on a 3D Tiles layer or its content has no readable feature there. Optional
+   * for hosts building picks themselves; events always have it.
+   */
+  tileFeature?: () => TileFeature | null;
 }
 
 export type InteractionType = 'click' | 'dblclick' | 'rightclick' | 'mousemove' | 'mouseenter' | 'mouseleave';
 
 export interface InteractionEvent extends PickInfo {
   type: InteractionType;
+  /**
+   * The 3D Tiles feature under the pointer, or null (see `PickInfo.tileFeature`). Costs a
+   * CPU ray on the first call per pick: call it in the listeners that need it.
+   */
+  tileFeature(): TileFeature | null;
   /** The entity the listener's selector matched (the hit entity or an ancestor); the hit entity without a selector. */
   object: BimEntity | null;
   button: number;
@@ -391,6 +406,7 @@ export class InteractionManager {
       object,
       button,
       originalEvent: original,
+      tileFeature: pick.tileFeature ?? noTileFeature,
       preventDefault: () => {
         prevented = true;
       },

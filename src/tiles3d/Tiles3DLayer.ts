@@ -7,6 +7,7 @@ import { TerraViewError } from '../core/errors';
 import { gpuProfile, type TilesQuality } from '../core/gpuProfile';
 import { createAdaptiveErrorState, stepAdaptiveError, tilesFalloffDensity } from './lodPolicy';
 import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, type NodeMaterialLibrary } from './nodeMaterials';
+import { createFeatureHighlight, disposeFeatureHighlight, type FeatureHighlightStyle, type TileFeature } from './tileFeatures';
 
 export type TilesetSource =
   | { type: 'url'; url: string }
@@ -115,6 +116,8 @@ export class Tiles3DLayer {
   private readonly baseMatrix = new Matrix4();
   private readonly unload: UnloadTilesPlugin;
   private readonly adaptive = createAdaptiveErrorState();
+  /** Highlighted feature and its overlay (null overlay: the feature has no triangles to tint). */
+  private highlight: { feature: TileFeature; overlay: Mesh | null } | null = null;
 
   constructor(
     options: Tiles3DLayerOptions,
@@ -142,8 +145,10 @@ export class Tiles3DLayer {
         ktxLoader: loaders.ktxLoader,
         meshoptDecoder: loaders.meshoptDecoder,
         rtc: true,
-        // Metadata texture reads rely on a WebGL renderer internally; keep tiles WebGPU-only.
-        metadata: false,
+        // EXT_mesh_features / EXT_structural_metadata for feature picking (`tileFeatures.ts`). Only
+        // attributes and property tables are read: the library reads textures through a WebGL
+        // renderer of its own, which is created on the first such read, so none is ever made.
+        metadata: true,
         autoDispose: false,
       }),
     );
@@ -179,6 +184,30 @@ export class Tiles3DLayer {
       this.events.emit('error', { message, error });
     });
     tiles.addEventListener('needs-update', () => this.events.emit('change', undefined));
+    // A highlighted feature goes with its tile content (feature IDs only exist within one tile).
+    tiles.addEventListener('dispose-model', (e: { scene: Object3D }) => {
+      const object = this.highlight?.feature.object;
+      for (let x: Object3D | null = object ?? null; x; x = x.parent) {
+        if (x !== e.scene) continue;
+        this.setHighlight(null);
+        break;
+      }
+    });
+  }
+
+  /** @internal The feature shown highlighted in this layer (`viewer.highlightTileFeature`), or null. */
+  get highlighted(): TileFeature | null {
+    return this.highlight?.feature ?? null;
+  }
+
+  /**
+   * @internal Highlights a feature of this layer (null clears): a translucent copy of its
+   * triangles over the tile mesh it was picked on. Cleared when that tile content is unloaded.
+   */
+  setHighlight(feature: TileFeature | null, style?: FeatureHighlightStyle): void {
+    if (this.highlight?.overlay) disposeFeatureHighlight(this.highlight.overlay);
+    this.highlight = feature ? { feature, overlay: createFeatureHighlight(feature, style) } : null;
+    this.events.emit('change', undefined);
   }
 
   get group(): Object3D {
@@ -342,6 +371,8 @@ export class Tiles3DLayer {
   }
 
   dispose(): void {
+    if (this.highlight?.overlay) disposeFeatureHighlight(this.highlight.overlay);
+    this.highlight = null;
     this.tiles.group.removeFromParent();
     this.tiles.dispose();
   }

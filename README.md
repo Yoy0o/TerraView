@@ -169,6 +169,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - Draco / KTX2 / Meshopt 解码；Cesium ion、Google 真实感 3D Tiles 鉴权
 - **WebGPU 下的 LOD 渐显**：瓦片材质在解析阶段转为节点材质，官方渐显插件的材质管理换成 TSL 抖动遮罩（官方版依赖 `onBeforeCompile`，在 WebGPU 下无效）
 - 按显存档位（`low` / `medium` / `high` / `ultra`，按适配器自动识别或 `?gpu=` 指定）给预算：隐藏瓦片在显存目标内保留、回头看不再重新上传，斜视时远处放宽误差，缓存满时整体降精度而不是局部停止加载（[gpu-memory.md](docs/agents/gpu-memory.md)）；进入建筑时自动压制 3D Tiles
+- **要素拾取与属性**：`EXT_mesh_features` / `EXT_structural_metadata`（要素编号属性、属性表）和 b3dm / i3dm 批量表，`event.tileFeature()` 取得指针下要素的编号和属性，`viewer.highlightTileFeature()` 高亮（不改瓦片材质）；要素编号纹理暂不支持
 - 图层管理：显隐、飞到图层、高度偏移、一键贴地（针对以椭球面为基准的样例数据）
 
 **GeoJSON 矢量与注记**
@@ -281,7 +282,7 @@ tests/          vitest 单元测试
 - 瓦片边界法线拼接（地形与 3D Tiles 统一高程查询已完成）
 - 矢量进阶：MVT 矢量瓦片、面拉伸（建筑白模）、沿线注记（点位标注与聚合已完成）
 - 已升级 three r187，瓦片材质改用 `NodeMaterialInstance`，并完成 GPU 拾取缓冲（M2.1）、顶牌遮挡查询（M2.2）、贡献剔除（M2.3）、设备合批（M3.6），见[路线图](docs/agents/roadmap.md)
-- 3D Tiles 要素拾取与属性查询（EXT_mesh_features / batch table），高亮；接入统一事件
+- ~~3D Tiles 要素拾取与属性查询（EXT_mesh_features / batch table），高亮；接入统一事件~~（已完成；要素编号纹理、按属性批量着色待做）
 - Worker 间共享高程缓存（临时到精确地形的几何形变过渡已完成）
 - 室内：IFC 直读（web-ifc）与按楼层流式加载、剖切面 / 剖切盒、室内导航、实体描边
 

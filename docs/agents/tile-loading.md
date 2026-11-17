@@ -148,6 +148,17 @@ Worker 亲和路由（`terrainAffinity`）把读取同一张地形图的瓦片�
 - 高程查询：地球隐藏时，`viewer.surfaceHeight` 对可见的 3D Tiles 做竖直射线（命中瓦片的 `geometricError` 作为分辨率，≤ 150 m 才算可靠），贴地、防入地、参考地面都用它；压制期间沿用压制前的结果。规则和预算见 [roadmap.md](roadmap.md) ISSUE-1。
 - `errorTarget` 默认 12（Google 真实感 3D Tiles 用 20），实际生效值还要乘档位系数和自适应倍数；运行中改 `layer.errorTarget`。
 
+### 7.1 要素拾取与属性（P2.3）
+
+代码：`tiles3d/tileFeatures.ts`（规则，纯函数为主）、`Tiles3DLayer.setHighlight`、`GeoViewer.pickTileFeature` / `highlightTileFeature`、`InteractionEvent.tileFeature()`。测试：`tests/tileFeatures.test.ts`。API 见 [docs/api.md](../api.md) §3.3。
+
+- **解析扩展**：`GLTFExtensionsPlugin` 打开 `metadata`，加载器解析 `EXT_mesh_features`（`mesh.userData.meshFeatures`）和 `EXT_structural_metadata`（`userData.structuralMetadata`）。只读要素编号属性和属性表，都在 CPU 上。**不要调用库的 `MeshFeatures.getFeatures()`、`getPropertyTextureData()`**：它们一进来就经 `TextureReadUtility` 建一个 `WebGLRenderer`（第二个图形上下文），即使只读属性也一样；要素编号属性按同样的规则自己读（`featureIdAt`）。
+- **要素编号从哪来**（`featureIdSource`，取第一组不是纹理的要素编号）：`_FEATURE_ID_n` 属性 → 命中三角形里离命中点最近的顶点（重心坐标最大的那个）上的值；没有属性也没有纹理 → 隐式编号（顶点序号）；`nullFeatureId` 视为没有要素。b3dm 的 `_BATCHID`（three 里是 `_batchid`），i3dm 用命中的实例序号；批量表挂在瓦片内容根节点上（`scene.batchTable`）。点云（pnts）的命中带顶点序号，能拾取但没有三角形可高亮。
+- **属性**：要素编号组声明了 `propertyTable` 时读那张表的这一行（`table` 取表名，退回类名、序号）；批量表用 `getDataFromId`。越界、表读不出来时给空属性，不让拾取失败。
+- **拾取路径**：`viewer.pickAt` 先照常判定最近的表面（GPU 拾取缓冲或射线）；只有是 3D Tiles 时，才记下这一刻的视线，`tileFeature()` 第一次被调用时沿它对该图层发一条 CPU 射线（`TilesGroup` 的射线只遍历可见瓦片），结果缓存。所以悬停没有额外开销，拾取结果也和事件发生时的画面一致。
+- **高亮**：把要素的三角形（至少一个顶点属于该要素）复制成独立的非索引几何，**存储类型和归一化与原位置属性相同**（量化坐标仍是量化的），半透明、不写深度，挂在拾取到的瓦片网格下面：变换、显隐自动跟随，深度与原表面逐位相同，`LessEqual` 测试下不闪。不共享原几何的属性：three 释放几何时会连同它的属性缓冲一起删掉，共享的话清除高亮就会删掉瓦片自己的顶点。叠加网格的 `raycast` 为空，射线仍然命中瓦片。瓦片内容被释放（`dispose-model`）时高亮一并清除；`UnloadTilesPlugin` 把隐藏瓦片移出显存时会顺带释放叠加网格的 GPU 资源，再显示时重新上传。
+- **为什么不改瓦片材质**：按要素着色要给每种材质加节点（读要素编号属性、和高亮编号比较），属性的名字和存储类型因数据而异（`_batchid` 常是 `Uint16`，three 在 WebGPU 上把它放宽成 `u32`，着色器里要按整数、浮点分别处理），还会让所有瓦片材质换管线；单个要素的高亮用叠加网格足够。按属性批量着色（Cesium 的 3D Tiles 样式）以后再做，那时再走材质。
+
 ## 8. 调参表
 
 | 参数 | 默认 | 位置 | 调整建议 |

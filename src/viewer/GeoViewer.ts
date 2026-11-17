@@ -6,6 +6,7 @@ import {
   PerspectiveCamera,
   Quaternion,
   Raycaster,
+  type Ray,
   Scene,
   Sphere,
   Vector2,
@@ -38,6 +39,7 @@ import { PointLayer, type PointLayerOptions } from '../markers/PointLayer';
 import type { PointRecord } from '../markers/points';
 import { Tiles3DLayer, type LoaderKit, type Tiles3DLayerOptions, type TilesViewState } from '../tiles3d/Tiles3DLayer';
 import type { NodeMaterialLibrary } from '../tiles3d/nodeMaterials';
+import { resolveTileFeature, type FeatureHighlightStyle, type TileFeature } from '../tiles3d/tileFeatures';
 import { GeoJsonLayer, type GeoJsonLayerOptions } from '../vector/GeoJsonLayer';
 import { lonLatToMerc } from '../vector/geometry';
 import { LabelManager } from '../vector/LabelManager';
@@ -809,6 +811,10 @@ export class GeoViewer {
     const rect = this.renderer.domElement.getBoundingClientRect();
     _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     const hit = this.pick(_ndc, { buffer: true });
+    const layer = hit?.source === 'tiles' ? (hit.tileset ?? null) : null;
+    // Resolved on demand from the view ray of this pick: hovers that never ask cost no CPU ray.
+    let feature: TileFeature | null | undefined = layer ? undefined : null;
+    const ray = layer ? this.viewRay(_ndc).clone() : null;
     return {
       kind: hit ? hit.source : 'none',
       entity: hit?.entity ?? null,
@@ -818,7 +824,54 @@ export class GeoViewer {
       clientX,
       clientY,
       marker: null,
+      tileFeature: () => (feature === undefined ? (feature = this.tileFeatureOnRay(ray!, layer!)) : feature),
     };
+  }
+
+  /**
+   * The 3D Tiles feature under a client-space pixel: its feature ID and properties from
+   * `EXT_mesh_features` / `EXT_structural_metadata` or the batch table (b3dm, i3dm). Null when
+   * the closest surface there is not a 3D Tiles layer, or its content has no readable feature
+   * IDs there (no metadata, or feature ID textures, which are not read). Casts a CPU ray.
+   * In interaction listeners use `event.tileFeature()`, which reuses the event's pick.
+   */
+  pickTileFeature(clientX: number, clientY: number): TileFeature | null {
+    return this.pickAt(clientX, clientY).tileFeature?.() ?? null;
+  }
+
+  /**
+   * Highlights a picked 3D Tiles feature (null clears): its triangles are tinted in the tile
+   * it was picked on (default `#ffd23f` at 50 % opacity). One feature at a time across all
+   * layers. Feature IDs only exist within one tile's content, so the highlight goes away when
+   * that tile is unloaded or replaced by another level of detail; removing the layer clears it.
+   */
+  highlightTileFeature(feature: TileFeature | null, style?: FeatureHighlightStyle): void {
+    for (const layer of this.tilesets) if (layer !== feature?.layer && layer.highlighted) layer.setHighlight(null);
+    if (feature && this.tilesets.includes(feature.layer)) feature.layer.setHighlight(feature, style);
+    this.requestRender();
+  }
+
+  /** The feature set by `highlightTileFeature`, or null (also after its tile was unloaded). */
+  get highlightedTileFeature(): TileFeature | null {
+    for (const layer of this.tilesets) if (layer.highlighted) return layer.highlighted;
+    return null;
+  }
+
+  /** The camera ray through normalized device coordinates (the shared raycaster's ray). */
+  private viewRay(ndc: Vector2): Ray {
+    this.camera.updateMatrixWorld();
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster.ray;
+  }
+
+  /** First hit of a ray on a layer's tiles, resolved to a feature. */
+  private tileFeatureOnRay(ray: Ray, layer: Tiles3DLayer): TileFeature | null {
+    if (!layer.active || !layer.ready || !this.tilesets.includes(layer)) return null;
+    this.raycaster.ray.copy(ray);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this.raycaster as any).firstHitOnly = true;
+    const hit = this.raycaster.intersectObject(layer.group, true)[0];
+    return hit ? resolveTileFeature(layer, hit) : null;
   }
 
   /** Cartographic position (radians) under a client-space pixel. */

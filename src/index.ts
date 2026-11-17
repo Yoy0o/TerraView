@@ -84,6 +84,7 @@ export { tileDebugUniforms, refreshTileMaterials } from './globe/TileMaterial';
 // ---------------------------------------------------------------- 3D Tiles
 export { Tiles3DLayer } from './tiles3d/Tiles3DLayer';
 export type { Tiles3DLayerEvents, Tiles3DLayerOptions, TilesetSource, TilesMemoryStats } from './tiles3d/Tiles3DLayer';
+export type { FeatureHighlightStyle, TileFeature } from './tiles3d/tileFeatures';
 
 // ---------------------------------------------------------------- vector
 export { GeoJsonLayer } from './vector/GeoJsonLayer';

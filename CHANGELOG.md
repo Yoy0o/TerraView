@@ -4,6 +4,25 @@
 
 ## [未发布]
 
+### 3D Tiles 要素拾取、属性查询与高亮（2026-11-17，路线图 §0.2 P2.3）
+
+点到 3D Tiles 上的某栋楼、某个构件时，可以拿到它的要素编号和属性，并把它高亮出来。说明见 [docs/api.md](docs/api.md) §3.3、[tile-loading.md](docs/agents/tile-loading.md) §7.1。
+
+**新增**
+
+- `event.tileFeature()`（`viewer.interaction` 的事件）和 `viewer.pickTileFeature(clientX, clientY)`：指针下的要素 `TileFeature`（`layer`、`id`、`table`、`properties`、`point`、`object`），没有时为 null。要素编号来自 `EXT_mesh_features`（要素编号属性、隐式编号）、b3dm 的批量编号或 i3dm 的实例；属性来自 `EXT_structural_metadata` 的属性表或批量表。`tileFeature()` 第一次调用时才发一条 CPU 射线，悬停不调用就没有开销。WebGPU、WebGL 都可用。
+- `viewer.highlightTileFeature(feature, { color, opacity })` / `viewer.highlightedTileFeature`：在拾取到的瓦片上半透明地叠一层该要素的三角形（默认 `#ffd23f`、50 %），不改瓦片材质；瓦片卸载、换细节层级或移除图层时清除。
+- 导出类型 `TileFeature`、`FeatureHighlightStyle`；`PickInfo.tileFeature`（可选，宿主自己构造的拾取可以不带）。
+- 演示应用：单击 3D Tiles 要素弹出属性并高亮。
+
+**变更**
+
+- 3D Tiles 的 glTF 现在解析 `EXT_mesh_features` / `EXT_structural_metadata`（原来关闭）。只读属性和属性表；要素编号纹理、属性纹理不读（库读纹理要自建 WebGL 渲染器），所以用纹理存要素编号的数据集拾取不到要素。属性表等元数据占少量内存。
+
+**工程**
+
+- `tiles3d/tileFeatures.ts` 与 `tests/tileFeatures.test.ts`（编号来源、最近顶点、空编号、属性表与批量表、量化与交错坐标的复制、叠加网格不挡射线、图层随瓦片释放清除高亮、事件上的懒解析）。
+
 ### 楼层模型按需加载与显存预算（2026-11-17，路线图 §0.2 P2.2）
 
 原来 `indoor.add()` 时把所有楼层和设备的 glTF 一次加载完，楼多、层多时一打开就下载、上传全部模型，而且一直占着显存。现在楼层第一次显示时才加载它的模型，隐藏楼层的模型超过预算时卸载。说明见 [indoor-bim.md](docs/agents/indoor-bim.md) §5.4。

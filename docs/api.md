@@ -158,7 +158,7 @@ viewer.events.on('idle', () => {
 
 | 导出 | 用途 | 级别 |
 | --- | --- | --- |
-| `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
+| `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；3D Tiles 要素 `pickTileFeature`、`highlightTileFeature` / `highlightedTileFeature`（§3.3）；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
 | `viewer.renderer`、`viewer.scene`、`viewer.camera` | three.js 的渲染器、场景、相机（定位 DOM、投影坐标、加自己的对象）。不要直接改相机位姿（§2） | 高级 |
 | `viewer.levelTransition` | 层级切换淡出（`duration = 0` 关闭）；类型 `FrameCrossfade` 不从入口导出 | 高级 |
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
@@ -169,7 +169,7 @@ viewer.events.on('idle', () => {
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` | 安静时降帧与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
 | `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
-| `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`、`ListenerOptions`、`PauseScope`、`PickInfo` | 稳定 |
+| `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`（`event.tileFeature()`：指针下的 3D Tiles 要素，§3.3）、`ListenerOptions`、`PauseScope`、`PickInfo` | 稳定 |
 | `PickBuffer`（`viewer.pickBuffer`）、`GpuPick`、`PickTarget`、`PickBufferOptions` | GPU 拾取缓冲；改了签名看不到的东西后调用 `invalidate()`。拾取本身用 `viewer.pick` / `pickAt` | 高级 |
 | `SurfaceHeight`、`SurfaceSample`、`SurfaceSource`、`SurfaceHeightOptions` | `viewer.surfaceHeight(lon, lat)` 的结果类型（地形或可见 3D Tiles 的高度，带可信度） | 稳定 |
 | `getHeadingPitch`、`lookAtHeadingPitchRange`、`orientationFromHeadingPitch`、`cameraDirection` / `cameraUp` / `cameraRight` | 相机数学（弧度） | 高级 |
@@ -188,6 +188,25 @@ viewer.events.on('idle', () => {
 ### 3.3 3D Tiles
 
 `Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`：有瓦片加载完成，或设了 `visible` / `heightOffset`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
+
+**要素拾取与属性**（`TileFeature`、`FeatureHighlightStyle`，稳定）：
+
+```ts
+viewer.interaction.on('click', (e) => {
+  const f = e.tileFeature(); // 指针下的要素：{ layer, id, table, properties, point, object }，没有时为 null
+  viewer.highlightTileFeature(f, { color: '#ffd23f', opacity: 0.5 }); // null 清除
+});
+const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
+```
+
+| 项 | 说明 |
+| --- | --- |
+| 要素编号（`id`） | `EXT_mesh_features` 的要素编号属性（`_FEATURE_ID_n`）和隐式编号（顶点序号），b3dm 的 `_BATCHID`，i3dm 的实例序号。编号只在一块瓦片的内容里唯一。**要素编号纹理不读**：库读纹理要自建一个 WebGL 渲染器，3D Tiles 保持只用 WebGPU |
+| 属性（`properties`、`table`） | `EXT_structural_metadata` 的属性表（`table` 是表名，没有名字时是类名），或 b3dm / i3dm 的批量表（`table: 'batch'`）；没有属性时为空对象、`table` 为 null。属性纹理、属性属性（property attributes）不读 |
+| 代价 | `event.tileFeature()` 第一次调用时按该事件拾取时的相机发一条 CPU 射线，之后缓存；不调用就没有开销（悬停仍走 GPU 拾取缓冲）。WebGL 后端同样可用 |
+| 高亮 | 把该要素的三角形复制一份、半透明叠在拾取到的瓦片网格上（默认 `#ffd23f`、50 %），不改瓦片材质。整页同时只高亮一个要素；那块瓦片被卸载或换成别的细节层级时高亮随之消失（`highlightedTileFeature` 变为 null），移除图层也会清除。点云（pnts）没有三角形，只能拾取不能高亮 |
+
+实现与规则见 [tile-loading.md](agents/tile-loading.md) §7.1。
 
 ### 3.4 矢量
 
@@ -232,7 +251,7 @@ viewer.events.on('idle', () => {
 
 2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（类型仍经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
-公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Marker` 的放置与测量方法。
+公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`，`BimEntity.releaseMeshes`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
 
 ## 4. 多个 viewer
 

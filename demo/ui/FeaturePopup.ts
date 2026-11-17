@@ -8,6 +8,7 @@ import {
   type GeoViewer,
   type PointLayer,
   type PointRecord,
+  type TileFeature,
 } from 'terra-view';
 import { h } from './dom';
 
@@ -40,12 +41,21 @@ export class FeaturePopup {
   private entity: BimEntity | null = null;
   /** Layer whose selected point the popup shows. */
   private pointLayer: PointLayer | null = null;
+  /** 3D Tiles feature the popup shows. */
+  private tileFeature: TileFeature | null = null;
 
   constructor(private readonly viewer: GeoViewer) {
     this.root = h('div', { class: 'feature-popup', hidden: true, role: 'dialog', 'aria-label': '属性' });
     viewer.interaction.on('click', (e) => {
       // Entities are selected by the viewer's indoor behavior; the 'select' event opens their panel.
-      if (!e.entity) void this.identify(e.clientX, e.clientY);
+      if (e.entity) return;
+      // 3D Tiles with feature IDs (EXT_mesh_features / batch table): their properties, highlighted in the tile.
+      const feature = e.tileFeature();
+      if (feature) this.showTileFeature(feature, e.clientX, e.clientY);
+      else void this.identify(e.clientX, e.clientY);
+    });
+    viewer.events.on('tilesets-changed', () => {
+      if (this.tileFeature && !viewer.highlightedTileFeature) this.close();
     });
     viewer.indoor.events.on('select', ({ entity }) => {
       if (entity) this.showEntity(entity);
@@ -64,6 +74,7 @@ export class FeaturePopup {
   private showPoint(point: PointRecord, layer: PointLayer, x: number, y: number): void {
     this.requestId++;
     this.viewer.highlightFeature(null);
+    this.clearTileFeature();
     if (this.entity) {
       this.entity = null;
       this.viewer.indoor.select(null);
@@ -82,6 +93,21 @@ export class FeaturePopup {
     return !this.root.hidden;
   }
 
+  private showTileFeature(feature: TileFeature, x: number, y: number): void {
+    this.requestId++;
+    this.viewer.highlightFeature(null);
+    this.pointLayer?.select(null);
+    this.pointLayer = null;
+    this.tileFeature = feature;
+    this.viewer.highlightTileFeature(feature);
+    const c = this.viewer.ellipsoid.cartesianToCartographic(feature.point);
+    const where = c ? `${formatDegrees(c.longitude, 'E', 'W')} ${formatDegrees(c.latitude, 'N', 'S')} · ${formatDistance(c.height)}` : '';
+    const table = feature.table === 'batch' ? '批量表' : feature.table ?? '无属性表';
+    const props = { 要素编号: feature.id, ...feature.properties };
+    this.render(`要素 ${feature.id}`, `${feature.layer.name} · 3D Tiles · ${table}`, props, where);
+    this.place(x, y);
+  }
+
   private async identify(clientX: number, clientY: number): Promise<void> {
     const id = ++this.requestId;
     const pick = await this.viewer.pickFeature(clientX, clientY);
@@ -91,6 +117,7 @@ export class FeaturePopup {
       return;
     }
     this.entity = null;
+    this.clearTileFeature();
     this.viewer.highlightFeature(pick.hit);
     this.show(pick, clientX, clientY);
   }
@@ -114,6 +141,7 @@ export class FeaturePopup {
   private showEntity(entity: BimEntity): void {
     this.requestId++;
     this.viewer.highlightFeature(null);
+    this.clearTileFeature();
     this.entity = entity;
     const indoor = this.viewer.indoor;
     const actions: HTMLElement[] = [];
@@ -167,10 +195,17 @@ export class FeaturePopup {
     this.root.style.top = `${top}px`;
   }
 
+  private clearTileFeature(): void {
+    if (!this.tileFeature) return;
+    this.tileFeature = null;
+    this.viewer.highlightTileFeature(null);
+  }
+
   close(): void {
     this.requestId++;
     if (!this.root.hidden) this.root.hidden = true;
     this.viewer.highlightFeature(null);
+    this.clearTileFeature();
     this.pointLayer?.select(null);
     this.pointLayer = null;
     if (this.entity) {

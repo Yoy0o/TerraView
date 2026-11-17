@@ -58,7 +58,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 │  └─ terrain/  地形源描述、quantized-mesh 解码、terrainTiling（主线程与 Worker 共用的分块 / 插值规则）
 ├─ atmosphere/  大气散射 TSL 节点、星空、云层（CloudLayer）
 ├─ tiles3d/     3D Tiles 图层（含档位预算）；nodeMaterials（节点材质转换 + WebGPU 渐显 + 纹理过滤策略）；
-│               lodPolicy（远处放宽、缓存满时自适应降精度，纯函数）
+│               lodPolicy（远处放宽、缓存满时自适应降精度，纯函数）；tileFeatures（要素编号与属性、高亮叠加网格）
 ├─ vector/      GeoJSON 图层、矢量 Worker、注记（LabelManager）
 ├─ indoor/      BIM / 室内：schema（文档格式）、selector（选择器编译，纯函数）、BimEntity（实体、样式、标签）、
 │               EntitySet（查询结果与批量操作）、Building（构建与定位）、InstanceBatch（设备合批，InstancedMesh）、
@@ -79,7 +79,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -162,7 +162,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 子瓦片可以先用精确祖先的高度插值出临时网格，最多跨 3 级。地形取数比网格层级低 3 级（一张 256 px 地形图服务 8×8 个网格瓦片，不损失精度）。
   - 选择规则借鉴 CesiumJS：每块瓦片记住上一帧的选择结果。缩小时，父瓦片要等自身影像和地形不比子孙差才替换它们（不丢细节守卫）。新进入视野、还没有网格的子瓦片，由父瓦片的对应象限暂时顶替（象限填充）。
   - 规则写在 `tileSelection.ts`，详见 tile-loading.md §2。
-- **3D Tiles**：`NodeMaterialPlugin` 把材质转为节点材质；`TilesFadePlugin` 的材质管理器换成 `NodeFadeMaterialManager`（TSL dither 遮罩）；显存目标、解码缓存上限、纹理过滤按显存档位给（`viewer.gpu.tiles`），隐藏瓦片在显存目标内保留、过了延时才释放；斜视时远处瓦片放宽误差，缓存满时整体降精度而不是局部停止加载（[gpu-memory.md](docs/agents/gpu-memory.md) §5）。图层的 `errorTarget` 改 `layer.errorTarget`，不要直接写 `layer.tiles.errorTarget`（每帧会被覆盖）。
+- **3D Tiles**：`NodeMaterialPlugin` 把材质转为节点材质；`TilesFadePlugin` 的材质管理器换成 `NodeFadeMaterialManager`（TSL dither 遮罩）；显存目标、解码缓存上限、纹理过滤按显存档位给（`viewer.gpu.tiles`），隐藏瓦片在显存目标内保留、过了延时才释放；斜视时远处瓦片放宽误差，缓存满时整体降精度而不是局部停止加载（[gpu-memory.md](docs/agents/gpu-memory.md) §5）。图层的 `errorTarget` 改 `layer.errorTarget`，不要直接写 `layer.tiles.errorTarget`（每帧会被覆盖）。要素拾取用 `event.tileFeature()` / `viewer.pickTileFeature`，高亮用 `viewer.highlightTileFeature`（tile-loading.md §7.1）。
 - **相机**：左键抓地平移；右键横向调航向、纵向调俯仰（默认绕屏幕中心点）；滚轮缩放到光标并保持航向和俯仰；另有环绕巡航、俯仰范围、各类开关、双击钩子。
 - **室内 / BIM**：层级为 地球 → 建筑 → 楼层 → 房间 / 设备。双击进入，右键单击或 Esc 返回，单击选中，悬停高亮。
   - 每一级的显隐、半透明、拾取映射（`filterObject`）和取景都由层级控制（`LevelControl`）决定，可以按选择器和优先级注册替换。
@@ -253,6 +253,8 @@ docs/agents/    子系统规范（本文档的展开）
 - **注释里写了 `@internal` 字样，整条导出被裁掉**（2026-11-13，P1.1）：`stripInternal` 按字符串在前导注释里找 `@internal`，写在正文、反引号里都算。`src/index.ts` 文件头的说明提到这个标记，它是第一条导出的前导注释，`GeoViewer` 就从发布的声明里消失了；声明文件本身仍然合法，`tsconfig.dts.json` 看不出来，是打包宿主的类型检查发现的。现在 `build:types` 最后跑 `scripts/check-dts.mjs`，比对入口在源码和声明里的导出名。注释里提到这两个标记时不要带 `@`；分级规则见 docs/api.md §2。
 - **冒烟测试里 `window.viewer` 提前"存在"**：带 id 的元素会成为同名的 `window` 属性（演示应用的 `<div id="viewer">`、宿主的 `#left` / `#right`），等 viewer 要等 `window.viewer?.info` 之类的实例字段。
 - **软件渲染下"等瓦片加载完"会超时**（2026-11-13，CI 首跑宿主测试 150 s 超时）：无 GPU 时 SwiftShader 占满 CPU，画面约 4 fps，影像的 `createImageBitmap` 每次约 900 ms（有 GPU 时 1 ms），屏幕之外的低优先级加载（留作回退的祖先影像，按设计只用三分之一的并发）排空要再花一倍时间，2 核 runner 上跑不完。冒烟测试用 `probeBackend` 问浏览器是不是软件渲染：是的话只等"屏幕上的瓦片都有自己的影像"，有 GPU 时才要求队列排空。新增等待条件同样要分这两档，不要用软件渲染下的耗时判断 SDK 性能。本机 `SMOKE_NO_GPU=1` 只把 WebGL / WebGPU 放到 SwiftShader 上，页面合成仍走 GPU，比 CI 快好几倍：本机软件模式能过不代表 CI 有余量。
+- **释放几何会删掉它的属性缓冲，即使属性是共享的**（2026-11-17，P2.3）：three 的 `Geometries` 在 `geometry.dispose()` 时对它的每个属性调用 `attributes.delete`，不管别的几何还在不在用。给已有网格做叠加（高亮、描边）时不要共享原几何的 `BufferAttribute`，复制一份（`tileFeatures.copyPositions`，保持存储类型和归一化，深度才和原表面一致）。
+- **3DTilesRendererJS 的元数据读取会建 WebGL 渲染器**：`MeshFeatures.getFeatures()` 一进来就经 `TextureReadUtility` 创建 `WebGLRenderer`（即使只读属性），`getPropertyTextureData()` 也一样。要素编号属性、属性表自己读（`tileFeatures.ts`），纹理类的元数据目前不读。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
