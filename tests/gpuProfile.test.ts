@@ -80,6 +80,8 @@ describe('gpuProfile', () => {
       expect(b.globe.hiddenReleaseSeconds).toBeGreaterThan(a.globe.hiddenReleaseSeconds);
       expect(b.tiles.cacheMaxBytes).toBeGreaterThan(a.tiles.cacheMaxBytes);
       expect(b.tiles.gpuBytesTarget).toBeGreaterThan(a.tiles.gpuBytesTarget);
+      expect(b.indoor.modelBytesTarget).toBeGreaterThan(a.indoor.modelBytesTarget);
+      expect(b.indoor.unloadDelayMs).toBeGreaterThanOrEqual(a.indoor.unloadDelayMs);
       // More detail (a lower error target) on the better tier.
       expect(b.tiles.errorTargetScale).toBeLessThanOrEqual(a.tiles.errorTargetScale);
       expect(b.tiles.errorFalloffScale).toBeLessThanOrEqual(a.tiles.errorFalloffScale);
@@ -113,8 +115,10 @@ describe('gpuProfile', () => {
     const p = gpuProfile('medium');
     p.tiles.cacheMaxBytes = 1;
     p.globe.maxCachedTiles = 1;
+    p.indoor.modelBytesTarget = 1;
     expect(gpuProfile('medium').tiles.cacheMaxBytes).toBe(448 * MB);
     expect(gpuProfile('medium').globe.maxCachedTiles).toBe(500);
+    expect(gpuProfile('medium').indoor.modelBytesTarget).toBe(128 * MB);
   });
 });
 

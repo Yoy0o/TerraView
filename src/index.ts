@@ -172,7 +172,7 @@ export { EventEmitter } from './core/EventEmitter';
 export { WGS84_A, WGS84_B, geodeticNormal, geodeticToEcef } from './core/geodesy';
 export { sunDirectionECEF } from './core/SunPosition';
 export { GPU_TIERS, classifyGpu, gpuProfile, parseGpuTier } from './core/gpuProfile';
-export type { GpuHints, GpuProfile, GpuTier, TilesQuality } from './core/gpuProfile';
+export type { GpuHints, GpuProfile, GpuTier, IndoorQuality, TilesQuality } from './core/gpuProfile';
 export { DEG2RAD, RAD2DEG, clamp, formatDegrees, formatDistance } from './core/math';
 export { DEFAULT_LOCALE, MESSAGES, localize, resolveMessages } from './core/i18n';
 export type { LocaleId, LocalizedText, ViewerMessageOverrides, ViewerMessages } from './core/i18n';

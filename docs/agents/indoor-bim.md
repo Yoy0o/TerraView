@@ -191,6 +191,19 @@ viewer.indoor.culling.stats;           // { candidates, culled }：上一次评�
 - **顶牌不受影响**：设备顶牌按自己的 `maxDistance`（设备默认 120 m）和显示模式显示，告警卡片不会因为剔除而消失。
 - **演示应用**：URL `?cull=1`（`?cullThreshold=0.01`、`?cullHysteresis`、`?cullInterval`、`?cullSelector=.thing`，非法值忽略；不带 `?cull=1` 时只预设参数）；面板"室内 / BIM"里的"远景剔除小设备"开关、阈值滑块（0.1%–5%）和当前剔除数。
 
+### 5.4 模型按需加载与显存预算（P2.2 / M3.8）
+
+楼层的 glTF（`floor.model`）和该楼层设备的模型（`thing.model`）不再在 `indoor.add()` 时全部加载，而是在**楼层第一次显示时**才加载（`indoor/Building.ts`，规则在 `indoor/modelBudget.ts`）：
+
+- **什么时候加载**：每帧（`IndoorManager.update`）检查哪些楼层正显示着（`effectivelyVisible`），显示着而模型没加载的就开始加载。进入建筑时全部楼层显示，所以都会加载；从地球直接进入某层时只加载那一层。另外 `building.modelsLoaded(entity)` 会主动加载该实体用到的模型（它下面的楼层、它所在楼层、它的设备和外壳）并等待，层级切换在飞行前就是这样等模型的（最多 `modelWaitMs`），宿主也可以用它预加载。外壳模型（`exterior.model`）在地球层级就看得见，照常随建筑加载。
+- **什么时候卸载**：所有建筑已加载模型的估算字节数（`indoor.modelBytes`，也是 `viewer.memory.buildings`）超过 `indoor.modelBytesTarget` 时，把隐藏了至少 `modelUnloadDelayMs` 的楼层模型按"最近一次显示"从早到晚卸载，直到回到预算以内。**显示着的楼层永远不卸载**（所以只靠可见部分超过预算时总量会一直高于预算），正在加载的也不卸载。卸载的楼层再显示时重新加载（走浏览器 HTTP 缓存）。设备模型按 URL 共享、合批，加载后不卸载。
+- **预算按显存档位给**（`viewer.gpu.indoor`，viewer 创建时写进 `indoor`）：`low` 64 MB / 5 s，`medium` 128 MB / 10 s，`high` 256 MB / 10 s，`ultra` 512 MB / 20 s。可以随时改 `indoor.modelBytesTarget`、`indoor.modelUnloadDelayMs`。
+- **估算**：每个模型的顶点属性、索引和纹理字节（RGBA8，生成 mipmap 时乘 4/3；压缩纹理按自带的 mip 链），同一几何、同一纹理只算一次。不含程序生成的楼板、墙和合批设备的实例数据。
+- **卸载做了什么**：挂到房间、设备、构件上的模型节点从实体上摘下（`meshes` 和样式记录一并去掉），连同静态几何一起释放几何、材质和纹理；经 `onChange` 通知 viewer（全帧率、拾取缓冲失效）。贡献剔除按网格数变化重算包围球。重新加载后，实体当时的样式和层级半透明会重新应用到新网格上。
+- **关闭**：`indoor.lazyModels = false`（在 `add()` 之前设置，或 `new Building(..., { lazyModels: false })`）恢复原来的行为：所有模型随建筑加载，也不卸载。
+- **顺带修复**：移除建筑时，模型的纹理原来没有释放（只释放了几何和材质），现在一起释放；建筑移除后才到达的模型直接释放，不再挂到已移除的建筑上。
+- **不计入加载状态**：模型加载仍不算进 `viewer.loadState` / `idle`（docs/api.md §1.7）。
+
 ## 6. 层级控制
 
 ### 6.1 切换流程
@@ -300,6 +313,6 @@ resume(); // 或 viewer.interaction.resume() 撤销全部
 
 ## 9. 路线图
 
-- IFC 直读（web-ifc）及按楼层流式加载；楼层模型使用 3D Tiles 或 glTF LOD。
+- IFC 直读（web-ifc）；楼层模型使用 3D Tiles 或 glTF LOD。楼层模型按需加载、按预算卸载已完成（§5.4）。
 - 剖切面 / 剖切盒（ThingJS"剖切"）、室内导航（路网 + A*）、热力图和点位聚合。
 - 顶牌的遮挡判断（深度采样）。设备实例化渲染已完成（§5.2）。

@@ -4,6 +4,32 @@
 
 ## [未发布]
 
+### 楼层模型按需加载与显存预算（2026-11-17，路线图 §0.2 P2.2）
+
+原来 `indoor.add()` 时把所有楼层和设备的 glTF 一次加载完，楼多、层多时一打开就下载、上传全部模型，而且一直占着显存。现在楼层第一次显示时才加载它的模型，隐藏楼层的模型超过预算时卸载。说明见 [indoor-bim.md](docs/agents/indoor-bim.md) §5.4。
+
+**新增**
+
+- `indoor.lazyModels`（默认 true）、`BuildingOptions.lazyModels`；`indoor.modelBytesTarget` / `indoor.modelUnloadDelayMs`（按显存档位给：`low` 64 MB / 5 s，`medium` 128 MB / 10 s，`high` 256 MB / 10 s，`ultra` 512 MB / 20 s）；读数 `indoor.modelBytes`、`building.modelBytes`。
+- `viewer.memory.buildings`（已加载的建筑 glTF 模型），并计入 `gpuTotal`；`viewer.gpu.indoor`（类型 `IndoorQuality`）。
+- 演示应用：状态栏显示建筑模型的显存（1 MB 以上时）。
+
+**变更**
+
+- 楼层模型（`floor.model`）和设备模型（`thing.model`）在楼层第一次显示，或 `building.modelsLoaded(entity)` 要用到时才加载；外壳模型仍随建筑加载。刚 `add()` 完时房间、设备上还没有模型网格。要恢复原来的行为：在 `add()` 之前设 `indoor.lazyModels = false`。
+- `building.modelsLoaded(entity)` 会先开始加载该实体用到的模型再等待（它下面的楼层、它所在楼层、它的设备和外壳），可以用来预加载；房间、设备现在也会等所在楼层的整层模型。
+- 所有建筑的模型超过 `modelBytesTarget` 时，隐藏了至少 `modelUnloadDelayMs` 的楼层模型按最近显示的先后卸载，再显示时重新加载；显示着的楼层不卸载。
+- `viewer.memory.gpuTotal` 多了建筑模型一项，有模型的场景读数会变大。
+
+**修复**
+
+- 移除建筑时没有释放模型的纹理（只释放了几何和材质）。
+- 建筑移除后才加载完的模型仍被挂到已移除的建筑上，占着显存。
+
+**工程**
+
+- `indoor/modelBudget.ts`（卸载规则 `modelsToUnload`、字节估算、释放，纯函数）与 `tests/models.test.ts`；`tests/gpuProfile.test.ts` 补建筑模型预算。
+
 ### 降帧收尾：从代码做的改动立即恢复全帧率（2026-11-14，路线图 §0.2 P2.1a"收尾"）
 
 原来从代码改实体样式、显隐，改云层、图层属性时，viewer 不知道画面变了：改动要等下一个安静帧（最多 100 ms）才出现，之后的收尾（顶牌重新放置、遮挡判定、剔除）也按每秒 10 帧慢慢走。

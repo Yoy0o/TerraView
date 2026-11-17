@@ -28,6 +28,7 @@ import {
   type LevelControl,
 } from './LevelControl';
 import { fovNormalizedRange, type LevelView } from './levelView';
+import { modelsToUnload } from './modelBudget';
 import { parseBuildingDoc, type BuildingDoc, type LabelDef, type LabelMode } from './schema';
 
 export interface LevelEvent {
@@ -159,6 +160,22 @@ export class IndoorManager {
    */
   batchDevices = true;
   /**
+   * Load each floor's glTF model and its devices' models when the floor is
+   * first shown (entering the building or the floor) or `building.modelsLoaded()`
+   * asks for them, instead of everything in `add()` (default true). Applies to
+   * buildings added afterwards. False loads all models at once and keeps them.
+   */
+  lazyModels = true;
+  /**
+   * Budget for the loaded building models, in estimated GPU bytes (`modelBytes`).
+   * While the models of all buildings exceed it, floor models hidden for at least
+   * `modelUnloadDelayMs` are unloaded, the least recently shown first; they load
+   * again when shown. Shown floors are never unloaded. The viewer sets both from
+   * its GPU tier (`viewer.gpu.indoor`); default 256 MB and 10 s.
+   */
+  modelBytesTarget = 256 * 2 ** 20;
+  modelUnloadDelayMs = 10_000;
+  /**
    * Contribution culling (M2.3): devices and non-structural components too
    * small on screen are not drawn. Off by default:
    * `indoor.culling.configure({ enabled: true, threshold: 0.005 })`.
@@ -177,6 +194,8 @@ export class IndoorManager {
   private readonly viewCache = new Map<BimEntity | null, CachedView>();
   private transition: { cancelled: boolean } | null = null;
   private frame = 0;
+  /** Milliseconds of `update` time (sum of frame steps): when floors were last shown. */
+  private clock = 0;
 
   constructor(private readonly host: IndoorHost) {
     this.root.name = 'Indoor';
@@ -228,7 +247,11 @@ export class IndoorManager {
   add(input: BuildingDoc | unknown, baseUrl?: string): Building {
     const doc = parseBuildingDoc(input);
     if (this.buildings.some((b) => b.id === doc.id)) throw new TerraViewError('building-already-loaded', `building ${doc.id} is already loaded`, { id: doc.id });
-    const building = new Building(doc, this.host.ellipsoid, this.host.loadModel, baseUrl, { batching: this.batchDevices, messages: this.host.messages });
+    const building = new Building(doc, this.host.ellipsoid, this.host.loadModel, baseUrl, {
+      batching: this.batchDevices,
+      lazyModels: this.lazyModels,
+      messages: this.host.messages,
+    });
     this.buildings.push(building);
     building.onChange = (geometry) => this.entityChanged(geometry);
     this.root.add(building.root);
@@ -591,17 +614,39 @@ export class IndoorManager {
 
   // ---------------------------------------------------------------------------
 
-  /** Advances animations and terrain clamping; returns true when something moved (floors spreading, a building re-grounded). */
+  /** Estimated GPU bytes of the glTF models loaded for all buildings (floors, devices, exteriors). */
+  get modelBytes(): number {
+    let bytes = 0;
+    for (const b of this.buildings) bytes += b.modelBytes;
+    return bytes;
+  }
+
+  /**
+   * Advances animations and terrain clamping, loads the models of shown floors and unloads
+   * hidden ones over the budget; returns true when something moved (floors spreading, a
+   * building re-grounded). Loaded and unloaded models report through `contentChanged`.
+   */
   update(dt: number): boolean {
     this.frame++;
+    this.clock += dt * 1000;
     let changed = false;
     for (const b of this.buildings) {
       if (b.update(dt)) changed = true;
       // Poll often until the terrain under the anchor is detailed enough, then rarely.
       if (this.frame % (this.grounded.has(b) ? 30 : 5) === 0 && this.clampToGround(b, false)) changed = true;
+      b.updateModels(this.clock);
     }
+    this.unloadOverBudget();
     if (this.culling.update()) changed = true;
     return changed;
+  }
+
+  /** Unloads hidden floor models, least recently shown first, while the loaded models exceed `modelBytesTarget`. */
+  private unloadOverBudget(): void {
+    const total = this.modelBytes;
+    if (total <= this.modelBytesTarget) return;
+    const models = this.buildings.flatMap((b) => b.unloadableModels());
+    for (const m of modelsToUnload(models, total, this.modelBytesTarget, this.clock, this.modelUnloadDelayMs)) m.building.unloadFloorModel(m.floor);
   }
 
   private readonly grounded = new WeakSet<Building>();

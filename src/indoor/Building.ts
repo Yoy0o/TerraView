@@ -1,7 +1,9 @@
 /**
  * Building construction: entity tree and meshes from a building document,
  * geographic placement, glTF attachment, and instanced batches for devices
- * (M3.6, `InstanceBatch.ts`).
+ * (M3.6, `InstanceBatch.ts`). Floor and device models load when their floor
+ * is first shown, and floor models can be unloaded again (P2.2, budget rule
+ * in `modelBudget.ts`).
  */
 import {
   BoxGeometry,
@@ -27,6 +29,7 @@ import type { Ellipsoid } from '../core/Ellipsoid';
 import { DEG2RAD } from '../core/math';
 import { BimEntity, STRUCTURE_TAG, type BaseLook } from './BimEntity';
 import { InstanceBatcher, lookOf, makeBatchMaterial, toNodeMaterial, type BatchMesh, type BatchSpec } from './InstanceBatch';
+import { disposeModel, estimateModelBytes, type ModelResidency } from './modelBudget';
 import { sharedStylePool, type StylePool } from './StylePool';
 import {
   bounds2,
@@ -58,6 +61,51 @@ export interface BuildingOptions {
   pool?: StylePool;
   /** Names of the properties the building adds to its entities (default `zh-CN`: 楼层数, 面积, ...). */
   messages?: ViewerMessages;
+  /**
+   * Load the floor models (`floor.model`) and device models of a floor when
+   * the floor is first shown or `modelsLoaded()` asks for it (default true),
+   * instead of all of them when the building is created. Only then can a
+   * hidden floor's model be unloaded again (`IndoorManager` budget). The
+   * exterior model always loads at once.
+   */
+  lazyModels?: boolean;
+}
+
+/** @internal A floor's own model (`floor.model`) as the memory budget sees it. */
+export interface FloorModelState extends ModelResidency {
+  readonly floor: BimEntity;
+  readonly building: Building;
+}
+
+/** A model attached to the building, with the way to take it off again. */
+interface AttachedModel {
+  /** Estimated GPU bytes (`estimateModelBytes`). */
+  bytes: number;
+  /** Detaches the model from its entities and frees it. */
+  release(): void;
+}
+
+/** Loading state of one floor's models. */
+class FloorModels implements FloorModelState {
+  state: 'idle' | 'loading' | 'loaded' | 'failed' = 'idle';
+  /** Settles when the current load is attached or failed; null while nothing was requested. */
+  load: Promise<void> | null = null;
+  bytes = 0;
+  visible = false;
+  lastVisible = 0;
+  /** The floor's device models were requested (they load once and stay). */
+  devicesRequested = false;
+  release: (() => void) | null = null;
+
+  constructor(
+    readonly building: Building,
+    readonly floor: BimEntity,
+    readonly def: FloorDef,
+  ) {}
+
+  get loaded(): boolean {
+    return this.state === 'loaded';
+  }
 }
 
 /** Base material key of primitive devices (all share one shader and material per render state). */
@@ -257,8 +305,16 @@ export class Building extends BimEntity {
   private expandGap = 0;
   private expandTarget = 0;
   private readonly topElevation: number;
-  /** Model loads per entity (settled when attached or failed). */
+  /** Device and exterior model loads per entity (settled when attached or failed). */
   private readonly modelLoads = new Map<BimEntity, Promise<void>[]>();
+  /** Per floor: its own model and whether its devices' models were requested. */
+  private readonly floorModels = new Map<BimEntity, FloorModels>();
+  /** Device model loads waiting for their floor to be shown (lazy models). */
+  private readonly deferredLoads = new Map<BimEntity, (() => void)[]>();
+  /** Bytes of the models that stay loaded: exterior, device models (a shared template counts once). */
+  private staticModelBytes = 0;
+  /** Device templates already counted in `staticModelBytes`. */
+  private readonly countedTemplates = new Set<string>();
   /** Instanced device batches per floor. */
   private readonly batchers = new Map<BimEntity, InstanceBatcher>();
   /** Batched device models, loaded once per URL and shared by every device using them. */
@@ -266,6 +322,8 @@ export class Building extends BimEntity {
   private readonly batching: boolean;
   private readonly pool: StylePool;
   private readonly propNames: ViewerMessages['entityProperties'];
+  /** Floor and device models load when their floor is first shown (`BuildingOptions.lazyModels`). */
+  readonly lazyModels: boolean;
   private disposed = false;
 
   constructor(
@@ -278,6 +336,7 @@ export class Building extends BimEntity {
     super(doc.id, 'building', doc.name ?? doc.id, doc.category ?? 'building', doc.properties ?? {}, doc.label);
     adopt(this, doc);
     this.batching = options.batching ?? true;
+    this.lazyModels = options.lazyModels ?? true;
     this.pool = options.pool ?? sharedStylePool;
     this.propNames = (options.messages ?? MESSAGES[DEFAULT_LOCALE]).entityProperties;
     this.root.name = `Building ${this.name}`;
@@ -296,6 +355,7 @@ export class Building extends BimEntity {
     const p = this.propNames;
     this.properties = { [p.floorCount]: doc.floors.length, [p.buildingHeight]: `${this.topElevation.toFixed(1)} m`, ...this.properties };
     this.place(doc.anchor.height ?? 0);
+    if (!this.lazyModels) for (const f of this.floors) this.requestFloor(f);
   }
 
   /** Heading of the building's +Y axis in radians (clockwise from north). */
@@ -316,13 +376,110 @@ export class Building extends BimEntity {
   }
 
   /**
-   * Settles once the glTF models of an entity and its descendants are
-   * attached (or failed). A level waits for this before framing the camera.
+   * Loads the glTF models an entity is drawn with, if not loaded yet, and
+   * settles once they are attached (or failed): the models of every floor at
+   * or below the entity, the model of the floor it stands on, its devices'
+   * models and the exterior model. A level waits for this before framing the
+   * camera; call it to preload floors before they are shown.
    */
   modelsLoaded(entity: BimEntity = this): Promise<void> {
+    const floors = new Set<BimEntity>();
+    const own = entity.closest('floor');
+    if (own) floors.add(own);
+    entity.traverse((e) => {
+      if (e.type === 'floor') floors.add(e);
+    });
+    for (const f of floors) this.requestFloor(f);
     const pending: Promise<void>[] = [];
+    for (const f of floors) {
+      const load = this.floorModels.get(f)?.load;
+      if (load) pending.push(load);
+    }
     entity.traverse((e) => pending.push(...(this.modelLoads.get(e) ?? [])));
     return Promise.all(pending).then(() => undefined);
+  }
+
+  /** Estimated GPU bytes of the glTF models loaded for this building (floors, devices, exterior). */
+  get modelBytes(): number {
+    let bytes = this.staticModelBytes;
+    for (const m of this.floorModels.values()) bytes += m.bytes;
+    return bytes;
+  }
+
+  /**
+   * @internal Called every frame (`clock` in ms): notes which floors are shown and,
+   * with lazy models, starts loading the models of shown floors.
+   */
+  updateModels(clock: number): void {
+    for (const m of this.floorModels.values()) {
+      m.visible = m.floor.effectivelyVisible;
+      if (!m.visible) continue;
+      m.lastVisible = clock;
+      if (this.lazyModels) this.requestFloor(m.floor);
+    }
+  }
+
+  /** @internal Floor models the memory budget may unload (lazy models only; floors with a `model`). */
+  unloadableModels(): FloorModelState[] {
+    if (!this.lazyModels) return [];
+    return [...this.floorModels.values()].filter((m) => m.def.model !== undefined);
+  }
+
+  /**
+   * @internal Unloads a floor's own model (it loads again when the floor is shown or
+   * `modelsLoaded` asks for it). Device models stay. Returns false when it was not loaded.
+   */
+  unloadFloorModel(floor: BimEntity): boolean {
+    const m = this.floorModels.get(floor);
+    if (!m || m.state !== 'loaded') return false;
+    m.release?.();
+    m.release = null;
+    m.state = 'idle';
+    m.load = null;
+    m.bytes = 0;
+    this.onChange?.(true);
+    return true;
+  }
+
+  /** Starts loading a floor's model and its devices' models, unless already requested. */
+  private requestFloor(floor: BimEntity): void {
+    const m = this.floorModels.get(floor);
+    if (!m || this.disposed) return;
+    if (!m.devicesRequested) {
+      m.devicesRequested = true;
+      const runs = this.deferredLoads.get(floor) ?? [];
+      this.deferredLoads.delete(floor);
+      for (const run of runs) run();
+    }
+    if (m.state !== 'idle' || !m.def.model) return;
+    m.state = 'loading';
+    m.load = this.attachModel(floor, m.def.model, m.def).then((attached) => {
+      if (!attached) {
+        // Not retried every frame: a failed floor stays without its model (warned once).
+        m.state = 'failed';
+        return;
+      }
+      m.state = 'loaded';
+      m.bytes = attached.bytes;
+      m.release = attached.release;
+    });
+  }
+
+  /** Runs a device model load when its floor is first requested (at once without lazy models). */
+  private deferUntilShown(floor: BimEntity, run: () => void): void {
+    const list = this.deferredLoads.get(floor) ?? [];
+    list.push(run);
+    this.deferredLoads.set(floor, list);
+  }
+
+  /** Tracks a model that stays loaded (device, exterior): `modelsLoaded` waits for it, its bytes are counted. */
+  private keepModel(entity: BimEntity, load: Promise<AttachedModel | null | void>): void {
+    this.trackModel(
+      entity,
+      load.then((attached) => {
+        if (attached) this.staticModelBytes += attached.bytes;
+      }),
+    );
   }
 
   /** Spreads floors apart vertically (楼层展开) by `gap` meters per storey (0 collapses). */
@@ -382,7 +539,8 @@ export class Building extends BimEntity {
     for (const r of def.rooms ?? []) this.buildRoom(floor, r, def.height);
     for (const t of def.things ?? []) this.buildThing(floor, t);
     for (const e of def.elements ?? []) this.buildElement(floor, e, def.height);
-    if (def.model) this.trackModel(floor, this.attachModel(floor, def.model, def));
+    // The floor model (and the device models above) load when the floor is requested.
+    this.floorModels.set(floor, new FloorModels(this, floor, def));
   }
 
   private buildRoom(floor: BimEntity, def: RoomDef, floorHeight: number): void {
@@ -412,7 +570,8 @@ export class Building extends BimEntity {
     const [w, d, h] = def.size ?? [0.5, 0.5, 0.5];
     const color = def.color ?? THING_COLORS[thing.category] ?? '#64748b';
     if (def.model) {
-      this.trackModel(thing, this.batching ? this.attachBatchedModel(floor, thing, def.model) : this.attachModel(thing, def.model));
+      const ref = def.model;
+      this.deferUntilShown(floor, () => this.keepModel(thing, this.batching ? this.attachBatchedModel(floor, thing, ref) : this.attachModel(thing, ref)));
     } else if (this.batching) {
       thing.group.updateMatrix();
       const shape = def.shape ?? 'box';
@@ -480,7 +639,16 @@ export class Building extends BimEntity {
     const uri = this.baseUrl ? new URL(ref.uri, this.baseUrl).href : ref.uri;
     const scene = await this.modelTemplate(uri);
     if (this.disposed || !scene) return;
-    if (!batchable(scene)) return this.attachModel(thing, ref);
+    if (!batchable(scene)) {
+      const attached = await this.attachModel(thing, ref);
+      if (attached) this.staticModelBytes += attached.bytes;
+      return;
+    }
+    // The template's geometries and textures are uploaded once, whatever the number of devices.
+    if (!this.countedTemplates.has(uri)) {
+      this.countedTemplates.add(uri);
+      this.staticModelBytes += estimateModelBytes(scene);
+    }
     thing.group.updateMatrix();
     const frame = modelFrame(ref);
     const batcher = this.batcherFor(floor);
@@ -530,7 +698,8 @@ export class Building extends BimEntity {
   private buildExterior(footprint: Vec2[]): void {
     const ext = this.doc.exterior;
     if (ext?.model) {
-      this.trackModel(this, this.attachModel(this, ext.model, undefined, this.exterior));
+      // Shown from the globe: loads with the building.
+      this.keepModel(this, this.attachModel(this, ext.model, undefined, this.exterior));
       return;
     }
     const color = ext?.color ?? '#8fb3d9';
@@ -564,13 +733,20 @@ export class Building extends BimEntity {
   /**
    * Loads a glTF and attaches it to an entity. For floor models, nodes named
    * after (or with `extras.id` of) a room / thing / element id are moved under
-   * that entity; everything else stays as static floor geometry.
+   * that entity; everything else stays as static floor geometry. Resolves to
+   * the attachment (its size and how to release it), or null when it failed.
    */
-  private async attachModel(entity: BimEntity, ref: ModelRef, floorDef?: FloorDef, parent: Object3D = entity.group): Promise<void> {
-    if (!this.loadModel) return;
+  private async attachModel(entity: BimEntity, ref: ModelRef, floorDef?: FloorDef, parent: Object3D = entity.group): Promise<AttachedModel | null> {
+    if (!this.loadModel) return null;
     try {
       const uri = this.baseUrl ? new URL(ref.uri, this.baseUrl).href : ref.uri;
       const scene = await this.loadModel(uri);
+      if (this.disposed) {
+        // Arrived after the building was removed: nothing to attach it to.
+        disposeModel(scene);
+        return null;
+      }
+      const bytes = estimateModelBytes(scene);
       const holder = new Group();
       holder.name = `model ${ref.uri}`;
       if ((ref.upAxis ?? 'Y') === 'Y') holder.rotation.x = Math.PI / 2; // glTF +Y up -> local +Z up
@@ -583,10 +759,10 @@ export class Building extends BimEntity {
       parent.add(wrapper);
       wrapper.updateMatrixWorld(true);
 
+      const moves: [Object3D, BimEntity][] = [];
       if (floorDef) {
         const byId = new Map<string, BimEntity>();
         for (const c of entity.children) byId.set(c.id, c);
-        const moves: [Object3D, BimEntity][] = [];
         scene.traverse((node) => {
           const id = (node.userData?.id as string | undefined) ?? node.name;
           const target = id ? byId.get(id) : undefined;
@@ -614,8 +790,21 @@ export class Building extends BimEntity {
       entity.traverse((e) => e.refreshStyle());
       // Not part of the viewer's load state: the model shows up at the full frame rate, picking sees it.
       this.onChange?.(true);
+      return {
+        bytes,
+        release: () => {
+          for (const [node, target] of moves) {
+            target.releaseMeshes(node);
+            node.removeFromParent();
+          }
+          entity.releaseMeshes(wrapper);
+          wrapper.removeFromParent();
+          disposeModel(wrapper, ...moves.map(([node]) => node));
+        },
+      };
     } catch (err) {
       console.warn(`[Building] model ${ref.uri} failed:`, (err as Error).message);
+      return null;
     }
   }
 
@@ -636,19 +825,18 @@ export class Building extends BimEntity {
     });
     for (const b of this.batchers.values()) b.dispose();
     this.batchers.clear();
+    // Attached models (floors, exterior, unbatched devices) are under the entity groups: freed here with their textures.
     super.dispose();
     this.root.removeFromParent();
-    // Templates were never drawn; their geometries were pooled (already released) or unused.
-    for (const p of this.templates.values()) {
-      void p.then((scene) =>
-        scene?.traverse((o) => {
-          const mesh = o as Mesh;
-          if (!mesh.isMesh) return;
-          mesh.geometry.dispose();
-          for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) m.dispose();
-        }),
-      );
+    this.deferredLoads.clear();
+    for (const m of this.floorModels.values()) {
+      m.release = null;
+      m.bytes = 0;
     }
+    this.staticModelBytes = 0;
+    // Templates were never drawn; their geometries were pooled (already released) or unused. Their
+    // textures were shared with the pooled batch materials, which this building alone used.
+    for (const p of this.templates.values()) void p.then((scene) => scene && disposeModel(scene));
     this.templates.clear();
   }
 }

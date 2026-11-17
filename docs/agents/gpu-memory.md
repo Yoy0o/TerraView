@@ -1,6 +1,6 @@
 # 显存与硬件档位（GPU 内存盘点、配置建议、3D Tiles 预算）
 
-代码：`src/core/gpuProfile.ts`（档位与预算表、档位识别、帧缓冲估算，纯函数）、`src/tiles3d/lodPolicy.ts`（远处放宽、缓存满时自适应降精度，纯函数）、`src/tiles3d/Tiles3DLayer.ts`（把预算交给 3DTilesRendererJS）、`src/tiles3d/nodeMaterials.ts`（瓦片纹理过滤策略）、`src/globe/Globe.ts`（`gpuBytes`、`releaseHidden`）、`src/viewer/GeoViewer.ts`（识别适配器、`viewer.gpu`、`viewer.memory`）。测试：`tests/gpuProfile.test.ts`。
+代码：`src/core/gpuProfile.ts`（档位与预算表、档位识别、帧缓冲估算，纯函数）、`src/tiles3d/lodPolicy.ts`（远处放宽、缓存满时自适应降精度，纯函数）、`src/tiles3d/Tiles3DLayer.ts`（把预算交给 3DTilesRendererJS）、`src/tiles3d/nodeMaterials.ts`（瓦片纹理过滤策略）、`src/globe/Globe.ts`（`gpuBytes`、`releaseHidden`）、`src/indoor/modelBudget.ts`（建筑模型的按需加载与卸载规则、字节估算）、`src/viewer/GeoViewer.ts`（识别适配器、`viewer.gpu`、`viewer.memory`）。测试：`tests/gpuProfile.test.ts`、`tests/models.test.ts`。
 
 先说三件容易想错的事：
 
@@ -17,12 +17,12 @@
 | 地球瓦片 | `Globe`：影像 / 叠加层纹理（`SharedTexture`，祖孙共享、引用计数）、每瓦片网格 | 256 px 影像带 mipmap 约 0.35 MB / 张；实测 39 块瓦片 13 MB，约 0.33 MB / 块。512 px 的影像源是 4 倍 | `maxCachedTiles`、`maxAnisotropy`（不占显存，只影响采样开销）、影像源瓦片尺寸 |
 | 3D Tiles（显存） | `UnloadTilesPlugin`（每个图层一个） | Google 真实感瓦片：纹理 256×256 / 256×512 / 512×512 的 JPEG，解码成 RGBA8，带 mipmap 时 0.35–1.4 MB / 张；几何约 65 KB / 块。实测平均 0.8 MB / 块 | `TilesQuality.gpuBytesTarget`、`unloadDelayMs`、`mipmaps` |
 | 3D Tiles（解码缓存，主要是内存） | 库的 `lruCache`（所有图层共用一个） | 可见瓦片 + 祖先 + 兄弟（库的 `loadAncestors` / `loadSiblings`），约为可见部分的 2.5–3.5 倍 | `cacheMinBytes` / `cacheMaxBytes` |
-| 建筑 / 设备 | `InstanceBatch`、`StylePool`、glTF 模型 | 设备按几何合批，材质共享；示例办公楼在 MB 量级 | 数据本身；贡献剔除只省绘制，不省显存 |
+| 建筑 / 设备 | `InstanceBatch`、`StylePool`、glTF 模型（`Building`、`modelBudget.ts`） | 设备按几何合批，材质共享；楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出预算时卸载；示例办公楼在 MB 量级 | `indoor.modelBytesTarget` / `modelUnloadDelayMs`（按档位给，[indoor-bim.md](indoor-bim.md) §5.4）；贡献剔除只省绘制，不省显存 |
 | 注记图集 | `LabelManager`（`AtlasPage`，无 mipmap） | 每页最大 `MAX_PAGE²` × 4 B，按需分页 | 注记数量 |
 | 云层、星空、展台背景、遮挡代理 | `CloudLayer` 等 | 一张云图 + 少量顶点，固定且小 | — |
 | 层级切换淡出 | `FrameCrossfade`（2D canvas 快照） | 一张画布大小的位图，切换期间存在 | 画布像素数 |
 
-`viewer.memory` 汇总前四项（`framebuffers`、`globe`、`tilesGpu`、`gpuTotal`）和 3D Tiles 解码缓存（`tilesCache` / `tilesCacheMax`），状态栏显示为"显存≈N MB（3D 缓存 a / b MB）"。浏览器自身的合成器、解码中的位图、驱动开销不在其中，实际进程显存通常再多 150–300 MB。
+`viewer.memory` 汇总前五项（`framebuffers`、`globe`、`tilesGpu`、`buildings`，合计 `gpuTotal`；`buildings` 只算已加载的 glTF 模型，不含程序生成的楼板、墙和合批实例数据）和 3D Tiles 解码缓存（`tilesCache` / `tilesCacheMax`），状态栏显示为"显存≈N MB · 建筑模型 m MB（3D 缓存 a / b MB）"（建筑模型不足 1 MB 时不显示）。浏览器自身的合成器、解码中的位图、驱动开销不在其中，实际进程显存通常再多 150–300 MB。
 
 ### 帧缓冲随分辨率的变化
 
@@ -70,6 +70,8 @@
 | `tiles.anisotropy` | 1 | 2 | 4 | 8 | 瓦片纹理各向异性（需要 mipmap） |
 | `tiles.maxTilesProcessed` | 60 | 100 | 150 | 250 | 每帧最多初始化多少个瓦片节点 |
 | `tiles.parseJobs` / `downloadJobs` | 3 / 12 | 4 / 20 | 5 / 25 | 6 / 30 | 并发解析 / 下载 |
+| `indoor.modelBytesTarget` | 64 MB | 128 MB | 256 MB | 512 MB | 建筑模型预算：超过时卸载隐藏楼层的模型（[indoor-bim.md](indoor-bim.md) §5.4） |
+| `indoor.unloadDelayMs` | 5000 | 10000 | 10000 | 20000 | 楼层隐藏多久后才可以卸载它的模型 |
 
 `high` 档的画布和地球参数与引入档位之前完全一致；3D Tiles 的缓存和显存目标比以前大（以前是库默认的 307 / 410 MB 和 192 MB）。
 

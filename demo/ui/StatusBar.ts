@@ -15,7 +15,8 @@ export class StatusBar {
   private readonly tiles = h('span', { class: 'stat' });
   private readonly memory = h('span', {
     class: 'stat',
-    title: '显存估算：帧缓冲 + 地球瓦片 + 3D Tiles 已上传部分（不含建筑、注记和浏览器自身占用）；括号内为 3D Tiles 解码缓存（主要占内存）及其上限',
+    title:
+      '显存估算：帧缓冲 + 地球瓦片 + 3D Tiles 已上传部分 + 建筑的 glTF 模型（不含程序生成的建筑几何、注记和浏览器自身占用）；括号内为 3D Tiles 解码缓存（主要占内存）及其上限；"建筑模型"为已加载的楼层、设备、外壳模型，隐藏楼层超出预算时会卸载',
   });
   private readonly cameraText = h('span', { class: 'stat' });
   private readonly cursorText = h('span', { class: 'stat' }, '—');
@@ -126,6 +127,7 @@ export class StatusBar {
     const v = this.viewer;
     const m = v.memory;
     let text = `显存≈${toMB(m.gpuTotal)} MB`;
+    if (m.buildings >= 2 ** 20) text += ` · 建筑模型 ${toMB(m.buildings)} MB`;
     if (v.tilesets.length > 0) {
       text += `（3D 缓存 ${toMB(m.tilesCache)} / ${toMB(m.tilesCacheMax)} MB）`;
       const scale = Math.max(...v.tilesets.map((t) => t.errorScale));

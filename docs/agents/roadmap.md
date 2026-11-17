@@ -49,6 +49,7 @@
 | 插入项：缩放抖动排查与自动旋转按视角 | 2026-11-09 | 云层噪声按像素限带，修复缩放时云边闪烁；自动旋转按视角选地球自转 / 环绕 / 先倾斜再环绕 | [intro-and-navigation.md](intro-and-navigation.md) |
 | 插入项：GPU 显存盘点与硬件档位 | 2026-11-10 | `low / medium / high / ultra` 档位（按适配器猜测或 `?gpu=` 指定）；3D Tiles 远处放宽、缓存满时自适应降精度、纹理过滤策略；隐藏地球超时释放缓存；`viewer.gpu` / `viewer.memory`。Hub 任务 T261110-npf | [gpu-memory.md](gpu-memory.md) |
 | 插入项：建筑数据制作手册 | 2026-11-06 | 中文手册 + 有单测校验的样例；门洞、构件校验 | [building-data-manual.md](../building-data-manual.md) |
+| P2.2 楼层模型按需加载（M3.8） | 2026-11-17 | 楼层第一次显示时才加载整层模型和设备模型；隐藏楼层的模型超出预算（按档位 64–512 MB）时按最近显示先后卸载；`viewer.memory.buildings`；顺带修复移除建筑不释放纹理 | §0.2 P2.2、[indoor-bim.md](indoor-bim.md) §5.4 |
 | SDK 第一期：迁移到 TerraView | 2026-11-11 | 包入口与库构建、three 外置、`tv-` 样式、键盘改容器、解码器路径、聚合 Worker 关闭、CI / Release、打包自检、Apache-2.0；40 次创建销毁无泄漏、Webpack 5 宿主可构建运行 | §10.0、§10.5 |
 
 **未完成**
@@ -59,7 +60,7 @@
 | SDK S5–S8 余项与首次发布 | 代码项完成（P1.1–P1.6，2026-11-13），首发准备中、暂不发布 | §0.2 P1 |
 | M1.4 GPU 版截帧过渡 | 遗留 | 等 M3.1 后期骨架，再把 DOM 淡出换成缩放过渡、按深度混合 |
 | M2.2 改查拾取缓冲深度 | 可选优化，暂缓 | 见 §3 M2.2 |
-| M3.1–M3.5、M3.7–M3.9 画质与性能 | 未开始 | M3.3 的按需渲染、M3.8 楼层按需加载提前到 §0.2 P2，其余在 P3。按需渲染先以空闲降帧落地（P2.1a ✅ 2026-11-13），完全停帧暂缓到 P3.3 |
+| M3.1–M3.5、M3.7、M3.9 画质与性能 | 未开始 | M3.3 的按需渲染、M3.8 楼层按需加载提前到 §0.2 P2，其余在 P3。按需渲染先以空闲降帧落地（P2.1a ✅ 2026-11-13），完全停帧暂缓到 P3.3；M3.8 ✅ 2026-11-17（P2.2） |
 | M4.1–M4.8 孪生数据与空间分析 | 未开始 | §0.2 P4，按需求排期 |
 | M5.1–M5.3 工程与工具 | 未开始 | 持续项 |
 
@@ -140,7 +141,7 @@
 | 编号 | 内容 | 来源 | 说明 |
 | --- | --- | --- | --- |
 | P2.1 | 按需渲染：相机、瓦片、动画、顶牌都没变化时不画新帧；宿主可调用 `requestRender()` | M3.3 前半（B1） | **暂缓（2026-11-13 评估）**：完全停帧比空闲降帧只多省约 0.1 个核，漏接信号的后果却是画面停在半截状态；先做的 P2.1a 空闲降帧已完成，拿到约 80% 的收益。等静止超采样（P3.3）真正需要停帧时，在 P2.1a 的信号基础上补全。原始说明：大屏、仪表盘一类宿主最先关心功耗；也是静止超采样（P3.3）的前置。要处理云层、开场、拾取缓冲、遮挡代理各自的"有变化"信号。评估（2026-11-13）、P2.1a 的做法与实测见表后 |
-| P2.2 | 楼层模型按需加载，离开后按显存预算 LRU 卸载 | M3.8（B6） | 档位和预算机制已有（[gpu-memory.md](gpu-memory.md)），成本最低 |
+| P2.2 | 楼层模型按需加载，离开后按显存预算 LRU 卸载 | M3.8（B6） | ✅ 2026-11-17，见表后"P2.2 落地"。原始说明：档位和预算机制已有（[gpu-memory.md](gpu-memory.md)），成本最低 |
 | P2.3 | 3D Tiles 要素拾取与属性查询（`EXT_mesh_features` / batch table），高亮，接入 `viewer.interaction` | progress-log C8 | README 近期项，业务有需要时可提前 |
 | P2.4 | 加载状态与错误事件 | 新增 | ✅ 2026-11-13：`viewer.events` 的 `error`（`ViewerError`，五种 `source`）、`viewer.loadState` + `load-progress` / `idle` 事件（规则在 `viewer/loadState.ts`，有单测）、错误码 `terrain-unreachable` / `tileset-load-failed`、`Tiles3DLayer.error` / `pending`，`error` 事件与另两种图层对齐；打包宿主冒烟检查 `idle` 和无 `error`。建筑模型加载不计入 `idle`（以后有需要再加）。原始说明：核对现有的 `viewer.events`、图层 `events`，补齐宿主需要的"图层就绪 / 加载进度 / 出错（带 `code`）"。现在 `ViewerEvents` 只有帧统计、图层增删和点位单击；影像出错只能通过 `globe.onImageryError` 回调拿到（P1.2 之后已是带 `code` 的 `TerraViewError`，但不在 `viewer.events` 上；P1.1 之后 `viewer.globe` 是高级 API，稳定 API 里没有拿到影像错误的途径）。`Tiles3DLayer` 的 `error` 事件只有 `message`，没有 GeoJSON / 点位图层那样的 `error` 字段。"加载完成"也只能轮询高级的 `globe.stats`（冒烟测试就是这样等的）。事件名没有在 P1.1 提前定，做时按 P1.1 的分级规则写 |
 
@@ -241,6 +242,15 @@
 | `requestRender()`（对照） | 15 ms / 90 | 6 ms / 99 |
 
 无头 Chrome 不跟显示器同步，全帧率时 500 ms 能画到 90–100 帧。`refreshTransform()` 之后 `pickBuffer.fresh` 原来仍是 true（会命中旧位置），现在是 false。3000 个点位（视野内 769 个顶牌）建完 87–130 ms，之后约 1.1 s 回到降帧；整个场景静止后仍是每秒 10 帧，没有哪个信号一直亮着。控制台无错误。
+
+**P2.2 落地**（✅ 2026-11-17；实现在 `indoor/Building.ts`、`indoor/modelBudget.ts`，说明见 [indoor-bim.md](indoor-bim.md) §5.4）
+
+- 加载：楼层第一次显示（每帧看 `effectivelyVisible`），或 `building.modelsLoaded(entity)` 要用到时，才加载整层模型和本层设备的模型；外壳模型仍随建筑加载。层级切换在飞行前本来就调 `modelsLoaded`，所以从地球直接进某层只加载那一层。
+- 卸载：所有建筑已加载模型的估算字节数超过 `indoor.modelBytesTarget` 时，隐藏满 `modelUnloadDelayMs` 的楼层模型按最近显示的先后卸载，直到回到预算内；显示着的、正在加载的不卸载。设备模型按 URL 共享、合批，加载后不卸载。预算按档位：64 / 128 / 256 / 512 MB，延时 5 / 10 / 10 / 20 s（`viewer.gpu.indoor`）。
+- 计量：`viewer.memory.buildings`（顶点属性、索引、纹理，同一资源只算一次），计入 `gpuTotal`；规则 `modelsToUnload` 是纯函数，有单测。
+- 顺带修复：移除建筑不释放模型纹理；建筑移除后才到达的模型被挂到已移除的建筑上。
+- 关闭：`indoor.lazyModels = false`（`add()` 之前）。
+- 实测（2026-11-17，本机 Chrome 无头、Intel Iris Xe 集显，WebGPU 与 WebGL2 各一遍；三层楼、每层一个 glTF，节点按房间编号命名，经 Playwright 拦截请求提供）：加建筑后 0 次模型请求；进入建筑三层各加载 1 次；把预算压到 1.5 层、延时 0 后进入 1F，2F、3F 的模型卸载、房间上的模型节点摘下，读数降到三分之一；进入 2F 重新加载 2F、卸载 1F；拾取命中重新加载的房间；移除建筑后读数归零；控制台无错误。
 
 **P3 画质**（按需求排期；单项方案见 §3 M3）
 
@@ -581,6 +591,7 @@ IoT 数据管线（M4.5，E4）优先，它解锁场强图（M4.1）和高频数
 
 - 进入建筑（或展开楼层）时才加载楼层 glTF；离开后按显存预算 LRU 卸载，预算统计与 3D Tiles 共用。`enter()` 等加载完再飞行（M1.4）。
 - 关联（2026-11-10）：档位与预算已由 GPU 显存盘点（T261110-npf，[gpu-memory.md](gpu-memory.md)）建立，`core/gpuProfile.ts` 提供预算表，本项的预算统计直接挂在 `viewer.gpu` / `viewer.memory` 上。
+- **状态（已完成，2026-11-17，§0.2 P2.2）**：楼层第一次显示时加载，隐藏楼层超出建筑模型预算时卸载；预算与 3D Tiles 分开计（`viewer.gpu.indoor`），读数都在 `viewer.memory` 里。见 [indoor-bim.md](indoor-bim.md) §5.4。
 
 **M3.9 透明与阴影**（工作量：中到大）
 

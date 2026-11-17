@@ -62,7 +62,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ vector/      GeoJSON 图层、矢量 Worker、注记（LabelManager）
 ├─ indoor/      BIM / 室内：schema（文档格式）、selector（选择器编译，纯函数）、BimEntity（实体、样式、标签）、
 │               EntitySet（查询结果与批量操作）、Building（构建与定位）、InstanceBatch（设备合批，InstancedMesh）、
-│               StylePool（几何 / 材质按键共享 + 引用计数）、ContributionCulling（贡献剔除，默认关闭）、LevelControl（层级控制策略）、
+│               StylePool（几何 / 材质按键共享 + 引用计数）、modelBudget（模型按需加载的卸载规则与字节估算，纯函数）、ContributionCulling（贡献剔除，默认关闭）、LevelControl（层级控制策略）、
 │               levelView（取景数学）、IndoorManager（层级路径切换、视点缓存、拾取、顶牌）
 ├─ markers/     MarkerManager（HTML 顶牌：投影、裁剪、避让、遮挡）、occlusion（遮挡代理池与规则，纯逻辑）、cards（顶牌样式模板）、
 │               points（点位解析 / 规则，纯函数）、clusterTree（层级聚合树，纯函数 + Worker）、
@@ -170,6 +170,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 选择器支持 `&&` `||` `!` 括号、属性比较和 `tags:or/and/not(...)`，编译后缓存。格式和规则见 [indoor-bim.md](docs/agents/indoor-bim.md)。
   - 切换时淡出上一帧，层级之间短途飞行用注视飞行；建筑周围什么都不画时（地球隐藏、3D Tiles 被压制）显示展台背景（indoor-bim.md §7.1）。
   - 设备按楼层 × 几何 × 基础材质 × 渲染状态合成 `InstancedMesh`，颜色 / 发光 / 不透明度是实例属性，材质走样式池（indoor-bim.md §5.2）。设备显隐用 `entity.visible`，移动后调 `refreshTransform()`，改外观用 `setStyle` / `levelOpacity`，不要找设备的材质。
+  - 楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出 `indoor.modelBytesTarget` 时卸载（indoor-bim.md §5.4）。要在显示前用到模型（取景、包围体）先 `await building.modelsLoaded(entity)`；不要假设 `add()` 之后房间、设备上已经有模型网格。
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
 - **顶牌 Marker**：HTML 元素锚定在世界坐标上，每帧用 float64 投影；做地平线、距离、视口裁剪，并按优先级避让；支持数据驱动的显示模式（always / level / hover / click）。`occlusion: 'hide' | 'fade'` 让锚点被建筑、地形挡住时隐藏或淡出（遮挡查询代理，markers.md §5.2.1）；不参与避让的重要顶牌只淡出。
 - **点位 PointLayer**：`viewer.addPoints({ data | url, style, rules, cluster })`。

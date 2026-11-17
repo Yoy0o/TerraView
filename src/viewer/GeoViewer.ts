@@ -171,7 +171,9 @@ export interface MemoryReport {
   globe: number;
   /** 3D Tiles content uploaded to the GPU. */
   tilesGpu: number;
-  /** Sum of the above: the viewer's video memory, without buildings, labels and the browser's own share. */
+  /** glTF models of the buildings (floor, device and exterior models; `indoor.modelBytes`). */
+  buildings: number;
+  /** Sum of the above: the viewer's video memory, without generated building geometry, labels and the browser's own share. */
   gpuTotal: number;
   /** Decoded 3D Tiles content in the tile cache (mostly system memory; includes what is on the GPU) and its limit. */
   tilesCache: number;
@@ -517,6 +519,8 @@ export class GeoViewer {
       followMove: (delta) => this.controller.translate(delta),
     });
     this.scene.add(this.indoor.root);
+    this.indoor.modelBytesTarget = this.gpu.indoor.modelBytesTarget;
+    this.indoor.modelUnloadDelayMs = this.gpu.indoor.unloadDelayMs;
     if (options.contributionCulling) this.indoor.culling.configure(options.contributionCulling);
     // Integer render targets and async read back: WebGPU only; WebGL keeps casting rays.
     this.pickBuffer =
@@ -631,7 +635,8 @@ export class GeoViewer {
       tilesCache = m.cachedBytes;
       tilesCacheMax = m.cacheMaxBytes;
     }
-    return { framebuffers, globe, tilesGpu, gpuTotal: framebuffers + globe + tilesGpu, tilesCache, tilesCacheMax };
+    const buildings = this.indoor.modelBytes;
+    return { framebuffers, globe, tilesGpu, buildings, gpuTotal: framebuffers + globe + tilesGpu + buildings, tilesCache, tilesCacheMax };
   }
 
   get showStars(): boolean {

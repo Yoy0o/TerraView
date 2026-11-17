@@ -2,7 +2,8 @@
  * Managed BIM entities (building, floor, room, thing, element): the entity
  * tree, per-entity style overrides, tags, and selector matching.
  */
-import { Box3, Color, Group, Mesh, Sphere, Vector3, type Material, type Object3D } from 'three';
+import { Box3, Color, Group, Sphere, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import { disposeModel } from './modelBudget';
 import type { LabelDef, Vec2, ViewpointDef } from './schema';
 import { compileSelector, type Selectable } from './selector';
 
@@ -262,6 +263,23 @@ export class BimEntity implements Selectable {
     this.changed(false);
   }
 
+  /**
+   * @internal Forgets the meshes under `root` (an unloaded model): they leave `meshes`
+   * and their materials' remembered base looks are dropped. Does not dispose anything.
+   */
+  releaseMeshes(root: Object3D): void {
+    const gone = new Set<Mesh>();
+    root.traverse((o) => {
+      if ((o as Mesh).isMesh) gone.add(o as Mesh);
+    });
+    for (let i = this.meshes.length - 1; i >= 0; i--) {
+      const mesh = this.meshes[i];
+      if (!gone.has(mesh)) continue;
+      this.meshes.splice(i, 1);
+      for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) this.styled.delete(m);
+    }
+  }
+
   /** Re-applies the current style and level opacity (after meshes were added, e.g. a model loaded). */
   refreshStyle(): void {
     if (this._levelOpacity !== 1 || Object.keys(this._style).length > 0) this.applyStyles();
@@ -308,19 +326,14 @@ export class BimEntity implements Selectable {
   }
 
   /**
-   * Frees the meshes under this entity's group and leaves its batches.
-   * Pooled batch meshes (`userData.pooled`) are skipped: their owner releases them.
+   * Frees the meshes under this entity's group (geometries, materials and
+   * their textures) and leaves its batches. Pooled batch meshes
+   * (`userData.pooled`) are skipped: their owner releases them.
    */
   dispose(): void {
     for (const i of this.instances) i.dispose();
     this.instances.length = 0;
-    this.group.traverse((o) => {
-      const mesh = o as Mesh;
-      if (!mesh.isMesh || mesh.userData.pooled) return;
-      mesh.geometry.dispose();
-      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-      for (const m of materials) m.dispose();
-    });
+    disposeModel(this.group);
     this.styled.clear();
   }
 }

@@ -1,7 +1,8 @@
 /**
  * GPU tiers and the budgets that follow from them: frame buffer cost (pixel
- * ratio, MSAA), globe tile cache, and the 3D Tiles memory and level-of-detail
- * settings. Pure data and functions (no three.js, no DOM), unit tested.
+ * ratio, MSAA), globe tile cache, the 3D Tiles memory and level-of-detail
+ * settings, and the building model budget. Pure data and functions (no
+ * three.js, no DOM), unit tested.
  *
  * Browsers do not tell a page how much video memory there is. The tier is
  * therefore a guess from what WebGPU does report (adapter vendor and
@@ -77,6 +78,17 @@ export interface TilesQuality {
   downloadJobs: number;
 }
 
+/** Building model settings of a tier (applied to `viewer.indoor`). */
+export interface IndoorQuality {
+  /**
+   * Budget for loaded building glTF models (estimated GPU bytes): above it,
+   * floor models hidden for `unloadDelayMs` are unloaded, least recently shown first.
+   */
+  modelBytesTarget: number;
+  /** Milliseconds a floor stays hidden before its model may be unloaded. */
+  unloadDelayMs: number;
+}
+
 /** Everything a tier decides. Explicit viewer / layer options take precedence over these. */
 export interface GpuProfile {
   tier: GpuTier;
@@ -97,6 +109,7 @@ export interface GpuProfile {
     hiddenKeepTiles: number;
   };
   tiles: TilesQuality;
+  indoor: IndoorQuality;
 }
 
 const PROFILES: Record<GpuTier, GpuProfile> = {
@@ -120,6 +133,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 3,
       downloadJobs: 12,
     },
+    indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000 },
   },
   // Current integrated graphics (Intel Xe / Arc, Radeon 600M-800M), entry discrete cards.
   medium: {
@@ -141,6 +155,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 4,
       downloadJobs: 20,
     },
+    indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000 },
   },
   // Discrete cards (4 GB and up), Apple silicon.
   high: {
@@ -162,6 +177,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 5,
       downloadJobs: 25,
     },
+    indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000 },
   },
   // 12 GB cards and up, picked explicitly: large screens, long flights without reloading.
   ultra: {
@@ -183,13 +199,14 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 6,
       downloadJobs: 30,
     },
+    indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000 },
   },
 };
 
 /** The settings of a tier (a fresh copy, safe to modify). @advanced */
 export function gpuProfile(tier: GpuTier): GpuProfile {
   const p = PROFILES[tier];
-  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles } };
+  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor } };
 }
 
 /** `low` / `medium` / `high` / `ultra` (any case, surrounding spaces ignored), else undefined. @advanced */

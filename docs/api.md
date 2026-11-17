@@ -123,7 +123,7 @@ viewer.events.on('idle', () => {
 });
 ```
 
-`idle` 只看网络和解码：建筑模型（`indoor.add`）的加载不在其中。
+`idle` 只看网络和解码：建筑模型的加载不在其中。楼层和设备的 glTF 模型在楼层第一次显示时才加载（[indoor-bim.md](agents/indoor-bim.md) §5.4），要等它们就 `await building.modelsLoaded(entity)`。
 
 ### 1.8 帧率与功耗
 
@@ -132,7 +132,7 @@ viewer.events.on('idle', () => {
 | 项 | 说明 |
 | --- | --- |
 | `GeoViewerOptions.idleFrameRate`、`viewer.idleFrameRate` | 安静时每秒画几帧，默认 10。0 表示不降帧（每帧都画）；其他值限在 10–60（低于 10 时省电不稳定，按时间推进的运动也会变慢） |
-| 什么算"有变化" | 容器上的指针、滚轮、键盘输入；相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；层级切换、选中、悬停；图层增删；尺寸变化；场景开关（`lighting` 等）；`timeMultiplier` 不为 0。从代码做的改动也算，在下一个动画帧（约 16 ms）就恢复全帧率：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层（`viewer.overlays`）的增删和属性、点位图层的 `visible` / `setStyle` / `setCluster`、顶牌增删。分几帧做完的工作（点位顶牌每帧最多建 200 个、顶牌放置）做完之前一直保持全帧率 |
+| 什么算"有变化" | 容器上的指针、滚轮、键盘输入；相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；层级切换、选中、悬停；图层增删；尺寸变化；场景开关（`lighting` 等）；`timeMultiplier` 不为 0。从代码做的改动也算，在下一个动画帧（约 16 ms）就恢复全帧率：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成或卸载、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层（`viewer.overlays`）的增删和属性、点位图层的 `visible` / `setStyle` / `setCluster`、顶牌增删。分几帧做完的工作（点位顶牌每帧最多建 200 个、顶牌放置）做完之前一直保持全帧率 |
 | 云层 | 可见时按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画 |
 | `viewer.requestRender()` | 恢复全帧率至少 1 秒。经 SDK API 做的改动 viewer 都能发现（见上一行）；绕过 SDK 直接改 three 对象时调用，例如往 `viewer.scene` 加了对象、改了 `viewer.scene` 里对象的位置或材质，否则改动要等下一个安静帧（最多 100 ms）才出现 |
 | 容器不可见 | 容器滚出视口或 `display: none` 时完全不画（`IntersectionObserver`），回到视口立刻恢复。这期间加载不推进，`idle` 事件也不会触发 |
@@ -164,7 +164,7 @@ viewer.events.on('idle', () => {
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
 | `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
-| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
+| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`）、`viewer.memory`（`MemoryReport`，含建筑模型 `buildings`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` | 安静时降帧与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
@@ -208,8 +208,8 @@ viewer.events.on('idle', () => {
 
 | 导出 | 用途 | 级别 |
 | --- | --- | --- |
-| `IndoorManager`（`viewer.indoor`） | `add(doc, baseUrl?)`、`remove`、`enter(entity)`、`back()`、`query(selector)`、`getById`、`events`（`beforeEnterLevel` / `enterLevel` / `leaveLevel`）、`registerLevelControl` | 稳定 |
-| `Building`、`BimEntity`、`EntitySet` | 建筑、实体（`setStyle`、`visible`、`levelOpacity`、`refreshTransform`）、查询结果的批量操作 | 稳定 |
+| `IndoorManager`（`viewer.indoor`） | `add(doc, baseUrl?)`、`remove`、`enter(entity)`、`back()`、`query(selector)`、`getById`、`events`（`beforeEnterLevel` / `enterLevel` / `leaveLevel`）、`registerLevelControl`；模型按需加载 `lazyModels`（默认 true）、预算 `modelBytesTarget` / `modelUnloadDelayMs`（按显存档位给）、读数 `modelBytes`，见 [indoor-bim.md](agents/indoor-bim.md) §5.4 | 稳定 |
+| `Building`、`BuildingOptions`、`BimEntity`、`EntitySet` | 建筑（`modelsLoaded(entity)`：加载并等待该实体用到的模型，可用来预加载楼层；`modelBytes`）、实体（`setStyle`、`visible`、`levelOpacity`、`refreshTransform`）、查询结果的批量操作 | 稳定 |
 | `parseBuildingDoc`、`BuildingDoc`、`FloorDef`、`RoomDef`、`ThingDef`、`StructureDef` 等 | `three-geo-building` 文档格式与校验；[building-data-manual.md](building-data-manual.md) | 稳定 |
 | `compileSelector`、`SelectorError`、`matchesSelector`、`closestMatching` | 选择器 | 稳定 |
 | `LevelControl`、`BUILTIN_LEVEL_CONTROLS`、`buildingLevelControl` 等 | 层级的显隐、半透明、取景策略，可替换 | 稳定 |
@@ -224,7 +224,7 @@ viewer.events.on('idle', () => {
 | `CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS` | 稳定 |
 | `Ellipsoid`、`cartographic`、`WGS84_A` / `WGS84_B`、`geodeticToEcef`、`geodeticNormal`、`sunDirectionECEF` | 稳定 |
 | `EventEmitter`；`DEG2RAD`、`RAD2DEG`、`clamp`、`formatDegrees`、`formatDistance` | 稳定 |
-| `GpuTier`、`GpuProfile`、`TilesQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
+| `GpuTier`、`GpuProfile`、`TilesQuality`、`IndoorQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
 | `gpuProfile`、`classifyGpu`、`parseGpuTier`、`GPU_TIERS`、`GpuHints` | 高级 |
 | 语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError` | 稳定 |
 
