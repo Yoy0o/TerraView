@@ -4,6 +4,32 @@
 
 ## [未发布]
 
+### 静止超采样、静止后停画与调色（2026-11-18，路线图 §0.2 P3.3）
+
+画面静止后自动抗锯齿，画完就不再画帧；新增曝光、对比度、饱和度调节。说明见 [docs/api.md](docs/api.md) §1.8、§1.9。
+
+**新增**
+
+- 静止超采样（默认开）：画面安静 1 秒后，接下来 16 帧（有 MSAA）或 32 帧（没有 MSAA）把相机错开亚像素再画并平均，长斜边、细线、描边边缘明显平滑。`GeoViewerOptions.supersampling`（`boolean` 或 `{ enabled, samples }`）、`viewer.supersampling`（`Supersampling`：`enabled`、`samples` 4–64、只读 `sampleCount` / `converged`、`set`），类型 `SupersamplingOptions`。
+- `viewer.colorGrading`（`ColorGrading`：`exposure` 0.1–4、`contrast` 0–2、`saturation` 0–2，`set` / `reset` / `options`）与 `GeoViewerOptions.colorGrading`；预设 `COLOR_GRADING_PRESETS`（`neutral`、`vivid`：对比度 1.05、饱和度 1.1），类型 `ColorGradingOptions`。默认中性，不增加开销。
+- `viewer.stats.still`（画面已超采样完、不再重画）、`stats.samples`（屏幕上的画面平均了几帧）。
+- 演示应用："场景"面板的"静止超采样""鲜明调色"开关；状态栏显示"超采样 n/N"和"已静止"；URL 参数 `?ss=0|1`、`?ssSamples=4–64`、`?grade=neutral|vivid`。
+
+**变更**
+
+- 超采样画完后 viewer **不再画帧**，直到有变化（状态仍按 `idleFrameRate` 每秒更新 10 次）：实测静止时 CPU 地球 14% → 6.9%、建筑场景 27% → 7.9%（相对原来的每秒 10 帧），GPU 基本空闲。关掉超采样时仍是原来的每秒 10 帧。
+- **绕过 SDK 直接改 three 对象（`viewer.scene` 里的对象、材质、`renderer` 设置）后必须调用 `requestRender()`**：画面静止后，不调用的话改动要等下一次别的变化才出现（原来最多晚 100 ms）。场景里有自己逐帧动画的宿主，每帧调用 `requestRender()` 或设 `idleFrameRate: 0`（0 时不做超采样）。
+- 容器上的指针、滚轮、键盘输入和手势开始只让 viewer 全帧率更新，不再算作画面变化：鼠标在静止画面上移动不会丢掉超采样结果；输入引起的相机运动、悬停、选中照常算变化。
+- `stats.fps` 是每秒实际画的帧数，静止时为 0；`frame` 事件在每次状态更新后触发，静止时也触发（不画帧，`stats.still` 为 true）。
+- `captureFrame()` / `navigation.screenshot()` 在画面已超采样且之后没有变化时直接输出超采样的画面。
+- 动画帧停顿 2 秒以上后恢复（切回标签页、睡眠唤醒）时重画一次。
+- 每帧额外检测：注记淡入淡出、地球影像淡入与地形渐变、3D Tiles 细节层级淡入淡出和自适应误差变化、相机矩阵、画布尺寸、`viewer.date`、色调映射与曝光、瓦片调试开关；这些变化都让画面回到实时。
+- 超采样的历史缓冲（画布大小 × 8 字节，1080p 约 16 MB）计入 `viewer.memory.framebuffers`，第一次超采样时分配，关掉时释放。
+
+**工程**
+
+- `post/Supersampling.ts`、`post/ColorGrading.ts`，`PostPipeline.renderSample` / `present` / `samples`；`framePacing` 的 `FramePacer` 改为 `markChange` / `markWake` / `isStill` / `shouldTick` / `ticked`，新增 `drawMode`；`tests/framePacing.test.ts`（变化与唤醒、静止判定、超采样期间全帧率、绘制方式）、`tests/post.test.ts`（Halton、抖动范围与分布、混合权重等于平均、样本数、调色范围与预设）。打包宿主冒烟检查左侧 viewer 超采样完后静止、每秒不画帧、`requestRender()` 后恢复。
+
 ### 后期管线、描边与发光（2026-11-17，路线图 §0.2 P3.1、P3.2）
 
 选中、悬停和告警改用描边与发光表示；所有帧经过一条可扩展的后期管线。说明见 [docs/api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。

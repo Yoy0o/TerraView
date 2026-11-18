@@ -14,6 +14,7 @@
 | --- | --- | --- | --- |
 | 画布帧缓冲 | `GeoViewer.create`（`antialias`、`reversedDepthBuffer`）、`setPixelRatio` | 每像素：交换链颜色 4 B + 深度（32 位浮点）4 B；4× MSAA 时颜色和深度都乘 4 再加解析目标，共 36 B / 像素，不开 MSAA 是 8 B / 像素 | 画布像素数（CSS 尺寸 × 像素比²）、`maxPixelRatio`、`antialias` |
 | 描边、发光（M3.2） | `post/OutlineEffect`、`post/GlowEffect`（`viewer.postProcessing`） | 只在有对象描边 / 发光时分配和运行。描边：遮罩（两个 RGBA8 输出 + 深度）和边缘各一张，共 16 B × 遮罩像素；发光：RGBA16F 遮罩 + 深度 12 B × 遮罩像素，加 bloom 的半分辨率链（约每画布像素 3.4 B）。遮罩在像素比 > 1.5 时是半分辨率。1080p、像素比 1 时描边约 33 MB、再加发光约 32 MB；计入 `framebuffers`。场景 pass 的 HDR 目标取代渲染器自带的那张，不额外占用 | 画布像素数、是否有对象描边 / 发光 |
+| 静止超采样历史（M3.3） | `post/PostPipeline`（`viewer.supersampling`） | 一张 RGBA16F、画布大小，8 B / 像素（不带 MSAA）：1080p 约 16 MB，2K 约 28 MB，4K 约 66 MB。第一次超采样时分配，`supersampling.enabled = false` 时释放；计入 `framebuffers` | 画布像素数、是否开超采样 |
 | 拾取缓冲 | `PickBuffer`（半分辨率 `RGBA32Uint` + 深度） | 20 B × ¼ 画布像素，即每个画布像素 5 B；第一次拾取时才分配 | 画布像素数、`scale`（默认 0.5） |
 | 地球瓦片 | `Globe`：影像 / 叠加层纹理（`SharedTexture`，祖孙共享、引用计数）、每瓦片网格 | 256 px 影像带 mipmap 约 0.35 MB / 张；实测 39 块瓦片 13 MB，约 0.33 MB / 块。512 px 的影像源是 4 倍 | `maxCachedTiles`、`maxAnisotropy`（不占显存，只影响采样开销）、影像源瓦片尺寸 |
 | 3D Tiles（显存） | `UnloadTilesPlugin`（每个图层一个） | Google 真实感瓦片：纹理 256×256 / 256×512 / 512×512 的 JPEG，解码成 RGBA8，带 mipmap 时 0.35–1.4 MB / 张；几何约 65 KB / 块。实测平均 0.8 MB / 块 | `TilesQuality.gpuBytesTarget`、`unloadDelayMs`、`mipmaps` |

@@ -42,7 +42,7 @@
 
 - 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
 
-- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`（见 docs/api.md §1.8），以及 `#lon,lat,height,heading,pitch`。
+- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
 
 ## 2. 目录与职责
@@ -67,13 +67,14 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ markers/     MarkerManager（HTML 顶牌：投影、裁剪、避让、遮挡）、occlusion（遮挡代理池与规则，纯逻辑）、cards（顶牌样式模板）、
 │               points（点位解析 / 规则，纯函数）、clusterTree（层级聚合树，纯函数 + Worker）、
 │               PointLayer（点位图层）
-├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果）、EffectMarks（描边 / 发光对象登记）、
-│               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、postMath（纯函数）
+├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果；静止超采样的抖动样本与历史缓冲）、EffectMarks（描边 / 发光对象登记）、
+│               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、
+│               Supersampling（viewer.supersampling）、ColorGrading（viewer.colorGrading + 对比度 / 饱和度效果）、postMath（纯函数）
 └─ viewer/      GeoViewer（总装、拾取、帧循环）、GlobeCameraController、cameraMath、CameraFlight（弧线 / 注视飞行）、
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
                 FrameCrossfade（层级切换淡出）、IndoorBackdrop（无地表时的展台背景）、
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
-                PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、framePacing（静止降帧，纯函数）、
+                PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、framePacing（静止降帧、变化 / 唤醒、静止判定与绘制方式，纯函数）、
                 OcclusionProxies（顶牌遮挡查询代理）
 demo/           演示应用，不进包；只通过 `terra-view` 入口使用 SDK
 ├─ main.ts      启动、URL 参数、hash 同步、Esc 返回、文件拖放
@@ -174,7 +175,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 设备按楼层 × 几何 × 基础材质 × 渲染状态合成 `InstancedMesh`，颜色 / 发光 / 不透明度是实例属性，材质走样式池（indoor-bim.md §5.2）。设备显隐用 `entity.visible`，移动后调 `refreshTransform()`，改外观用 `setStyle` / `levelOpacity`，不要找设备的材质。
   - 楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出 `indoor.modelBytesTarget` 时卸载（indoor-bim.md §5.4）。要在显示前用到模型（取景、包围体）先 `await building.modelsLoaded(entity)`；不要假设 `add()` 之后房间、设备上已经有模型网格。
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
-- **后期与描边**（M3.1 / M3.2）：每帧都经 `viewer.postProcessing`：场景画进它自己的 HDR 目标（与渲染器自带的格式相同，场景材质不重编），再按阶段跑启用的效果，最后一个全屏 pass 色调映射输出；没有效果时等价于 `renderer.render`。帧外渲染（截图、层级截帧）也走它（`renderOutsideFrame`）。选中 / 悬停 / 告警是描边与发光（`entity.effects`、`indoor.selectOutline`、`viewer.effects`），不改材质，合批设备只描自己的实例。新效果实现 `PostEffect`，需要法线等附件用 `attachments` 声明（全局节点），**不要给场景材质设 `material.mrtNode`**。说明见 [api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
+- **后期与描边**（M3.1 / M3.2）：每帧都经 `viewer.postProcessing`：场景画进它自己的 HDR 目标（与渲染器自带的格式相同，场景材质不重编），再按阶段跑启用的效果，最后一个全屏 pass 色调映射输出；没有效果时等价于 `renderer.render`。帧外渲染（截图、层级截帧）也走它（`renderOutsideFrame`）。选中 / 悬停 / 告警是描边与发光（`entity.effects`、`indoor.selectOutline`、`viewer.effects`），不改材质，合批设备只描自己的实例。静止超采样（`renderSample`）在场景 pass 和效果自己的 pass 期间平移相机（`setViewOffset`），所以效果的遮罩跟着场景一起抖动；效果里不要缓存跨帧的投影矩阵。调色（`viewer.colorGrading`）是 display 阶段的 `grading` 效果，排在描边之前。新效果实现 `PostEffect`，需要法线等附件用 `attachments` 声明（全局节点），**不要给场景材质设 `material.mrtNode`**。说明见 [api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
 - **顶牌 Marker**：HTML 元素锚定在世界坐标上，每帧用 float64 投影；做地平线、距离、视口裁剪，并按优先级避让；支持数据驱动的显示模式（always / level / hover / click）。`occlusion: 'hide' | 'fade'` 让锚点被建筑、地形挡住时隐藏或淡出（遮挡查询代理，markers.md §5.2.1）；不参与避让的重要顶牌只淡出。
 - **点位 PointLayer**：`viewer.addPoints({ data | url, style, rules, cluster })`。
   - 数据可以是 GeoJSON 点、点记录数组或点位文档；样式由图层默认值、属性规则、点自带 style 依次合并。
@@ -182,7 +183,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 聚合用加载时建一次的层级聚合树（借鉴 Supercluster），每帧按节点距离选层；顶牌按需创建 DOM，避让走网格索引并定时放置。见 markers.md §5。
   - 共 8 种样式（card / pin / tag / poi / pulse / beacon / badge / label），见 markers.md。
 - **矢量**：GeoJSON 在 Worker 中解析和栅格化，按瓦片贴地；注记做屏幕空间避让。
-- **帧率**：画面安静 1 秒后按 `idleFrameRate`（默认 10）降帧，有变化立刻恢复（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`，或像云层那样给出最低帧率；否则静止时它只按 10 fps 推进，看起来发顿。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `GeoViewer.workPending()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
+- **帧率与静止超采样**：画面安静 1 秒后先做静止超采样（默认 16 / 32 个亚像素抖动样本，P3.3），画完就**不再画帧**，只按 `idleFrameRate`（默认 10）更新状态；关掉超采样时按 `idleFrameRate` 重画。有变化立刻恢复实时画面（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。两种信号：**变化**（`requestRender()`，画面可能不同了，丢掉超采样）和**唤醒**（`GeoViewer.wake()`，输入或 DOM 上的工作，只要求全帧率更新，不丢画面）；新信号先想清楚是哪一种，输入本身只能是唤醒，否则鼠标一动静止画面就先变糙再变细。画面静止后漏接一个变化，改动要等下一次别的变化才出现（不再是"晚 100 ms"），所以新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`（如 `labels.update`、`Globe.animating`、`Tiles3DLayer.animating`），或像云层那样给出最低帧率（大于 0 就永远不算静止）；能廉价读到的状态放进 `GeoViewer.pictureChanged()` 每帧比较。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `GeoViewer.checkPendingWork()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
 - **开场动画、云层、导航控制**：核心 API 是 `viewer.playIntro()`、`viewer.clouds`、`viewer.navigation`，演示界面（`ui/NavigationBar`、面板开关、URL 参数）只调用它们。脚本化的相机运动走 `controller.playAnimation`，程序缩放 / 环绕走 `zoomBy` / `orbitBy`，不要直接改相机位姿，否则手势打断不了。见 [intro-and-navigation.md](docs/agents/intro-and-navigation.md)。
 
 ## 5. 常见任务
@@ -259,6 +260,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **释放几何会删掉它的属性缓冲，即使属性是共享的**（2026-11-17，P2.3）：three 的 `Geometries` 在 `geometry.dispose()` 时对它的每个属性调用 `attributes.delete`，不管别的几何还在不在用。给已有网格做叠加（高亮、描边）时不要共享原几何的 `BufferAttribute`，复制一份（`tileFeatures.copyPositions`，保持存储类型和归一化，深度才和原表面一致）。
 - **3DTilesRendererJS 的元数据读取会建 WebGL 渲染器**：`MeshFeatures.getFeatures()` 一进来就经 `TextureReadUtility` 创建 `WebGLRenderer`（即使只读属性），`getPropertyTextureData()` 也一样。要素编号属性、属性表自己读（`tileFeatures.ts`），纹理类的元数据目前不读。
 - **材质的 `mrtNode` 会顶掉所有渲染目标里的输出**（2026-11-17，P3.1）：r187 的 `NodeMaterial` 在渲染到渲染目标时，渲染器没设 MRT 就直接用 `material.mrtNode` 当输出，拾取缓冲、渲染器自带的 HDR 目标都算渲染目标。three 官方选择性泛光示例那种"给材质挂 `mrtNode`"的写法在本仓库会弄坏拾取和画面。逐对象的后期效果走 `post/EffectMarks` 的遮罩重绘，逐材质的附件用 `PostEffect.attachments` 的全局节点。
+- **`setViewOffset` 会改 `camera.aspect`**（2026-11-18，P3.3）：three 的 `PerspectiveCamera.setViewOffset(fullWidth, fullHeight, …)` 把 `aspect` 设成 `fullWidth / fullHeight`，`clearViewOffset()` 不还原。按画布像素传入时它和容器的宽高比差在最后几位，恢复后的投影矩阵就和原来不一样：静止判定每帧比较相机矩阵，会认为画面一直在变，超采样永远开始不了（或无限重来）。抖动时先存下 `aspect`，`fullWidth` 用 `aspect × 高`，恢复时先写回 `aspect` 再 `clearViewOffset()`（`PostPipeline.renderSample`）。
 - **统计要取场景 pass 的**：后期管线和描边遮罩也会增加 `renderer.info` 的绘制数。拾取缓冲的签名和 `stats` 用 `scene.onAfterRender` 时记下的数，否则悬停改变描边就会让拾取缓冲失效。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。

@@ -142,7 +142,8 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - 行星尺度精度：世界坐标即 ECEF（米），开启 `renderer.highPrecision`（模型视图矩阵在 CPU 上以 float64 计算）+ 每个瓦片自带原点（RTC），从太空到街道级都不抖动
 - 反向 Z 浮点深度缓冲（WebGPU 原生；WebGL 走 `EXT_clip_control`），配合动态近/远裁剪面，无 Z-fighting
 - GPU 计时（WebGPU timestamp query）显示在状态栏
-- 静止降帧：画面安静 1 秒后默认降到每秒 10 帧（`idleFrameRate`，静止时 CPU 占用约降到原来的 1/3–1/4），交互、加载、`requestRender()` 立刻恢复全帧率；容器不在视口内时不画（[docs/api.md](docs/api.md) §1.8）
+- 静止超采样与停画：画面安静 1 秒后用 16–32 帧亚像素抖动平均出抗锯齿画面，然后停止重画（静止时 CPU 约降到每帧渲染时的 1/6 以下，GPU 基本空闲）；关掉超采样时降到每秒 10 帧（`idleFrameRate`）。交互、加载、`requestRender()` 立刻恢复实时画面；容器不在视口内时不画（[docs/api.md](docs/api.md) §1.8）
+- 调色：曝光、对比度、饱和度（`viewer.colorGrading`，`COLOR_GRADING_PRESETS.vivid`）
 - 所有地球瓦片共享同一套节点图 → 只编译 1 条 GPU 管线，逐瓦片纹理通过 `materialReference` 绑定
 
 **地球与数据**

@@ -125,22 +125,35 @@ viewer.events.on('idle', () => {
 
 `idle` 只看网络和解码：建筑模型的加载不在其中。楼层和设备的 glTF 模型在楼层第一次显示时才加载（[indoor-bim.md](agents/indoor-bim.md) §5.4），要等它们就 `await building.modelsLoaded(entity)`。
 
-### 1.8 帧率与功耗
+### 1.8 帧率、功耗与静止超采样
 
-画面静止时也按显示器刷新率每帧渲染，开销不小：实测（RTX 40 系列独显、1920×1080）地球静止约占 0.4–0.6 个 CPU 核，建筑场景 0.8–1.3 个核，GPU 每秒忙 100–230 毫秒；集显笔记本、4K 和高刷新率屏幕更高。所以 viewer 默认在画面**安静 1 秒后降到每秒 10 帧**，有变化立刻恢复全帧率；实测静止时的 CPU 占用降到原来的约三分之一到四分之一。
+画面静止时也按显示器刷新率每帧渲染，开销不小：实测（RTX 40 系列独显、1920×1080）地球静止约占 0.4–0.6 个 CPU 核，建筑场景 0.8–1.3 个核，GPU 每秒忙 100–230 毫秒；集显笔记本、4K 和高刷新率屏幕更高。所以 viewer 默认在画面**安静 1 秒后**：
+
+1. **静止超采样**（默认开）：接下来的十几帧把相机错开不到一个像素（Halton 序列）再画，逐帧平均，得到比 MSAA 更平滑的边缘、更稳的细线和纹理（有 MSAA 时 16 帧，没有时 32 帧，约 0.3–0.5 秒画完）；
+2. **然后停止重画**，画面保持在超采样后的结果，直到有变化。这期间 viewer 仍按 `idleFrameRate`（默认每秒 10 次）更新状态、检查变化，但不画帧，GPU 基本空闲；
+3. 有变化立刻恢复全帧率的实时画面，再安静 1 秒后重新超采样。
+
+关掉超采样（`supersampling: false`）时，安静的画面按每秒 10 帧重画（原来的空闲降帧）。实测（RTX 40 系列笔记本独显、无头 Chrome、WebGPU、1920×1080，100% 为一个核）：地球静止时 CPU 由每秒 10 帧的 14% 降到 6.9%，建筑场景由 27% 降到 7.9%；每帧都画时分别约 40–57%、80–126%。
 
 | 项 | 说明 |
 | --- | --- |
-| `GeoViewerOptions.idleFrameRate`、`viewer.idleFrameRate` | 安静时每秒画几帧，默认 10。0 表示不降帧（每帧都画）；其他值限在 10–60（低于 10 时省电不稳定，按时间推进的运动也会变慢） |
-| 什么算"有变化" | 容器上的指针、滚轮、键盘输入；相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；层级切换、选中、悬停；图层增删；尺寸变化；场景开关（`lighting` 等）；`timeMultiplier` 不为 0。从代码做的改动也算，在下一个动画帧（约 16 ms）就恢复全帧率：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成或卸载、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层（`viewer.overlays`）的增删和属性、点位图层的 `visible` / `setStyle` / `setCluster`、顶牌增删。分几帧做完的工作（点位顶牌每帧最多建 200 个、顶牌放置）做完之前一直保持全帧率 |
-| 云层 | 可见时按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画 |
-| `viewer.requestRender()` | 恢复全帧率至少 1 秒。经 SDK API 做的改动 viewer 都能发现（见上一行）；绕过 SDK 直接改 three 对象时调用，例如往 `viewer.scene` 加了对象、改了 `viewer.scene` 里对象的位置或材质，否则改动要等下一个安静帧（最多 100 ms）才出现 |
+| `GeoViewerOptions.idleFrameRate`、`viewer.idleFrameRate` | 安静时每秒更新几次，默认 10（关掉超采样时也就是每秒画几帧）。0 表示不降帧、每帧都画，**也不做静止超采样**（画面永远不算静止）；其他值限在 10–60（低于 10 时省电不稳定，按时间推进的运动也会变慢） |
+| `GeoViewerOptions.supersampling`、`viewer.supersampling` | `true` / `false` 或 `{ enabled, samples }`。`enabled` 默认 true；`samples` 是一幅静止画面平均的帧数，4–64，默认有 MSAA 时 16、没有时 32（`low` 档或 `antialias: false`）。只读：`sampleCount`（屏幕上的画面已平均了几帧）、`converged`（已画完、不再重画）。改 `samples` 时屏幕上的画面接着补帧或直接保持；关掉时释放历史缓冲。类型 `Supersampling`、`SupersamplingOptions` |
+| 什么算"有变化" | 相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；地球影像淡入、地形渐变、3D Tiles 细节层级淡入淡出、注记淡入淡出；层级切换、选中、悬停；图层增删；尺寸变化；场景开关（`lighting` 等）、`viewer.date` 改变、调色；`timeMultiplier` 不为 0、云层漂移、闪烁的描边（这几样一直在动，画面永远不静止）。从代码做的改动也算，在下一个动画帧（约 16 ms）就恢复：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成或卸载、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层（`viewer.overlays`）的增删和属性、点位图层的 `visible` / `setStyle` / `setCluster`、`viewer.effects` 与 `entity.effects`。另外每次更新都直接比较相机矩阵、画布尺寸、地球瓦片、色调映射和瓦片调试开关，绕过控制器改了相机也能发现 |
+| 输入本身不算变化 | 容器上的指针、滚轮、键盘只让 viewer 按全帧率更新 1 秒（及时响应），不丢掉已超采样的画面：鼠标在静止画面上移动、点在空白处都不会让画面先变糙再变细。输入引起的变化（相机动了、悬停换了对象、选中）照常算变化 |
+| 分几帧做完的工作 | 点位顶牌每帧最多建 200 个、顶牌放置：做完之前保持全帧率更新（它们是 DOM，不影响画面是否静止） |
+| 云层 | 可见且在漂移时画面一直在变，不做超采样；按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画 |
+| `viewer.requestRender()` | 立刻按实时画面重画，并保持全帧率至少 1 秒，之后重新超采样。经 SDK API 做的改动 viewer 都能发现（见上）；**绕过 SDK 直接改 three 对象时必须调用**，例如往 `viewer.scene` 加了对象、改了其中对象的位置或材质、直接改了 `renderer` 的设置：画面已静止时，不调用的话改动要等下一次别的变化才出现（关掉超采样时最多晚 100 ms） |
+| 自己做动画的宿主 | 在 `viewer.scene` 里有自己逐帧变化的对象（风扇转动、自定义着色器动画）时，在自己的动画循环里每帧调用 `requestRender()`，或设 `idleFrameRate: 0` |
+| 截图 | `captureFrame()`、`navigation.screenshot()` 在画面已超采样且之后没有变化时，直接输出超采样的画面（不重画场景）；否则画一帧实时画面 |
 | 容器不可见 | 容器滚出视口或 `display: none` 时完全不画（`IntersectionObserver`），回到视口立刻恢复。这期间加载不推进，`idle` 事件也不会触发 |
-| 统计 | `viewer.stats.throttled` 表示当前是否按安静帧率在画；`stats.fps` 和 `frame` 事件按实际画的帧走，安静时约为 10 |
+| 统计 | `stats.throttled`：当前按安静帧率更新；`stats.still`：画面已超采样完、不再重画；`stats.samples`：屏幕上的画面平均了几帧（实时画面为 0）；`stats.fps` 是每秒实际画的帧数（静止时为 0）。`frame` 事件在每次更新后触发，静止时也按安静帧率触发（不画帧），`stats.still` 为 true |
 
-标签页隐藏时浏览器本来就会停掉渲染，不需要额外处理。
+标签页隐藏时浏览器本来就会停掉动画帧；动画帧停了 2 秒以上再恢复时（切回标签页、电脑唤醒），viewer 重画一次，不依赖画布还保留着之前的画面。
 
-### 1.9 描边、发光与后期处理
+做法（[roadmap.md](agents/roadmap.md) §0.2"P3.3 落地"）：每个样本用 `camera.setViewOffset` 平移亚像素，场景和描边、发光的遮罩一起平移；色调映射和描边之后的画面按 1 / (n + 1) 的权重混合进一张半精度历史缓冲（结果就是前 n 帧的平均），再显示到画布。第一帧不平移，所以开始超采样时画面没有跳变。没有用 three 的 `TRAANode`：它的速度缓冲在 GPU 上用 float32 乘 ECEF 矩阵，地球尺度上误差达到米级，而且历史永远不收敛到简单平均。历史缓冲（画布大小 × 8 字节，1920×1080 约 16 MB）在第一次超采样时分配，计入 `viewer.memory.framebuffers`。
+
+### 1.9 描边、发光、调色与后期处理
 
 每帧都经过后期管线（`viewer.postProcessing`，路线图 M3.1）：场景先画进 viewer 自己的 HDR 渲染目标，再跑启用的效果，最后一个全屏 pass 做色调映射并输出到画布。没有效果启用时，它做的事和 three 的 `renderer.render` 自己做的一样（开了色调映射的渲染器本来就先画进 HDR 目标再全屏输出），没有额外开销。
 
@@ -155,9 +168,21 @@ viewer.events.on('idle', () => {
 | `viewer.effects.outlineWidth` | 描边宽度，CSS 像素，1–6（默认 2） |
 | `viewer.effects.glowStrength` / `glowRadius` | 发光光晕的强度（默认 1）和扩散（0..1，默认 0.5）。发光颜色默认取描边样式的颜色，没有描边时为白色 |
 
+**调色**（`viewer.colorGrading`，类 `ColorGrading`；创建时 `GeoViewerOptions.colorGrading`）：
+
+| 项 | 说明 |
+| --- | --- |
+| `exposure` | 色调映射前的亮度倍数，0.1–4，默认 1（就是渲染器的 `toneMappingExposure`，不增加 pass） |
+| `contrast` | 以中灰为中心的对比度，0–2，默认 1 |
+| `saturation` | 饱和度，0（灰度）–2，默认 1 |
+| `set(options)`、`reset()`、`options` | 改其中几项（超出范围的夹到范围内，无效值忽略）、回到中性、读当前值 |
+| `COLOR_GRADING_PRESETS` | `neutral`（默认，不改画面）和 `vivid`（对比度 1.05、饱和度 1.1：大屏上影像和模型不发灰），如 `viewer.colorGrading.set(COLOR_GRADING_PRESETS.vivid)`。类型 `ColorGradingOptions` |
+
+对比度和饱和度是一个 `display` 阶段的效果（名为 `grading`，在描边之前，所以描边颜色仍和给定的一致），只在其中一项不为 1 时运行，默认不增加开销；数值是 uniform，调节时不重编着色器。
+
 做法：被标记的网格单独再画一遍到小的遮罩里（与场景深度比较，分出可见和被遮挡的部分），描边在色调映射之后叠加（颜色和给定的一致），发光用 three 的 `BloomNode` 模糊遮罩后加到场景上。实体自己的材质不变，合批设备不拆批。闪烁的样式在用时让 viewer 保持全帧率（§1.8）。代价：有描边时每帧多一次只含被标记网格的绘制和一次全屏边缘搜索（高分屏上在半分辨率做）；有发光时再加遮罩和 bloom 的几个半分辨率 pass。显存计入 `viewer.memory.framebuffers`。
 
-自定义效果（高级）：实现 `PostEffect`（`name`、`stage: 'linear' | 'display'`、`order`、`active`、`graphVersion`、`build(input, inputs)`，可选 `attachments`、`prepare(frame)`、`animating`、`gpuBytes`、`dispose`），用 `viewer.postProcessing.add(effect)` 注册。`linear` 效果在色调映射之前（光照类：泛光、AO、调色），`display` 效果在之后（描边、叠加层）；同一阶段按 `order` 从小到大。`attachments` 声明需要场景额外输出的 MRT 附件（如 `{ normal: normalView }`），只在该效果启用时写；节点图只在启用的效果、`graphVersion` 或色调映射变化时重建。不要给场景材质设 `material.mrtNode`：带自己 MRT 的材质在任何渲染目标里都会替换输出（拾取缓冲也是）。
+自定义效果（高级）：实现 `PostEffect`（`name`、`stage: 'linear' | 'display'`、`order`、`active`、`graphVersion`、`build(input, inputs)`，可选 `attachments`、`prepare(frame)`、`animating`、`gpuBytes`、`dispose`），用 `viewer.postProcessing.add(effect)` 注册。`linear` 效果在色调映射之前（光照类：泛光、AO、调色），`display` 效果在之后（描边、叠加层）；同一阶段按 `order` 从小到大。`attachments` 声明需要场景额外输出的 MRT 附件（如 `{ normal: normalView }`），只在该效果启用时写；节点图只在启用的效果、`graphVersion` 或色调映射变化时重建。静止超采样期间 `prepare(frame)` 拿到的 `frame.camera` 带着该样本的亚像素平移，效果自己的 pass 用它画就会和场景对齐（不要跨帧缓存它的矩阵）；会自己动的效果设 `animating`，画面就不会被当成静止。不要给场景材质设 `material.mrtNode`：带自己 MRT 的材质在任何渲染目标里都会替换输出（拾取缓冲也是）。
 
 ## 2. 约定
 
@@ -180,6 +205,8 @@ viewer.events.on('idle', () => {
 | `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；3D Tiles 要素 `pickTileFeature`、`highlightTileFeature` / `highlightedTileFeature`（§3.3）；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
 | `viewer.renderer`、`viewer.scene`、`viewer.camera` | three.js 的渲染器、场景、相机（定位 DOM、投影坐标、加自己的对象）。不要直接改相机位姿（§2） | 高级 |
 | `ViewerEffects`（`viewer.effects`）、`ObjectEffects`、`OutlineStyle`、`BUILTIN_OUTLINES` | 三维对象的描边与发光、描边样式、宽度与光晕（§1.9） | 稳定 |
+| `ColorGrading`（`viewer.colorGrading`）、`ColorGradingOptions`、`COLOR_GRADING_PRESETS` | 曝光、对比度、饱和度（§1.9） | 稳定 |
+| `Supersampling`（`viewer.supersampling`）、`SupersamplingOptions` | 静止超采样：开关、样本数、`sampleCount` / `converged`（§1.8） | 稳定 |
 | `PostPipeline`（`viewer.postProcessing`）、`PostEffect`、`PostFrame`、`PostInputs`、`PostStage` | 后期管线与自定义效果（§1.9） | 高级 |
 | `viewer.levelTransition` | 层级切换淡出（`duration = 0` 关闭）；类型 `FrameCrossfade` 不从入口导出 | 高级 |
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
@@ -187,7 +214,7 @@ viewer.events.on('idle', () => {
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
 | `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，含建筑模型 `buildings`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
-| `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` | 安静时降帧与唤醒（§1.8） | 稳定 |
+| `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` / `still` / `samples` | 安静时降帧、静止后停画与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
 | `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
 | `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`（`event.tileFeature()`：指针下的 3D Tiles 要素，§3.3）、`ListenerOptions`、`PauseScope`、`PickInfo` | 稳定 |
