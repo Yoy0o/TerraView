@@ -81,7 +81,7 @@ viewer.dispose(); // 离开页面时释放 GPU 资源、Worker 和监听
 
 接入时要知道的几件事（细节见 [docs/api.md](docs/api.md)）：
 
-- **样式**：`terra-view/style.css` 只包含 SDK 自己创建的元素（canvas、层级切换淡出、顶牌），类名全部以 `tv-` 开头；主题用 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg` 调。面板、状态栏等界面由宿主自己做（可以参考 `demo/ui/`）。
+- **样式**：`terra-view/style.css` 只包含 SDK 自己创建的元素（canvas、顶牌），类名全部以 `tv-` 开头；主题用 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg` 调。面板、状态栏等界面由宿主自己做（可以参考 `demo/ui/`）。
 - **容器**：`GeoViewer` 给容器加 `tv-viewer` 类；容器是 `position: static` 时改成 `relative`，没有 `tabindex` 时设为 `-1`（为了接收键盘）。`dispose()` 时恢复。
 - **键盘**：相机快捷键（WASD / 方向键 / QERF）只在 viewer 有焦点时生效，不监听 `window`；同页多个 viewer 互不影响。要一打开就能用键盘，调用 `viewer.canvas.focus()`。
 - **Worker**：包里的三个 Worker 是独立文件，用 `new URL(..., import.meta.url)` 引用。Vite 8 宿主（开发服务器和生产构建）已实测不需要额外配置；webpack 5 认同一种写法，但还没有实测。

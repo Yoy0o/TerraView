@@ -119,7 +119,7 @@ viewer.indoor.events.on('enterLevel', ({ object, previous, next, path }) => { /*
 viewer.flyToEntity(entity, { pitch: -40 });       // camera.fit
 ```
 
-`enter(target, options)` 的选项：`fly`（默认 true）、`duration`（秒）、`jumping`（默认 true，只在终点飞行；false 时每进入一级都飞一次）、`transition`（默认 true，切换时淡出上一帧，见 §7.1）。
+`enter(target, options)` 的选项：`fly`（默认 true）、`duration`（秒）、`jumping`（默认 true，只在终点飞行；false 时每进入一级都飞一次）、`transition`（默认 true，切换时让上一帧按深度重投影后溶解，见 §7.1）。
 
 `BimEntity`：`id` `type` `name` `category` `properties` `tags` `viewpoint` `label` `parent` `children` `group`，以及 `setStyle({ color, opacity, emissive })`、`effects` / `setEffects({ outline, glow, glowColor })`（描边与发光，§5.5）、`levelOpacity`（层级效果用的不透明度系数，与样式相乘）、`visible`、`effectivelyVisible`、`worldBounds()`、`labelPosition()`、`closest(type)`、`traverse(cb)`、`isDescendantOf(e)`、`meshes`（自有网格）、`instances`（合批实例，§5.2）、`refreshTransform()`（改了合批实体 `group` 的位姿后调用）。`setStyle`、`visible`、`levelOpacity`、`refreshTransform()` 会经建筑根上的 `onChange`（内部）通知 `IndoorManager`，再转给 viewer：恢复全帧率；显隐、移动还会让拾取缓冲和贡献剔除失效，宿主不用自己调 `requestRender()` 或 `pickBuffer.invalidate()`。
 
@@ -307,7 +307,11 @@ resume(); // 或 viewer.interaction.resume() 撤销全部
 
 ### 7.1 切换过渡与无地表背景
 
-- **淡出上一帧**（`viewer.levelTransition`，`FrameCrossfade`）：层级切换会改变显示内容时（压制 3D Tiles、隐藏外壳、切换楼层、同级半透明），先同步渲染一帧，拷到盖在 canvas 上的 2D 画布，再用 CSS 不透明度过渡在 450 ms 内淡出，相机同时开始飞行。重新进入当前层级、`transition: false`、移除建筑时不淡出。`duration = 0` 关闭。面板"层级切换淡入淡出"。顶牌在它上面，不参与淡出。
+- **上一帧按深度重投影后溶解**（`viewer.levelTransition`，`post/LevelTransition.ts`，2026-11-18 起取代 DOM 版 `FrameCrossfade`）：层级切换会改变显示内容时（压制 3D Tiles、隐藏外壳、切换楼层、同级半透明），先截下当前画面和它的深度（后期管线画出的显示画面，画面静止时直接用超采样的结果；都在 GPU 上，不读回 CPU），之后 450 ms 内逐帧把它叠在新画面上并淡出（先快后慢），相机同时开始飞行。
+  - 重投影：每 4 CSS 像素一个网格点，按截帧时的深度还原成旧相机下的位置，再用当前相机投影（矩阵"新投影 × 新视图 × 旧相机"在 CPU 上用 float64 算，平移量只是相机的位移，float32 足够；单测在北京 ECEF 坐标下与直接投影相差不到 0.05 像素）。所以旧画面随相机飞行一起缩放、移动，消失的外壳、楼层留在原处溶解，地面不会出现两层错开的网格；DOM 版是把截图钉在屏幕上，相机一动新旧两层就错开。
+  - 天空按方向（只随相机转动）重投影；深度跳变处（轮廓对着远处背景）只丢掉背景一侧的三角形，前景保留完整轮廓，那里直接显示新画面。
+  - `reproject = false` 退回不重投影的整屏溶解；`duration = 0` 关闭；重新进入当前层级、`transition: false`、移除建筑时不过渡。面板"层级切换淡入淡出"。顶牌是 DOM，不参与过渡。
+  - 它是后期管线 display 阶段的 `transition` 效果（调色之后、描边之前，新层级的描边清晰地画在溶解的旧画面上），过渡开着就一直在节点图里（不过渡时只采样一张 1×1 的透明纹理），开始过渡不会重编最后的全屏 pass；截帧目标和网格只在过渡期间存在（显存见 gpu-memory.md）。
 - **短途注视飞行**：层级之间的飞行都带注视点（取景目标，返回时用缓存视点记下的屏幕中心点），短途时主体始终在画面里，见 [camera-controller.md](camera-controller.md) §4。
 - **展台背景**（`viewer.backdrop`，`IndoorBackdrop`）：进入建筑后，如果周围什么都不画（地球隐藏，且没有显示中的 3D Tiles，例如 Google 3D Tiles 被压制），就在建筑下方铺一块地面：1 m / 10 m 网格（离建筑越远越淡）、建筑轮廓下的接触阴影、向地平线渐亮；背景换成与界面一致的深色渐变天空，地平线处有微光。地面按建筑锚点 ENU 定向，放在最低可见楼层以下 0.35 m（进入地下室时跟着下移），半径至少 4 km，边缘透明融入背景；不参与拾取。显示和隐藏都有 0.35 s 渐变。`viewer.indoorBackdrop = false` 关闭，面板"无地表时显示展台背景"。
 - **无地球时的手势**：光标下落空时，相机拾取用建筑地面高度的参考面，抓地平移、右键环绕、滚轮缩放都正常；相机不能低于建筑地面。见 camera-controller.md §3.4。

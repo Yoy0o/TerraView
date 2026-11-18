@@ -29,7 +29,7 @@ const viewer = await GeoViewer.create({
 `container` 可以是任意有尺寸的元素，不必铺满窗口；尺寸变化由内部的 `ResizeObserver` 跟随。`GeoViewer` 对容器做三件事，`dispose()` 时恢复：
 
 - 加 `tv-viewer` 类（样式作用域，并让顶牌的 `z-index` 留在 viewer 内部）。
-- `position` 是 `static` 时改成 `relative`（顶牌层和淡出层相对容器定位）。
+- `position` 是 `static` 时改成 `relative`（顶牌层相对容器定位）。
 - 没有 `tabindex` 时设为 `-1`，用来接收键盘。
 
 ### 1.2 样式与主题
@@ -40,7 +40,6 @@ const viewer = await GeoViewer.create({
 | --- | --- |
 | `.tv-viewer` | 容器 |
 | `.tv-canvas` | 渲染用的 canvas |
-| `.tv-crossfade` | 层级切换时淡出的上一帧 |
 | `.tv-marker-layer`（密集时加 `.tv-dense`） | 顶牌层 |
 | `.tv-marker`（`.tv-interactive`、`.tv-occluded`） | 单个顶牌的定位外壳 |
 | `.tv-card` + `.tv-<样式名>`（`.tv-selected`） | 顶牌内容，样式名见 [markers.md](agents/markers.md) §2 |
@@ -180,6 +179,8 @@ viewer.events.on('idle', () => {
 
 对比度和饱和度是一个 `display` 阶段的效果（名为 `grading`，在描边之前，所以描边颜色仍和给定的一致），只在其中一项不为 1 时运行，默认不增加开销；数值是 uniform，调节时不重编着色器。
 
+**层级切换过渡**（`viewer.levelTransition`，高级）：进出建筑、切换楼层等会改变显示内容的层级切换，先在 GPU 上截下当前画面和深度，之后 `duration` 毫秒（默认 450，0 关闭）内把它按深度重投影到飞行中的相机、叠在新画面上溶解：消失的外壳、楼层留在原处淡去，地面不会出现错开的两层。`reproject = false` 时退回整屏溶解（不跟随相机）。它是 display 阶段的 `transition` 效果（调色之后、描边之前）；做法和代价见 [indoor-bim.md](agents/indoor-bim.md) §7.1，过渡期间的显存（1080p 约 31 MB，结束即释放）计入 `viewer.memory.framebuffers`。原来盖在画布上的 `.tv-crossfade` 元素已经去掉。
+
 做法：被标记的网格单独再画一遍到小的遮罩里（与场景深度比较，分出可见和被遮挡的部分），描边在色调映射之后叠加（颜色和给定的一致），发光用 three 的 `BloomNode` 模糊遮罩后加到场景上。实体自己的材质不变，合批设备不拆批。闪烁的样式在用时让 viewer 保持全帧率（§1.8）。代价：有描边时每帧多一次只含被标记网格的绘制和一次全屏边缘搜索（高分屏上在半分辨率做）；有发光时再加遮罩和 bloom 的几个半分辨率 pass。显存计入 `viewer.memory.framebuffers`。
 
 自定义效果（高级）：实现 `PostEffect`（`name`、`stage: 'linear' | 'display'`、`order`、`active`、`graphVersion`、`build(input, inputs)`，可选 `attachments`、`prepare(frame)`、`animating`、`gpuBytes`、`dispose`），用 `viewer.postProcessing.add(effect)` 注册。`linear` 效果在色调映射之前（光照类：泛光、AO、调色），`display` 效果在之后（描边、叠加层）；同一阶段按 `order` 从小到大。`attachments` 声明需要场景额外输出的 MRT 附件（如 `{ normal: normalView }`），只在该效果启用时写；节点图只在启用的效果、`graphVersion` 或色调映射变化时重建。静止超采样期间 `prepare(frame)` 拿到的 `frame.camera` 带着该样本的亚像素平移，效果自己的 pass 用它画就会和场景对齐（不要跨帧缓存它的矩阵）；会自己动的效果设 `animating`，画面就不会被当成静止。不要给场景材质设 `material.mrtNode`：带自己 MRT 的材质在任何渲染目标里都会替换输出（拾取缓冲也是）。
@@ -208,7 +209,7 @@ viewer.events.on('idle', () => {
 | `ColorGrading`（`viewer.colorGrading`）、`ColorGradingOptions`、`COLOR_GRADING_PRESETS` | 曝光、对比度、饱和度（§1.9） | 稳定 |
 | `Supersampling`（`viewer.supersampling`）、`SupersamplingOptions` | 静止超采样：开关、样本数、`sampleCount` / `converged`（§1.8） | 稳定 |
 | `PostPipeline`（`viewer.postProcessing`）、`PostEffect`、`PostFrame`、`PostInputs`、`PostStage` | 后期管线与自定义效果（§1.9） | 高级 |
-| `viewer.levelTransition` | 层级切换淡出（`duration = 0` 关闭）；类型 `FrameCrossfade` 不从入口导出 | 高级 |
+| `viewer.levelTransition` | 层级切换过渡：上一帧按深度重投影、随相机飞行溶解（`duration` 毫秒，0 关闭；`reproject`，§1.9）；类型 `LevelTransition` 不从入口导出 | 高级 |
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
 | `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
@@ -297,7 +298,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 ### 3.8 内部（不再导出）
 
-2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（类型仍经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
+2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（2026-11-18 起由 `LevelTransition` 取代，类型经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
 公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
 

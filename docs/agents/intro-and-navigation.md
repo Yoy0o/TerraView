@@ -100,7 +100,7 @@
 
 屏幕中心没有地表（看向天空）时，`rotate` / `tilt` 退化为原地转动相机（`flyTo` 同一位置、新航向俯仰）。
 
-`GeoViewer.captureFrame()` 同步渲染一帧并拷到新的 2D canvas：WebGL 的绘图缓冲只能在绘制它的同一任务里读取（与 `FrameCrossfade` 同理）。
+`GeoViewer.captureFrame()` 同步渲染一帧并拷到新的 2D canvas：WebGL 的绘图缓冲只能在绘制它的同一任务里读取。层级切换过渡（`viewer.levelTransition`）不读画布，截帧留在 GPU 上（indoor-bim.md §7.1）。
 
 **演示界面**：右下角指北针左侧的按钮条（`demo/ui/NavigationBar.ts`）：放大、缩小 │ 左转、右转、2D/3D │ 初始视角、环绕、重播开场 │ 全屏、截图。按钮状态每 10 帧刷新一次。面板的最大高度相应减为 `100% − 150px`，不与按钮条重叠。
 

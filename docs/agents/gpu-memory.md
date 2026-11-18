@@ -22,7 +22,7 @@
 | 建筑 / 设备 | `InstanceBatch`、`StylePool`、glTF 模型（`Building`、`modelBudget.ts`） | 设备按几何合批，材质共享；楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出预算时卸载；示例办公楼在 MB 量级 | `indoor.modelBytesTarget` / `modelUnloadDelayMs`（按档位给，[indoor-bim.md](indoor-bim.md) §5.4）；贡献剔除只省绘制，不省显存 |
 | 注记图集 | `LabelManager`（`AtlasPage`，无 mipmap） | 每页最大 `MAX_PAGE²` × 4 B，按需分页 | 注记数量 |
 | 云层、星空、展台背景、遮挡代理 | `CloudLayer` 等 | 一张云图 + 少量顶点，固定且小 | — |
-| 层级切换淡出 | `FrameCrossfade`（2D canvas 快照） | 一张画布大小的位图，切换期间存在 | 画布像素数 |
+| 层级切换过渡（P3.4） | `post/LevelTransition` | 只在过渡期间（默认 0.45 s）：截帧 RGBA8 + 视距 R32F + 重投影结果 RGBA8，共 12 B / 像素，加每 4 CSS 像素一个点的网格（1080p 约 13 万个顶点、26 万个三角形，约 6 MB）；1080p 合计约 31 MB，结束即释放，计入 `framebuffers` | 画布像素数 |
 
 `viewer.memory` 汇总前五项（`framebuffers`、`globe`、`tilesGpu`、`buildings`，合计 `gpuTotal`；`buildings` 只算已加载的 glTF 模型，不含程序生成的楼板、墙和合批实例数据）和 3D Tiles 解码缓存（`tilesCache` / `tilesCacheMax`），状态栏显示为"显存≈N MB · 建筑模型 m MB（3D 缓存 a / b MB）"（建筑模型不足 1 MB 时不显示）。浏览器自身的合成器、解码中的位图、驱动开销不在其中，实际进程显存通常再多 150–300 MB。
 

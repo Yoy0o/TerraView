@@ -4,6 +4,24 @@
 
 ## [未发布]
 
+### GPU 版层级切换过渡（2026-11-18，路线图 §0.2 P3.4）
+
+进出建筑、切换楼层时，上一帧不再是钉在屏幕上的截图，而是按深度跟着相机移动、在原处溶解。说明见 [docs/api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §7.1。
+
+**变更**
+
+- 层级切换过渡改在 GPU 上做：截下当前画面和深度（画面静止时直接用超采样的画面，不读回 CPU），之后 0.45 s 内按深度重投影到飞行中的相机、叠在新画面上淡出。消失的外壳、楼层留在原处溶解，地面和 3D Tiles 不再出现错开的双影。
+- `viewer.levelTransition` 的类型从 `FrameCrossfade` 换成 `LevelTransition`（高级，不从入口导出）：`duration`（毫秒，0 关闭）照旧，新增 `reproject`（默认 true；false 时整屏溶解、不跟随相机）。
+
+**变更（破坏性）**
+
+- 去掉盖在画布上的 `.tv-crossfade` 元素和它的样式；`FrameCrossfade.start(render)` 不再存在（过渡由 viewer 在层级切换时自己开始）。给 `.tv-crossfade` 写过样式的宿主可以删掉那段样式。
+
+**工程**
+
+- `post/LevelTransition.ts`（display 阶段的 `transition` 效果，排在调色之后、描边之前）、`PostPipeline.capture`；`postMath` 新增 `transitionOpacity`、`transitionGrid`、`isFarSideOfEdge`。`tests/post.test.ts`：淡出曲线、网格密度、深度边缘规则，以及在 ECEF 坐标下用 float32 重放着色器的重投影算法、与 float64 直接投影对照（误差小于 0.05 像素）。
+- 过渡期间的显存（1080p 约 31 MB）计入 `viewer.memory.framebuffers`，结束即释放。
+
 ### 静止超采样、静止后停画与调色（2026-11-18，路线图 §0.2 P3.3）
 
 画面静止后自动抗锯齿，画完就不再画帧；新增曝光、对比度、饱和度调节。说明见 [docs/api.md](docs/api.md) §1.8、§1.9。

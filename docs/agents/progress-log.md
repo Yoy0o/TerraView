@@ -146,7 +146,7 @@ Hub 与仓库里需要处理的小问题：
 | B2 ✅ | M3.1 | 2026-11-17 完成（P3.1，`src/post/PostPipeline.ts`，[api.md](../api.md) §1.9）。**后期管线骨架**：`RenderPipeline` + `pass` + `mrt`，效果按权重排序、按需声明附件；叠加层放在后期之后 | 无 | 中 | 后期管线骨架 |
 | B3 ✅ | M3.2 | 2026-11-17 完成（P3.2，描边用遮罩重绘、发光用遮罩 + BloomNode，[indoor-bim.md](indoor-bim.md) §5.5）。逐物体特效：描边（选中 / 告警，被挡部分 x-ray）、选择性发光；替换现在的 emissive 高亮 | B2 | 中 | 逐物体描边与发光 |
 | B4 ✅ | M3.3 后半 | 2026-11-18 完成（P3.3，`viewer.supersampling`、`viewer.colorGrading`，[api.md](../api.md) §1.8、§1.9）。静止超采样（评估 `TRAANode` 后自研：其速度缓冲在 ECEF 尺度不准）、调色预设 | B1、B2 | 中 | 静止超采样与调色 |
-| B5 | M1.4 遗留 | DOM 版截帧淡出换成 GPU 版（缩放过渡、按深度混合） | B2 | 小 | GPU 版层级过渡 |
+| B5 ✅ | M1.4 遗留 | 2026-11-18 完成（P3.4，`viewer.levelTransition`，[indoor-bim.md](indoor-bim.md) §7.1）。DOM 版截帧淡出换成 GPU 版：截帧连同深度留在 GPU，按深度重投影到飞行中的相机后溶解 | B2 | 小 | GPU 版层级过渡 |
 | B6 ✅ | M3.8 | 楼层模型按需加载，离开后按显存预算 LRU 卸载；预算统计与 3D Tiles 共用 `gpuProfile`（接 `T261110-npf`）。2026-11-17 完成（P2.2，[indoor-bim.md](indoor-bim.md) §5.4） | 无 | 中 | 楼层按需加载与显存预算 |
 | B7 | M3.4 | 楼层 AO 烘焙（俯视渲染墙体 + 多级模糊，楼板共享节点图） | 无 | 中 | 楼层 AO 烘焙 |
 | B8 | M3.5 | 光照跟随大气：太阳光色、天光球谐、空气透视、IBL | 无 | 中 | 光照跟随大气 |
@@ -227,12 +227,13 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 2. **D3 → D2 → D4 首发就绪**（P1）：先做公共 API 收口和文案选项化（都是破坏性变更，越早越好），再做多实例与打包工具余项，最后冒烟测试、体积预算、发布。
 3. ~~B1 按需渲染~~（P2.1）：P2.1a 空闲降帧已完成（2026-11-13），停画随 B4 静止超采样（P3.3）在 2026-11-18 完成。
 4. ~~B6 楼层按需加载、C8 要素拾取~~（P2.2、P2.3）：2026-11-17 完成；加载与错误事件（P2.4）2026-11-13 完成。P2 至此全部完成（完全按需渲染 P2.1 暂缓到 P3.3）。P1.7 发布准备暂时搁置，之后再推进。
-5. ~~B2 后期骨架 → B3 → B4~~（P3.1、P3.2、P3.3）：2026-11-17、11-18 完成。**B5**（P3.4 GPU 版层级过渡）、B7 / B8、E 组（P4）、C 组和 F 组（P5）按业务需求排期。
+5. ~~B2 后期骨架 → B3 → B4 → B5~~（P3.1–P3.4）：2026-11-17、11-18 完成。B7 / B8（楼层 AO、光照跟随大气）、E 组（P4）、C 组和 F 组（P5）按业务需求排期。
 
 ## 7. 修订记录
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-18 | P3.4 GPU 版层级过渡（B5 / M1.4 遗留）：去掉 DOM 版 `FrameCrossfade` 和 `.tv-crossfade`，改为后期管线 display 阶段的 `transition` 效果：截帧和深度留在 GPU，每 4 CSS 像素一个网格点按深度重投影到飞行中的相机后溶解（`viewer.levelTransition.duration` / `reproject`）。WebGPU / WebGL2 下放慢截图对照、测开始过渡的同步耗时与过渡期间帧率；冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.4 落地"）。P1.7 仍搁置 |
 | 2026-11-18 | P3.3 静止超采样与调色（B4 / M3.3 后半，连同 B1 的停画）：安静 1 s 后 16 / 32 个 Halton 抖动样本在显示空间平均，画完不再画帧（`viewer.supersampling`、`stats.still` / `samples`）；输入只唤醒、不作废静止画面；补注记、地球、3D Tiles 淡入淡出与相机矩阵等变化检测；截图直接用超采样画面；调色 `viewer.colorGrading`（曝光、对比度、饱和度，`vivid` 预设）。评估 `TRAANode` 后不用（速度缓冲在 ECEF 尺度不准）。实测静止 CPU：地球 14% → 6.9%、建筑 27% → 7.9%（相对每秒 10 帧），WebGPU / WebGL2 行为一致；冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.3 落地"）。P1.7 仍搁置 |
 | 2026-11-17 | P3.1 后期管线骨架（B2 / M3.1）：每帧经 `viewer.postProcessing`，效果分 linear / display 两段，按需 MRT 附件。P3.2 描边与发光（B3 / M3.2）：`entity.effects`、`EntitySet.setEffects`、`viewer.effects`、`indoor.selectOutline` / `hoverOutline`；选中、悬停从自发光改为描边。WebGPU / WebGL2 下用 Playwright 驱动演示应用实测；扩展驱动的 Chrome 里出现过一次未复现的 GPU 卡死（roadmap §0.2"P3.1 / P3.2 落地"）。P1.7 仍搁置 |
 | 2026-11-17 | P2.2 楼层模型按需加载（B6 / M3.8）：楼层第一次显示时加载，隐藏楼层超出建筑模型预算（按档位）时卸载，`viewer.memory.buildings`；修复移除建筑不释放模型纹理。P2.3 3D Tiles 要素拾取（C8）：`EXT_mesh_features` / 批量表的要素编号与属性，`event.tileFeature()`、`pickTileFeature`、`highlightTileFeature`（叠加网格高亮）。两项都在 WebGPU / WebGL2 下用 Playwright 驱动演示应用实测。P1.7 发布准备暂时搁置 |

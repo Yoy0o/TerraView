@@ -69,10 +69,11 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 │               PointLayer（点位图层）
 ├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果；静止超采样的抖动样本与历史缓冲）、EffectMarks（描边 / 发光对象登记）、
 │               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、
-│               Supersampling（viewer.supersampling）、ColorGrading（viewer.colorGrading + 对比度 / 饱和度效果）、postMath（纯函数）
+│               Supersampling（viewer.supersampling）、ColorGrading（viewer.colorGrading + 对比度 / 饱和度效果）、
+│               LevelTransition（viewer.levelTransition：层级切换时截帧，按深度重投影后溶解）、postMath（纯函数）
 └─ viewer/      GeoViewer（总装、拾取、帧循环）、GlobeCameraController、cameraMath、CameraFlight（弧线 / 注视飞行）、
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
-                FrameCrossfade（层级切换淡出）、IndoorBackdrop（无地表时的展台背景）、
+                IndoorBackdrop（无地表时的展台背景）、
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
                 PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、framePacing（静止降帧、变化 / 唤醒、静止判定与绘制方式，纯函数）、
                 OcclusionProxies（顶牌遮挡查询代理）
@@ -171,7 +172,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 每一级的显隐、半透明、拾取映射（`filterObject`）和取景都由层级控制（`LevelControl`）决定，可以按选择器和优先级注册替换。
   - `enter()` 沿层级路径逐级离开、进入，每一级都触发 `beforeEnterLevel` / `enterLevel` / `leaveLevel`；新的 `enter()` 会取消进行中的切换；往下钻时缓存视点，返回时飞回。
   - 选择器支持 `&&` `||` `!` 括号、属性比较和 `tags:or/and/not(...)`，编译后缓存。格式和规则见 [indoor-bim.md](docs/agents/indoor-bim.md)。
-  - 切换时淡出上一帧，层级之间短途飞行用注视飞行；建筑周围什么都不画时（地球隐藏、3D Tiles 被压制）显示展台背景（indoor-bim.md §7.1）。
+  - 切换时截下上一帧（连同深度，不读回 CPU），按深度重投影到飞行中的相机并溶解（`viewer.levelTransition`，后期管线的 `transition` 效果），层级之间短途飞行用注视飞行；建筑周围什么都不画时（地球隐藏、3D Tiles 被压制）显示展台背景（indoor-bim.md §7.1）。
   - 设备按楼层 × 几何 × 基础材质 × 渲染状态合成 `InstancedMesh`，颜色 / 发光 / 不透明度是实例属性，材质走样式池（indoor-bim.md §5.2）。设备显隐用 `entity.visible`，移动后调 `refreshTransform()`，改外观用 `setStyle` / `levelOpacity`，不要找设备的材质。
   - 楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出 `indoor.modelBytesTarget` 时卸载（indoor-bim.md §5.4）。要在显示前用到模型（取景、包围体）先 `await building.modelsLoaded(entity)`；不要假设 `add()` 之后房间、设备上已经有模型网格。
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
