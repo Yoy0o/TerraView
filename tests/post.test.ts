@@ -1,4 +1,4 @@
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, type BufferGeometry, type Matrix4 } from 'three';
+import { BoxGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Scene, Vector3, Vector4, type BufferGeometry } from 'three';
 import { describe, expect, it } from 'vitest';
 import { Ellipsoid } from '../src/core/Ellipsoid';
 import { BimEntity } from '../src/indoor/BimEntity';
@@ -6,6 +6,11 @@ import { IndoorManager, type IndoorHost } from '../src/indoor/IndoorManager';
 import { EffectMarks, type EffectSource } from '../src/post/EffectMarks';
 import {
   BUILTIN_OUTLINES,
+  DEFAULT_TRANSITION_MS,
+  isFarSideOfEdge,
+  TRANSITION_EDGE_RATIO,
+  transitionGrid,
+  transitionOpacity,
   COLOR_GRADING_LIMITS,
   COLOR_GRADING_PRESETS,
   DEFAULT_SUPERSAMPLING_SAMPLES,
@@ -492,5 +497,88 @@ describe('color grading rules', () => {
     for (const preset of Object.values(COLOR_GRADING_PRESETS)) {
       for (const key of ['exposure', 'contrast', 'saturation'] as const) expect(normalizeGrading(key, preset[key])).toBe(preset[key]);
     }
+  });
+});
+
+describe('level transition rules', () => {
+  it('fades the old picture from 1 to 0 over the duration, fast at first', () => {
+    const d = DEFAULT_TRANSITION_MS;
+    expect(transitionOpacity(0, d)).toBe(1);
+    expect(transitionOpacity(d, d)).toBe(0);
+    expect(transitionOpacity(d * 2, d)).toBe(0);
+    expect(transitionOpacity(100, 0)).toBe(0);
+    let prev = 1;
+    for (let t = 25; t < d; t += 25) {
+      const o = transitionOpacity(t, d);
+      expect(o).toBeLessThan(prev);
+      prev = o;
+    }
+    // Ease-out: more than half gone after a third of the time.
+    expect(transitionOpacity(d / 3, d)).toBeLessThan(0.5);
+  });
+
+  it('puts a grid point every few CSS pixels', () => {
+    expect(transitionGrid(1920, 1080, 1)).toEqual({ columns: 481, rows: 271 });
+    // Same CSS size at twice the density: the same grid.
+    expect(transitionGrid(3840, 2160, 2)).toEqual({ columns: 481, rows: 271 });
+    expect(transitionGrid(1, 1, 1)).toEqual({ columns: 2, rows: 2 });
+  });
+
+  it('drops the far side of depth edges only', () => {
+    const r = TRANSITION_EDGE_RATIO;
+    expect(isFarSideOfEdge(100, [100, 101, 99, 100])).toBe(false);
+    // Background behind a silhouette: dropped; the silhouette itself keeps its triangles.
+    expect(isFarSideOfEdge(100 * (1 + r) * 1.5, [100, 300, 300, 300])).toBe(true);
+    expect(isFarSideOfEdge(100, [100 * (1 + r) * 1.5, 100, 100, 100])).toBe(false);
+    // Sky (0) next to geometry is background; geometry next to sky is not.
+    expect(isFarSideOfEdge(0, [0, 0, 120, 0])).toBe(true);
+    expect(isFarSideOfEdge(120, [0, 0, 120, 0])).toBe(false);
+    expect(isFarSideOfEdge(0, [0, 0, 0, 0])).toBe(false);
+  });
+
+  it('reprojects the old picture at globe scale in float32 within a small fraction of a pixel', () => {
+    // A building in Beijing seen from 300 m, then the camera 120 m closer and turned a little:
+    // the vertex shader's math (float32) against projecting the same points directly (float64).
+    const f = Math.fround;
+    const up = (p: Vector3) => p.clone().normalize();
+    const target = new Vector3(-2178000.5, 4388000.25, 4070000.75);
+    const make = (from: Vector3, look: Vector3) => {
+      const cam = new PerspectiveCamera(50, 16 / 9, 0.5, 2e6);
+      cam.position.copy(from);
+      cam.up.copy(up(from));
+      cam.lookAt(look);
+      cam.updateMatrixWorld();
+      cam.updateProjectionMatrix();
+      return cam;
+    };
+    const n = up(target);
+    const east = new Vector3(0, 0, 1).cross(n).normalize();
+    const oldCam = make(target.clone().addScaledVector(n, 200).addScaledVector(east, -220), target);
+    const newCam = make(oldCam.position.clone().lerp(target, 0.4), target.clone().addScaledVector(east, 15));
+    const m = new Matrix4().multiplyMatrices(newCam.projectionMatrix, newCam.matrixWorldInverse).multiply(oldCam.matrixWorld);
+    const m32 = m.elements.map(f);
+    const inv32 = oldCam.projectionMatrixInverse.elements.map(f);
+    const mul = (e: number[], v: number[]) => [0, 1, 2, 3].map((r) => f(f(f(e[r] * v[0]) + f(e[4 + r] * v[1])) + f(f(e[8 + r] * v[2]) + f(e[12 + r] * v[3]))));
+    let worst = 0;
+    let checked = 0;
+    for (let i = 0; i < 50; i++) {
+      // Points on and around the building, up to 60 m away.
+      const p = target.clone().add(new Vector3(Math.sin(i * 1.7) * 60, Math.cos(i * 2.3) * 60, Math.sin(i * 0.9) * 40));
+      const oldClip = new Vector4(p.x, p.y, p.z, 1).applyMatrix4(oldCam.matrixWorldInverse).applyMatrix4(oldCam.projectionMatrix);
+      const ndc = [f(oldClip.x / oldClip.w), f(oldClip.y / oldClip.w)];
+      if (Math.abs(ndc[0]) > 1 || Math.abs(ndc[1]) > 1) continue;
+      const distance = f(-p.clone().applyMatrix4(oldCam.matrixWorldInverse).z);
+      // Shader: point on the pixel's ray at view depth 1, scaled to the stored distance.
+      const q = mul(inv32, [ndc[0], ndc[1], 0.5, 1]);
+      const view = [f(q[0] / q[3]), f(q[1] / q[3]), f(q[2] / q[3])];
+      const dir = view.map((x) => f(x / -view[2]));
+      const clip = mul(m32, [f(dir[0] * distance), f(dir[1] * distance), f(dir[2] * distance), 1]);
+      const expected = p.clone().project(newCam);
+      const errPx = Math.max(Math.abs(clip[0] / clip[3] - expected.x) * 960, Math.abs(clip[1] / clip[3] - expected.y) * 540);
+      worst = Math.max(worst, errPx);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(30);
+    expect(worst).toBeLessThan(0.05);
   });
 });

@@ -84,7 +84,7 @@ export interface IndoorHost {
   createLabelElement?: (options: CardOptions, entity: BimEntity) => HTMLElement;
   /** Shifts the camera / its flight destination when the building being viewed moved (terrain clamping). */
   followMove?: (delta: Vector3) => void;
-  /** Called right before a level change alters what is shown (the viewer crossfades from the current frame). */
+  /** Called right before a level change alters what is shown (the viewer captures the current picture and dissolves it). */
   beginTransition?: () => void;
   /**
    * Called when an entity changed from code or a model arrived (`geometry`: shown, hidden,

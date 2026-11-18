@@ -294,3 +294,54 @@ export function normalizeGrading(key: keyof ColorGradingOptions, value: unknown,
 export function gradingPassNeeded(g: Readonly<Required<ColorGradingOptions>>): boolean {
   return g.contrast !== 1 || g.saturation !== 1;
 }
+
+// ---------------------------------------------------------------------------
+// Level transition (roadmap M1.4 / P3.4)
+
+/** Default `viewer.levelTransition.duration`, ms. */
+export const DEFAULT_TRANSITION_MS = 450;
+/** Side of a cell of the reprojection grid, CSS pixels (holes along depth edges are about this wide). */
+export const TRANSITION_GRID_CSS_PX = 4;
+/**
+ * Relative depth jump between neighboring grid points above which the cell is a silhouette:
+ * its triangles would stretch from the foreground to what lies far behind, so they are left out.
+ */
+export const TRANSITION_EDGE_RATIO = 0.08;
+
+/**
+ * Opacity of the previous picture `elapsedMs` into a transition of `durationMs`: an ease-out
+ * from 1 to 0 (fades fast at first, like the CSS `cubic-bezier(0.33, 0, 0.2, 1)` it replaces).
+ * 0 once the time is up or without a duration.
+ */
+export function transitionOpacity(elapsedMs: number, durationMs: number): number {
+  if (!(durationMs > 0) || !(elapsedMs < durationMs)) return 0;
+  const t = Math.max(0, elapsedMs) / durationMs;
+  const eased = 1 - (1 - t) ** 3;
+  return 1 - eased;
+}
+
+/**
+ * Grid points of the reprojection mesh for a drawing buffer `width` × `height` device pixels:
+ * one point every `TRANSITION_GRID_CSS_PX` CSS pixels, plus the far edges.
+ */
+export function transitionGrid(width: number, height: number, pixelRatio: number): { columns: number; rows: number } {
+  const cell = TRANSITION_GRID_CSS_PX * Math.max(1, pixelRatio);
+  return {
+    columns: Math.max(2, Math.ceil(Math.max(1, width) / cell) + 1),
+    rows: Math.max(2, Math.ceil(Math.max(1, height) / cell) + 1),
+  };
+}
+
+/**
+ * Whether a grid point is the far side of a depth edge: some neighbor is nearer by more than
+ * `TRANSITION_EDGE_RATIO` (relative), or the point is sky (view distance 0) next to geometry.
+ * The transition drops the triangles of such points, which would stretch from the foreground to
+ * what lies behind; the foreground keeps its outline up to its last grid point. Same rule as the
+ * transition's vertex shader.
+ */
+export function isFarSideOfEdge(center: number, neighbors: readonly number[]): boolean {
+  let nearest = Infinity;
+  for (const d of neighbors) if (d > 0) nearest = Math.min(nearest, d);
+  if (!(center > 0)) return nearest < Infinity;
+  return center > nearest * (1 + TRANSITION_EDGE_RATIO);
+}

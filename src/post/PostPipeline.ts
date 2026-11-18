@@ -136,6 +136,8 @@ export class PostPipeline {
   /** Shows the history on the canvas. */
   private presentPipeline: RenderPipeline | null = null;
   private historyNode: TSLNode = null;
+  /** Copies the history into another target (`capture`). */
+  private copyQuad: QuadMesh | null = null;
   private _samples = 0;
 
   constructor(
@@ -280,6 +282,40 @@ export class PostPipeline {
     if (this.disposed || this._samples === 0 || !this.history) return false;
     this.presentHistory();
     return true;
+  }
+
+  /**
+   * @internal Draws the current picture, finished as it would appear on the canvas (display
+   * values), into `color` and returns the scene depth texture it was drawn with (valid until the
+   * next scene pass). `fromHistory`: copy the supersampled picture instead of drawing the scene
+   * again (the depth is then that of its last sample). Used by the level transition.
+   */
+  capture(color: RenderTarget, fromHistory: boolean): DepthTexture {
+    const r = this.renderer;
+    const prevTarget = r.getRenderTarget();
+    const prevAutoClear = r.autoClear;
+    r.autoClear = true;
+    r.setRenderTarget(color);
+    if (fromHistory && this.history && this._samples > 0) {
+      if (!this.copyQuad) {
+        const m = new NodeMaterial();
+        m.name = 'Supersampling copy';
+        m.fragmentNode = vec4(this.historyNode.rgb, 1);
+        m.toneMapped = false;
+        this.copyQuad = new QuadMesh(m);
+      }
+      this.copyQuad.render(r);
+    } else {
+      r.setRenderTarget(prevTarget);
+      this.drawScene();
+      r.setRenderTarget(color);
+      // The composed picture at full weight (the blend material, over a cleared target).
+      this.weight.value = 1;
+      this.sampleQuad.render(r);
+    }
+    r.setRenderTarget(prevTarget);
+    r.autoClear = prevAutoClear;
+    return this.target.depthTexture!;
   }
 
   /** Frees the supersampling history (supersampling turned off); the next sample creates it again. */
@@ -436,6 +472,7 @@ export class PostPipeline {
     this.pipeline.dispose();
     this.presentPipeline?.dispose();
     (this.sampleQuad.material as NodeMaterial).dispose();
+    (this.copyQuad?.material as NodeMaterial | undefined)?.dispose();
     this.history?.dispose();
     this.target.dispose();
   }

@@ -47,10 +47,10 @@ import type { FeatureHit } from '../vector/types';
 import { VectorService } from '../vector/VectorService';
 import { cameraDirection, getHeadingPitch, lookAtHeadingPitchRange } from './cameraMath';
 import { GlobeCameraController, type AutoOrbitOptions, type ControllerHost } from './GlobeCameraController';
-import { FrameCrossfade } from './FrameCrossfade';
 import { ColorGrading, ColorGradingEffect } from '../post/ColorGrading';
 import { EffectMarks } from '../post/EffectMarks';
 import { GlowEffect } from '../post/GlowEffect';
+import { LevelTransition } from '../post/LevelTransition';
 import { OutlineEffect } from '../post/OutlineEffect';
 import type { ColorGradingOptions } from '../post/postMath';
 import { PostPipeline } from '../post/PostPipeline';
@@ -374,8 +374,11 @@ export class GeoViewer {
   readonly supersampling: Supersampling;
   /** Exposure, contrast and saturation of the picture (`GeoViewerOptions.colorGrading`). */
   readonly colorGrading: ColorGrading;
-  /** @advanced Crossfade over level changes; `levelTransition.duration = 0` turns it off. */
-  readonly levelTransition: FrameCrossfade;
+  /**
+   * @advanced Dissolve of the previous picture over level changes, reprojected with its depth as
+   * the camera flies (`duration` in ms, 0 turns it off; `reproject`).
+   */
+  readonly levelTransition: LevelTransition;
   /**
    * @advanced GPU pick buffer (M2.1): hover and click picks read it while it matches
    * the current view, else cast CPU rays. Null on the WebGL backend.
@@ -555,7 +558,6 @@ export class GeoViewer {
     this.scene.add(this.backdrop.group);
     const sky = skyColorNode(positionWorldDirection).add(vec3(0.0006, 0.0008, 0.0016));
     this.scene.backgroundNode = mix(sky, this.backdrop.backgroundNode(positionWorldDirection), this.backdrop.amount);
-    this.levelTransition = new FrameCrossfade(renderer.domElement);
 
     this.markers = new MarkerManager(this.container, renderer.domElement);
     this.markerOcclusion = new OcclusionProxies(renderer);
@@ -587,7 +589,7 @@ export class GeoViewer {
       },
       flyToPose: (pose, duration) =>
         this.controller.flyTo({ position: pose.position.clone(), heading: pose.heading * DEG2RAD, pitch: pose.pitch * DEG2RAD }, duration, { lookAt: pose.target }),
-      beginTransition: () => this.levelTransition.start(() => this.renderOutsideFrame()),
+      beginTransition: () => this.beginLevelTransition(),
       setTilesetsVisible: (visible) => this.setTilesetsSuppressed(!visible),
       loadModel: (uri) => this.loadModel(uri),
       followMove: (delta) => this.controller.translate(delta),
@@ -600,8 +602,10 @@ export class GeoViewer {
     const outline = new OutlineEffect(this.marks);
     const glow = new GlowEffect(this.marks);
     const grading = new ColorGradingEffect();
+    this.levelTransition = new LevelTransition(this.postProcessing, renderer, this.camera);
     this.postProcessing.add(glow);
     this.postProcessing.add(grading);
+    this.postProcessing.add(this.levelTransition);
     this.postProcessing.add(outline);
     this.effects = new ViewerEffects(this.marks, outline, glow, () => this.requestRender());
     this.colorGrading = new ColorGrading(renderer, grading, () => this.requestRender());
@@ -1612,6 +1616,23 @@ export class GeoViewer {
    * uniforms are shared by every viewer on the page and hold whatever the last viewer to render
    * wrote: put this viewer's camera and settings back first.
    */
+  /**
+   * A level change is about to alter what is shown: capture the picture on screen (the
+   * supersampled one when the view was still and nothing changed since) for the transition.
+   */
+  private beginLevelTransition(): void {
+    if (this.disposed || !(this.levelTransition.duration > 0) || document.visibilityState === 'hidden') return;
+    const fromHistory = this.postProcessing.samples > 0 && this.pacer.changedAt < this.lastDrawAt;
+    if (!fromHistory) {
+      // Drawn outside the frame loop: this viewer's shared uniforms first (see renderOutsideFrame).
+      this.updateEnvironment();
+      this.labels.syncCamera(this.camera);
+      this.marks.refresh();
+    }
+    this.levelTransition.begin(fromHistory);
+    this.requestRender();
+  }
+
   private renderOutsideFrame(): void {
     // A supersampled picture that nothing has changed since is the view as it is: show it again
     // (better, and no scene pass). Otherwise draw live.
@@ -1718,7 +1739,6 @@ export class GeoViewer {
     this.markerOcclusion.dispose();
     this.backdrop.dispose();
     this.clouds.dispose();
-    this.levelTransition.dispose();
     this.labels.dispose();
     this.vectors.dispose();
     this.globe.dispose();
@@ -1730,7 +1750,7 @@ export class GeoViewer {
 
   /**
    * Prepares the host's container: the `tv-viewer` class (stylesheet scope), a positioning
-   * context for the marker layer and the crossfade canvas, and keyboard focus (a click on a
+   * context for the marker layer, and keyboard focus (a click on a
    * marker then focuses the container, so camera keys keep working). Only what is missing is
    * set, and `dispose()` puts it back.
    */

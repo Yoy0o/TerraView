@@ -1,9 +1,9 @@
 /*
  * TerraView stylesheet: `import 'terra-view/style.css'`.
  *
- * Only what the SDK itself creates is styled here: the canvas, the level-change crossfade
- * and HTML markers (顶牌 / 点位). Every class starts with `tv-`, so host pages are not
- * affected; panels, status bars and other application chrome belong to the host.
+ * Only what the SDK itself creates is styled here: the canvas and HTML markers (顶牌 / 点位).
+ * Every class starts with `tv-`, so host pages are not affected; panels, status bars and
+ * other application chrome belong to the host.
  *
  * Theme variables (set them on the viewer container or any ancestor):
  *   --tv-font     marker font family
@@ -29,19 +29,6 @@
 
 .tv-canvas:active {
   cursor: grabbing;
-}
-
-/* Copy of the last frame faded out over a level change (FrameCrossfade); below the labels. */
-.tv-crossfade {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-.tv-crossfade[hidden] {
-  display: none;
 }
 
 /* ---------------------------------------------------------------- markers / top cards (顶牌) */
