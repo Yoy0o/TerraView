@@ -116,6 +116,10 @@ export class Tiles3DLayer {
   private readonly baseMatrix = new Matrix4();
   private readonly unload: UnloadTilesPlugin;
   private readonly adaptive = createAdaptiveErrorState();
+  /** LOD cross-fade plugin (null without node materials or with `fadeDuration: 0`). */
+  private fade: TilesFadePlugin | null = null;
+  /** The last update changed the picture by itself: tiles fading, or the adaptive error target moved. */
+  private _animating = false;
   /** Highlighted feature and its overlay (null overlay: the feature has no triangles to tint). */
   private highlight: { feature: TileFeature; overlay: Mesh | null } | null = null;
 
@@ -161,6 +165,7 @@ export class Tiles3DLayer {
         // WebGPU); swap in the TSL one. Its interface is the same three methods.
         (fade as unknown as { _fadeMaterialManager: NodeFadeMaterialManager })._fadeMaterialManager = new NodeFadeMaterialManager();
         tiles.registerPlugin(fade);
+        this.fade = fade;
       }
     }
     // Hidden tiles leave the GPU only while the layer is above its GPU target, and not right away
@@ -303,6 +308,7 @@ export class Tiles3DLayer {
    * @param view Camera height and tilt for the distance falloff; without it distant tiles are not relaxed.
    */
   update(dt = 0, view?: TilesViewState): void {
+    this._animating = false;
     if (!(this.active || (this._visible && this.probe))) return;
     const tiles = this.tiles;
     const target = this.errorTarget * this.quality.errorTargetScale * this.adaptive.scale;
@@ -315,6 +321,7 @@ export class Tiles3DLayer {
     const refused = internals.stats.refused ?? 0;
     // The used bytes only matter for coming back down; skip the sum while nothing is raised.
     const usedBytes = this.adaptive.scale > 1 ? this.usedBytes(internals) : Infinity;
+    const scale = this.adaptive.scale;
     stepAdaptiveError(this.adaptive, {
       refused,
       usedBytes,
@@ -322,6 +329,16 @@ export class Tiles3DLayer {
       maxScale: this.quality.adaptiveErrorMaxScale,
       dt,
     });
+    // Tiles fading in or out, or a moving error target (swaps cached levels without loading anything).
+    this._animating = (this.fade?.fadingTiles ?? 0) > 0 || this.adaptive.scale !== scale;
+  }
+
+  /**
+   * @internal The last `update` changed the picture by itself (LOD fades, adaptive error target):
+   * a still view must not be held yet.
+   */
+  get animating(): boolean {
+    return this._animating;
   }
 
   /** Bytes of the tiles the last update used (visible ones, their ancestors and siblings). */

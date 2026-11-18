@@ -1,7 +1,7 @@
 // Host application used by scripts/check-package.mjs: it sees the SDK only as the installed
 // package, with two viewers that do not fill the window.
 import 'terra-view/style.css';
-import { AWS_TERRARIUM, GeoViewer, IMAGERY_PRESETS, type BuildingDoc, type GeoViewerOptions } from 'terra-view';
+import { AWS_TERRARIUM, COLOR_GRADING_PRESETS, GeoViewer, IMAGERY_PRESETS, type BuildingDoc, type GeoViewerOptions } from 'terra-view';
 
 async function start(id: string, view: GeoViewerOptions['initialView']): Promise<GeoViewer> {
   return GeoViewer.create({
@@ -16,6 +16,9 @@ async function start(id: string, view: GeoViewerOptions['initialView']): Promise
 
 const left = await start('left', { longitude: 116.39, latitude: 39.9, height: 4000, heading: 20, pitch: -40 });
 const right = await start('right', { longitude: 112, latitude: 26, height: 1.75e7 });
+// Still supersampling is on by default; the right viewer also uses the grading options (packed types).
+right.supersampling.set({ samples: 12 });
+right.colorGrading.set(COLOR_GRADING_PRESETS.vivid);
 
 left.addPoints({
   data: [

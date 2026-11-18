@@ -1,9 +1,23 @@
 /**
- * Idle frame-rate throttling (roadmap P2.1a): the viewer draws every animation frame while
- * something changes, and only `idleFrameRate` frames per second once the view has been quiet
- * for `QUIET_MS`. Unlike skipping frames altogether (on-demand rendering, P2.1), every frame
- * still advances all time-based state by the real elapsed time: a change the viewer fails to
- * notice is drawn late and choppy, never left half done.
+ * Frame pacing (roadmap P2.1a, P3.3): the viewer updates and draws every animation frame while
+ * something changes, only `idleFrameRate` frames per second once the view has been quiet for
+ * `QUIET_MS`, and with supersampling on it refines a still view over a few jittered frames and
+ * then stops drawing (`drawMode`) until the next change.
+ *
+ * Two kinds of signals:
+ * - a **change** (`markChange`): the picture may differ from the one on screen (camera motion,
+ *   loading, level changes, `requestRender()`, setters). It restarts the quiet period and
+ *   discards the supersampled picture.
+ * - a **wake** (`markWake`): input that may lead to a change (pointer moves, wheel, keys) or work
+ *   spread over frames that does not touch the canvas (markers placed in the DOM). Frames run at
+ *   the full rate so the viewer reacts at once, but a still picture stays as it is: moving the
+ *   pointer over a view does not throw its supersampling away.
+ *
+ * Throttled frames still advance all time-based state by the real elapsed time: a change the
+ * viewer fails to notice is drawn late, never left half done. A held (converged) picture is not
+ * redrawn at all, so there a missed change shows only with the next one; the viewer therefore
+ * also compares what it can cheaply read each frame (camera, globe surface, label fades, 3D Tiles
+ * fades, the simulated date...) before holding a picture.
  *
  * Why these numbers (measurements and reasoning in docs/agents/roadmap.md, P2.1a):
  * - 10 frames per second keeps about 80 % of the CPU and GPU time a static view can save;
@@ -68,23 +82,43 @@ export function cloudFrameRate(m: CloudMotion): number {
 }
 
 /**
- * Decides, per animation frame, whether the viewer draws. `markActivity` whenever something
- * changes (input, camera motion, loading, transitions, `requestRender()`); after `QUIET_MS`
- * without activity frames are drawn at the idle rate, or faster when something still
- * animating needs it (`floorRate`, the clouds).
+ * How a frame draws:
+ * - `live`: the scene as it is, straight to the canvas (the picture changes, or it is not still);
+ * - `sample`: one more jittered supersampling sample averaged into the still picture;
+ * - `hold`: nothing; the still picture has all its samples and stays on the canvas.
+ */
+export type DrawMode = 'live' | 'sample' | 'hold';
+
+/**
+ * The draw mode of a frame: live unless the view is `still` (see `FramePacer.isStill`) and
+ * supersampling is on; then samples until `target` are taken, and holds after that.
+ * @param samples Samples already in the picture on screen.
+ * @param target Samples to take (`viewer.supersampling.samples`).
+ */
+export function drawMode(still: boolean, supersampling: boolean, samples: number, target: number): DrawMode {
+  if (!still || !supersampling) return 'live';
+  return samples < target ? 'sample' : 'hold';
+}
+
+/**
+ * Decides, per animation frame, whether the viewer runs a frame (`shouldTick`) and whether the
+ * view is still (`isStill`). See the module comment for changes and wakes. After `QUIET_MS`
+ * without either, frames run at the idle rate, or faster when something still animating needs
+ * it (`floorRate`, e.g. the clouds), or at the full rate while a still view is being refined.
  */
 export class FramePacer {
-  private lastActivity: number;
-  private lastFrame = -Infinity;
+  private lastChange: number;
+  private lastWake = -Infinity;
+  private lastTick = -Infinity;
   private _throttled = false;
 
   constructor(
-    /** Frames per second while quiet; 0 draws every frame. Set through `normalizeIdleFrameRate`. */
+    /** Frames per second while quiet; 0 runs every frame (and nothing is ever still). Set through `normalizeIdleFrameRate`. */
     public idleFrameRate: number,
     now: number,
   ) {
     // A new viewer starts at the full rate.
-    this.lastActivity = now;
+    this.lastChange = now;
   }
 
   /** Whether the last decision was taken at the idle rate. */
@@ -92,17 +126,39 @@ export class FramePacer {
     return this._throttled;
   }
 
-  markActivity(now: number): void {
-    if (now > this.lastActivity) this.lastActivity = now;
+  /** Time of the latest change (ms, as passed to `markChange`). */
+  get changedAt(): number {
+    return this.lastChange;
+  }
+
+  /** The picture may have changed: full rate for `QUIET_MS`, and not still before that. */
+  markChange(now: number): void {
+    if (now > this.lastChange) this.lastChange = now;
+  }
+
+  /** Input or off-canvas work: full rate for `QUIET_MS`, the picture stays as it is. */
+  markWake(now: number): void {
+    if (now > this.lastWake) this.lastWake = now;
   }
 
   /**
-   * Whether to draw the animation frame at `now` (ms, the frame's timestamp).
-   * @param floorRate Frames per second that something still animating needs (0 = none).
+   * Whether the view is still at `now`: throttling is on, nothing changed for `QUIET_MS` and
+   * nothing animates on its own (`floorRate` 0). A still picture can be supersampled and held.
+   * Wakes do not count: input that changes nothing leaves a still view still.
    */
-  shouldDraw(now: number, floorRate = 0): boolean {
+  isStill(now: number, floorRate = 0): boolean {
+    return this.idleFrameRate > 0 && !(floorRate > 0) && now - this.lastChange >= QUIET_MS;
+  }
+
+  /**
+   * Whether to run the animation frame at `now` (ms, the frame's timestamp).
+   * @param floorRate Frames per second that something still animating needs (0 = none).
+   * @param refining A still view is being supersampled: take the samples at the full rate.
+   */
+  shouldTick(now: number, floorRate = 0, refining = false): boolean {
     const rate = this.idleFrameRate;
-    if (rate <= 0 || now - this.lastActivity < QUIET_MS) {
+    const last = Math.max(this.lastChange, this.lastWake);
+    if (rate <= 0 || refining || now - last < QUIET_MS) {
       this._throttled = false;
       return true;
     }
@@ -112,11 +168,11 @@ export class FramePacer {
       return true;
     }
     this._throttled = true;
-    return now - this.lastFrame >= 1000 / effective - INTERVAL_SLACK_MS;
+    return now - this.lastTick >= 1000 / effective - INTERVAL_SLACK_MS;
   }
 
-  /** Call when a frame was drawn. */
-  frameDrawn(now: number): void {
-    this.lastFrame = now;
+  /** Call when a frame ran. */
+  ticked(now: number): void {
+    this.lastTick = now;
   }
 }

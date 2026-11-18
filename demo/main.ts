@@ -1,6 +1,6 @@
 import 'terra-view/style.css';
 import './style.css';
-import { AWS_TERRARIUM, GeoViewer, parseGpuTier, type ViewPosition } from 'terra-view';
+import { AWS_TERRARIUM, COLOR_GRADING_PRESETS, GeoViewer, parseGpuTier, type ViewPosition } from 'terra-view';
 import { ControlPanel, createImagery } from './ui/ControlPanel';
 import { h } from './ui/dom';
 import { FeaturePopup } from './ui/FeaturePopup';
@@ -8,7 +8,7 @@ import { LevelBar } from './ui/IndoorPanel';
 import { NavigationBar } from './ui/NavigationBar';
 import { loadSettings } from './ui/settings';
 import { StatusBar } from './ui/StatusBar';
-import { hasStartupFlight, parseCloudParams, parseCullingParams, parseIntroParams, parseNumber } from './ui/urlOptions';
+import { hasStartupFlight, parseCloudParams, parseCullingParams, parseFlag, parseIntroParams, parseNumber } from './ui/urlOptions';
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 112, latitude: 26, height: 1.75e7, heading: 0, pitch: -90 };
 
@@ -48,6 +48,10 @@ async function main(): Promise<void> {
   const imageryParam = params.get('imagery');
   if (imageryParam) settings.imagery = imageryParam;
   if (params.has('noterrain')) settings.terrainSource = 'none';
+  // ?ss=0|1 still supersampling off / on, ?grade=neutral|vivid color grading (override the panel settings).
+  settings.supersampling = parseFlag(params, 'ss') ?? settings.supersampling;
+  const grade = params.get('grade');
+  if (grade === 'neutral' || grade === 'vivid') settings.grading = grade;
 
   // ?clouds / ?cloudCoverage / … and ?intro / ?introDuration / … (demo/ui/urlOptions.ts) override the saved settings for this visit.
   const cloudParams = parseCloudParams(params);
@@ -80,6 +84,9 @@ async function main(): Promise<void> {
       gpuTier: parseGpuTier(params.get('gpu')),
       // ?idleFps=0 draws every frame; 10–60 is the frame rate once the view is quiet (default 10).
       idleFrameRate: parseNumber(params, 'idleFps', 0, 240),
+      // ?ssSamples=4–64: samples of a still view (default 16 with MSAA, 32 without).
+      supersampling: { enabled: settings.supersampling, samples: parseNumber(params, 'ssSamples', 1, 1000) },
+      colorGrading: COLOR_GRADING_PRESETS[settings.grading],
       initialView: parseHashView() ?? DEFAULT_VIEW,
     });
   } catch (err) {

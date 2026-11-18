@@ -1,7 +1,8 @@
 /**
- * Rules of the post-processing pipeline and its per-object effects (roadmap M3.1 / M3.2) that
- * need no GPU: effect ordering and the graph key, outline styles and their pulse, the sample
- * pattern of the outline edge pass, per-object effect resolution.
+ * Rules of the post-processing pipeline and its per-object effects (roadmap M3.1 / M3.2 / M3.3)
+ * that need no GPU: effect ordering and the graph key, outline styles and their pulse, the sample
+ * pattern of the outline edge pass, per-object effect resolution, the jitter and weights of
+ * still supersampling, color grading settings.
  *
  * No three.js here (unit tested in tests/post.test.ts).
  */
@@ -195,4 +196,101 @@ export function edgeSamples(radius: number): EdgeSample[] {
  */
 export function edgeAlpha(distance: number, radius: number): number {
   return Math.min(1, Math.max(0, Math.max(1, radius) + 0.5 - distance));
+}
+
+// ---------------------------------------------------------------------------
+// Still supersampling (roadmap M3.3)
+
+/** Supersampling samples by default with 4x MSAA: each sample already covers four positions per pixel. */
+export const DEFAULT_SUPERSAMPLING_SAMPLES_MSAA = 16;
+/** Supersampling samples by default without MSAA (`low` GPU tier, `antialias: false`). */
+export const DEFAULT_SUPERSAMPLING_SAMPLES = 32;
+/** Accepted sample counts. */
+export const MIN_SUPERSAMPLING_SAMPLES = 4;
+export const MAX_SUPERSAMPLING_SAMPLES = 64;
+
+/** Element `index` (≥ 1) of the Halton sequence in `base`: the radical inverse, in [0, 1). */
+export function halton(index: number, base: number): number {
+  let result = 0;
+  let fraction = 1;
+  let i = Math.floor(index);
+  while (i > 0) {
+    fraction /= base;
+    result += fraction * (i % base);
+    i = Math.floor(i / base);
+  }
+  return result;
+}
+
+/**
+ * Sub-pixel camera offset of supersampling sample `sample` (0-based), in pixels, each component
+ * in [-0.5, 0.5): sample 0 is not offset, so the first sample is the live frame already on the
+ * canvas and refining starts without a visible step; the others follow Halton(2, 3), which covers
+ * the pixel evenly for any number of samples.
+ */
+export function jitterOffset(sample: number): [number, number] {
+  if (!(sample >= 1)) return [0, 0];
+  return [halton(sample, 2) - 0.5, halton(sample, 3) - 0.5];
+}
+
+/**
+ * Weight of sample `sample` (0-based) when it is blended over the running average:
+ * `average = average × (1 − w) + sample × w` with `w = 1 / (sample + 1)` keeps the plain mean of
+ * all samples so far (the first one replaces whatever was there).
+ */
+export function sampleWeight(sample: number): number {
+  return 1 / (Math.max(0, Math.floor(sample)) + 1);
+}
+
+/**
+ * Samples to take for a requested count: rounded and kept within MIN–MAX; anything that is not a
+ * finite number gives the default for the canvas (fewer with MSAA).
+ */
+export function normalizeSampleCount(value: unknown, msaa: boolean): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return msaa ? DEFAULT_SUPERSAMPLING_SAMPLES_MSAA : DEFAULT_SUPERSAMPLING_SAMPLES;
+  return Math.min(MAX_SUPERSAMPLING_SAMPLES, Math.max(MIN_SUPERSAMPLING_SAMPLES, Math.round(value)));
+}
+
+// ---------------------------------------------------------------------------
+// Color grading (roadmap M3.3)
+
+/** Look of the picture (`viewer.colorGrading`, `GeoViewerOptions.colorGrading`). */
+export interface ColorGradingOptions {
+  /** Light multiplier before tone mapping (the renderer's `toneMappingExposure`), 0.1–4, default 1. */
+  exposure?: number;
+  /** Contrast of the displayed picture around mid gray, 0–2, default 1 (no change). */
+  contrast?: number;
+  /** Color saturation, 0 (gray) – 2, default 1 (no change). */
+  saturation?: number;
+}
+
+/** Ranges of the grading settings. */
+export const COLOR_GRADING_LIMITS: Readonly<Record<keyof ColorGradingOptions, readonly [number, number]>> = {
+  exposure: [0.1, 4],
+  contrast: [0, 2],
+  saturation: [0, 2],
+};
+
+/**
+ * Grading presets: `neutral` changes nothing (the default), `vivid` adds a little contrast and
+ * saturation (imagery and models look less washed out on large screens).
+ */
+export const COLOR_GRADING_PRESETS: Readonly<Record<'neutral' | 'vivid', Readonly<Required<ColorGradingOptions>>>> = {
+  neutral: { exposure: 1, contrast: 1, saturation: 1 },
+  vivid: { exposure: 1, contrast: 1.05, saturation: 1.1 },
+};
+
+/**
+ * One grading setting within its range; anything that is not a finite number gives `fallback`
+ * (the current value when updating, the neutral value otherwise).
+ */
+export function normalizeGrading(key: keyof ColorGradingOptions, value: unknown, fallback: number = COLOR_GRADING_PRESETS.neutral[key]): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const [min, max] = COLOR_GRADING_LIMITS[key];
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Whether contrast or saturation need the grading pass (exposure is part of tone mapping and costs nothing). */
+export function gradingPassNeeded(g: Readonly<Required<ColorGradingOptions>>): boolean {
+  return g.contrast !== 1 || g.saturation !== 1;
 }

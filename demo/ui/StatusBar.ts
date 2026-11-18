@@ -89,10 +89,14 @@ export class StatusBar {
     if (this.frameCount % 6 !== 0) return;
 
     const s = v.stats;
-    const gpu = s.gpuMs !== null ? ` · GPU ${s.gpuMs.toFixed(1)} ms` : '';
+    const gpu = s.gpuMs !== null && !s.still ? ` · GPU ${s.gpuMs.toFixed(1)} ms` : '';
+    // "已静止": the still view is supersampled and no longer drawn; "超采样 n/N": being refined;
     // "节能": the view is quiet and drawn at the idle frame rate (GeoViewerOptions.idleFrameRate).
-    const idle = s.throttled ? '（节能）' : '';
-    this.perf.textContent = `${s.fps.toFixed(0)} FPS${idle} · CPU ${s.frameMs.toFixed(1)} ms${gpu} · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris`;
+    let rate: string;
+    if (s.still) rate = `已静止 · ${s.samples}× 超采样`;
+    else if (s.samples > 0) rate = `${s.fps.toFixed(0)} FPS · 超采样 ${s.samples}/${v.supersampling.samples}`;
+    else rate = `${s.fps.toFixed(0)} FPS${s.throttled ? '（节能）' : ''}`;
+    this.perf.textContent = `${rate} · CPU ${s.frameMs.toFixed(1)} ms${gpu} · ${s.drawCalls} draws · ${(s.triangles / 1000).toFixed(0)}k tris`;
     const g = v.globe.stats;
     let tilesText = `瓦片 ${g.rendered} / 缓存 ${g.cached} · L${g.maxLevel}`;
     if (g.waitingImagery > 0) tilesText += ` · 待影像 ${g.waitingImagery}`;

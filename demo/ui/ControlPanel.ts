@@ -2,6 +2,7 @@ import { Vector3 } from 'three';
 import {
   AWS_TERRARIUM,
   cesiumIonTerrain,
+  COLOR_GRADING_PRESETS,
   DEG2RAD,
   findImageryPreset,
   type GeoViewer,
@@ -268,6 +269,26 @@ export class ControlPanel {
         v.showStars = on;
         this.save();
       }),
+      toggle(
+        '静止超采样',
+        v.supersampling.enabled,
+        (on) => {
+          s.supersampling = on;
+          v.supersampling.enabled = on;
+          this.save();
+        },
+        '画面静止 1 秒后用多帧亚像素抖动平均出抗锯齿画面，然后停止重画，直到画面有变化',
+      ),
+      toggle(
+        '鲜明调色',
+        s.grading === 'vivid',
+        (on) => {
+          s.grading = on ? 'vivid' : 'neutral';
+          v.colorGrading.set(COLOR_GRADING_PRESETS[s.grading]);
+          this.save();
+        },
+        '对比度 ×1.05、饱和度 ×1.1',
+      ),
       time.root,
       h('div', { class: 'row' }, play, now),
       ...this.cloudControls(),

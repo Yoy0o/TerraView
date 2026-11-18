@@ -16,7 +16,9 @@
  *
  * Read in main.ts: ?gpu=low|medium|high|ultra sets the GPU tier (memory budgets and default quality,
  * docs/agents/gpu-memory.md) instead of the one guessed from the adapter; ?idleFps=<0, 10–60> sets
- * the frame rate once the view is quiet (0 = every frame; docs/api.md §1.8).
+ * the frame rate once the view is quiet (0 = every frame; docs/api.md §1.8); ?ss=0|1 turns still
+ * supersampling off / on and ?ssSamples=<4–64> sets its samples; ?grade=neutral|vivid picks the
+ * color grading preset (docs/api.md §1.8, §1.9).
  */
 import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
 

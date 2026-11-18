@@ -6,6 +6,18 @@ import { IndoorManager, type IndoorHost } from '../src/indoor/IndoorManager';
 import { EffectMarks, type EffectSource } from '../src/post/EffectMarks';
 import {
   BUILTIN_OUTLINES,
+  COLOR_GRADING_LIMITS,
+  COLOR_GRADING_PRESETS,
+  DEFAULT_SUPERSAMPLING_SAMPLES,
+  DEFAULT_SUPERSAMPLING_SAMPLES_MSAA,
+  gradingPassNeeded,
+  halton,
+  jitterOffset,
+  MAX_SUPERSAMPLING_SAMPLES,
+  MIN_SUPERSAMPLING_SAMPLES,
+  normalizeGrading,
+  normalizeSampleCount,
+  sampleWeight,
   collectAttachments,
   edgeAlpha,
   edgeSamples,
@@ -387,5 +399,98 @@ describe('selection and hover outlines', () => {
     expect(indoor.markedEntities.size).toBe(1);
     indoor.remove(b);
     expect(indoor.markedEntities.size).toBe(0);
+  });
+});
+
+describe('still supersampling rules', () => {
+  it('halton is the radical inverse', () => {
+    expect([1, 2, 3, 4, 5].map((i) => halton(i, 2))).toEqual([0.5, 0.25, 0.75, 0.125, 0.625]);
+    expect(halton(1, 3)).toBeCloseTo(1 / 3, 12);
+    expect(halton(2, 3)).toBeCloseTo(2 / 3, 12);
+    expect(halton(3, 3)).toBeCloseTo(1 / 9, 12);
+    expect(halton(0, 2)).toBe(0);
+  });
+
+  it('sample 0 is not jittered; the others stay within half a pixel and are all different', () => {
+    expect(jitterOffset(0)).toEqual([0, 0]);
+    const seen = new Set<string>();
+    for (let k = 1; k < 64; k++) {
+      const [x, y] = jitterOffset(k);
+      expect(x).toBeGreaterThanOrEqual(-0.5);
+      expect(x).toBeLessThan(0.5);
+      expect(y).toBeGreaterThanOrEqual(-0.5);
+      expect(y).toBeLessThan(0.5);
+      seen.add(`${x},${y}`);
+    }
+    expect(seen.size).toBe(63);
+  });
+
+  it('jitter of 16 samples covers the pixel evenly (each quadrant gets 3–5)', () => {
+    const quadrants = [0, 0, 0, 0];
+    for (let k = 0; k < 16; k++) {
+      const [x, y] = jitterOffset(k);
+      quadrants[(x < 0 ? 0 : 1) + (y < 0 ? 0 : 2)]++;
+    }
+    for (const n of quadrants) {
+      expect(n).toBeGreaterThanOrEqual(3);
+      expect(n).toBeLessThanOrEqual(5);
+    }
+    // Mean offset close to the pixel center (no shift of the whole picture).
+    let mx = 0;
+    let my = 0;
+    for (let k = 0; k < 32; k++) {
+      const [x, y] = jitterOffset(k);
+      mx += x / 32;
+      my += y / 32;
+    }
+    expect(Math.abs(mx)).toBeLessThan(0.06);
+    expect(Math.abs(my)).toBeLessThan(0.06);
+  });
+
+  it('blending with sampleWeight keeps the plain mean of all samples', () => {
+    const samples = [0.9, 0.1, 0.4, 0.7, 0.3, 1, 0, 0.55];
+    let history = 123; // whatever the history held: the first sample replaces it
+    samples.forEach((v, k) => {
+      const w = sampleWeight(k);
+      history = history * (1 - w) + v * w;
+      const mean = samples.slice(0, k + 1).reduce((a, b) => a + b, 0) / (k + 1);
+      expect(history).toBeCloseTo(mean, 12);
+    });
+    expect(sampleWeight(0)).toBe(1);
+    expect(sampleWeight(3)).toBe(0.25);
+  });
+
+  it('sample counts: defaults by MSAA, rounded and kept within range', () => {
+    expect(normalizeSampleCount(undefined, true)).toBe(DEFAULT_SUPERSAMPLING_SAMPLES_MSAA);
+    expect(normalizeSampleCount(undefined, false)).toBe(DEFAULT_SUPERSAMPLING_SAMPLES);
+    expect(normalizeSampleCount(Number.NaN, false)).toBe(DEFAULT_SUPERSAMPLING_SAMPLES);
+    expect(normalizeSampleCount('8', true)).toBe(DEFAULT_SUPERSAMPLING_SAMPLES_MSAA);
+    expect(normalizeSampleCount(1, true)).toBe(MIN_SUPERSAMPLING_SAMPLES);
+    expect(normalizeSampleCount(1000, true)).toBe(MAX_SUPERSAMPLING_SAMPLES);
+    expect(normalizeSampleCount(23.6, true)).toBe(24);
+  });
+});
+
+describe('color grading rules', () => {
+  it('keeps values within range and ignores invalid ones', () => {
+    expect(normalizeGrading('contrast', 1.05)).toBe(1.05);
+    expect(normalizeGrading('contrast', 5)).toBe(COLOR_GRADING_LIMITS.contrast[1]);
+    expect(normalizeGrading('saturation', -1)).toBe(0);
+    expect(normalizeGrading('exposure', 0)).toBe(COLOR_GRADING_LIMITS.exposure[0]);
+    expect(normalizeGrading('exposure', Number.NaN)).toBe(1);
+    expect(normalizeGrading('saturation', undefined, 1.2)).toBe(1.2);
+  });
+
+  it('needs the grading pass only for contrast or saturation', () => {
+    expect(gradingPassNeeded(COLOR_GRADING_PRESETS.neutral)).toBe(false);
+    expect(gradingPassNeeded({ ...COLOR_GRADING_PRESETS.neutral, exposure: 1.5 })).toBe(false);
+    expect(gradingPassNeeded(COLOR_GRADING_PRESETS.vivid)).toBe(true);
+    expect(gradingPassNeeded({ exposure: 1, contrast: 1, saturation: 0.9 })).toBe(true);
+  });
+
+  it('presets are within range', () => {
+    for (const preset of Object.values(COLOR_GRADING_PRESETS)) {
+      for (const key of ['exposure', 'contrast', 'saturation'] as const) expect(normalizeGrading(key, preset[key])).toBe(preset[key]);
+    }
   });
 });

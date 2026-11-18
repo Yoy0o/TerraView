@@ -15,6 +15,16 @@
  * by the scene pass only while an active effect reads them; they are global nodes evaluated by
  * every material, so effects must not set `material.mrtNode` on scene materials (a material
  * with its own MRT replaces its output in every render target, the pick buffer's included).
+ *
+ * Still supersampling (roadmap M3.3, `renderSample`): while the view is still, each frame shifts
+ * the camera by a sub-pixel offset (Halton(2, 3); the first sample is not shifted), draws the
+ * scene and the effects as usual, and blends the finished (display) picture into a half-float
+ * history with weight 1 / (n + 1), which is then shown: after n samples the history is the mean
+ * of n shifted pictures (anti-aliasing beyond MSAA, steady textures and thin lines). Averaging
+ * the tone-mapped picture keeps high-contrast edges smooth. No velocity buffer or reprojection:
+ * only a still view is refined, and any change goes back to live frames (`render`). three's
+ * `TRAANode` was not used: its velocity pass multiplies float32 ECEF matrices on the GPU (meters
+ * of error at globe scale) and its history never converges to a plain mean.
  */
 import {
   DepthTexture,
@@ -22,6 +32,7 @@ import {
   FloatType,
   HalfFloatType,
   LinearFilter,
+  NormalBlending,
   RenderTarget,
   UnsignedIntType,
   Vector2,
@@ -30,10 +41,10 @@ import {
   type Texture,
   type TextureDataType,
 } from 'three';
-import { mrt, output, renderOutput, texture, vec4 } from 'three/tsl';
-import { RenderPipeline, type WebGPURenderer } from 'three/webgpu';
+import { mrt, output, renderOutput, texture, uniform, vec4 } from 'three/tsl';
+import { NodeMaterial, QuadMesh, RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import type { TSLNode } from '../atmosphere/AtmosphereNodes';
-import { collectAttachments, graphKey, sortEffects, type PostStage } from './postMath';
+import { collectAttachments, graphKey, jitterOffset, sampleWeight, sortEffects, type PostStage } from './postMath';
 
 export type { PostStage } from './postMath';
 
@@ -76,7 +87,7 @@ export interface PostEffect {
   readonly order: number;
   /** Whether the effect changes the next frame; inactive effects cost nothing. */
   readonly active: boolean;
-  /** Whether the effect animates on its own while active (keeps the viewer at full frame rate). */
+  /** Whether the effect animates on its own while active: the viewer keeps the full frame rate and the view is never still (no supersampling). */
   readonly animating?: boolean;
   /** Changes whenever `build` would return a different graph (settings that are not uniforms). */
   readonly graphVersion: number;
@@ -85,7 +96,10 @@ export interface PostEffect {
    * there (e.g. `normalView`). Global nodes only (see the module comment).
    */
   readonly attachments?: Readonly<Record<string, TSLNode>>;
-  /** Per drawn frame while active, after the scene pass and before the final pass: render own passes, update uniforms. */
+  /**
+   * Per drawn frame while active, after the scene pass and before the final pass: render own passes, update uniforms.
+   * During supersampling `frame.camera` is shifted by the sample's sub-pixel offset: render with it, do not keep its matrices.
+   */
   prepare?(frame: PostFrame): void;
   /** Composes the effect: color in (linear or display, see `stage`) → color out. */
   build(input: TSLNode, inputs: PostInputs): TSLNode;
@@ -114,6 +128,15 @@ export class PostPipeline {
   private key: string | null = null;
   private readonly start = performance.now();
   private disposed = false;
+  /** Supersampling history: mean of the samples so far, display values (created on the first sample). */
+  private history: RenderTarget | null = null;
+  /** The composed picture with the sample's weight as alpha, blended over the history. */
+  private readonly sampleQuad: QuadMesh;
+  private readonly weight = uniform(1);
+  /** Shows the history on the canvas. */
+  private presentPipeline: RenderPipeline | null = null;
+  private historyNode: TSLNode = null;
+  private _samples = 0;
 
   constructor(
     private readonly renderer: WebGPURenderer,
@@ -126,6 +149,23 @@ export class PostPipeline {
     this.pipeline = new RenderPipeline(renderer);
     // Tone mapping and color space are applied in the graph, between the two stages.
     this.pipeline.outputColorTransform = false;
+    const blend = new NodeMaterial();
+    blend.name = 'Supersampling blend';
+    blend.blending = NormalBlending;
+    blend.transparent = true;
+    blend.depthTest = false;
+    blend.depthWrite = false;
+    blend.toneMapped = false;
+    this.sampleQuad = new QuadMesh(blend);
+    this.sampleQuad.name = 'Supersampling sample';
+  }
+
+  /**
+   * Supersampling samples averaged in the picture on the canvas: 0 after a live frame (`render`),
+   * n after `renderSample` was called n times since.
+   */
+  get samples(): number {
+    return this._samples;
   }
 
   /** Registered effects, in registration order. */
@@ -168,12 +208,110 @@ export class PostPipeline {
     const { width, height } = this.target;
     const samples = Math.max(1, this.target.samples);
     bytes += this.attachmentNames.length * width * height * 8 * (samples > 1 ? samples + 1 : 1);
+    // Supersampling history, RGBA16F.
+    if (this.history) bytes += this.history.width * this.history.height * 8;
     return bytes;
   }
 
-  /** Draws a frame: scene pass, effect passes, final pass to the canvas. */
+  /** Draws a live frame: scene pass, effect passes, final pass to the canvas. Discards the supersampling samples. */
   render(): void {
     if (this.disposed) return;
+    this._samples = 0;
+    this.drawScene();
+    this.pipeline.render();
+  }
+
+  /**
+   * Draws supersampling sample `samples` (see the module comment): the scene and the effects with
+   * the camera shifted by its sub-pixel offset, blended into the history, which is then shown on
+   * the canvas. The first sample after a live frame (or a size change) restarts the history.
+   * Call only while the view is still; the caller decides when enough samples were taken.
+   */
+  renderSample(): void {
+    if (this.disposed) return;
+    const r = this.renderer;
+    // A rebuilt graph (an effect turned on or off) restarts the history.
+    this.update(sortEffects(this.list.filter((e) => e.active)));
+    const size = r.getDrawingBufferSize(_size);
+    const history = this.historyTarget(size.x, size.y);
+    const k = history.width === size.x && history.height === size.y && this._samples > 0 ? this._samples : 0;
+    history.setSize(size.x, size.y);
+
+    // Sub-pixel shift of the whole view (unless the host uses view offsets itself), for the scene
+    // pass and the effects' own passes (outline and glow masks line up with the shifted scene).
+    // `setViewOffset` also sets the aspect from the full size: keep the camera's own, exactly, or
+    // the restored projection would differ in the last bits and the view would no longer be still.
+    const [jx, jy] = jitterOffset(k);
+    const cam = this.camera;
+    const jitter = (jx !== 0 || jy !== 0) && !(cam.view && cam.view.enabled);
+    const aspect = cam.aspect;
+    if (jitter) {
+      const fullWidth = aspect * size.y;
+      cam.setViewOffset(fullWidth, size.y, (jx * fullWidth) / size.x, jy, fullWidth, size.y);
+    }
+    try {
+      this.drawScene();
+    } finally {
+      if (jitter) {
+        cam.aspect = aspect;
+        cam.clearViewOffset();
+      }
+    }
+
+    // Blend the finished picture over the history: history × (1 − w) + picture × w. The first
+    // sample clears the history (w = 1 replaces it, but a cleared target never keeps a NaN).
+    this.weight.value = sampleWeight(k);
+    const prevTarget = r.getRenderTarget();
+    const prevAutoClear = r.autoClear;
+    r.setRenderTarget(history);
+    r.autoClear = k === 0;
+    this.sampleQuad.render(r);
+    r.autoClear = prevAutoClear;
+    r.setRenderTarget(prevTarget);
+    this._samples = k + 1;
+    this.presentHistory();
+  }
+
+  /**
+   * Shows the supersampled picture again without drawing the scene (screenshots and transition
+   * captures of a still view). False when there is none (the last frame was live).
+   */
+  present(): boolean {
+    if (this.disposed || this._samples === 0 || !this.history) return false;
+    this.presentHistory();
+    return true;
+  }
+
+  /** Frees the supersampling history (supersampling turned off); the next sample creates it again. */
+  releaseHistory(): void {
+    this._samples = 0;
+    this.history?.dispose();
+    this.history = null;
+    if (this.historyNode) this.historyNode.value = this.target.texture;
+  }
+
+  private presentHistory(): void {
+    if (!this.presentPipeline) {
+      // Display values already: written to the canvas as they are.
+      this.presentPipeline = new RenderPipeline(this.renderer, vec4(this.historyNode.rgb, 1));
+      this.presentPipeline.outputColorTransform = false;
+    }
+    this.presentPipeline.render();
+  }
+
+  private historyTarget(width: number, height: number): RenderTarget {
+    if (!this.history) {
+      this.history = new RenderTarget(width, height, { type: HalfFloatType, depthBuffer: false, minFilter: LinearFilter, magFilter: LinearFilter, generateMipmaps: false });
+      this.history.texture.name = 'supersampling history';
+      if (this.historyNode) this.historyNode.value = this.history.texture;
+      else this.historyNode = texture(this.history.texture);
+      this._samples = 0;
+    }
+    return this.history;
+  }
+
+  /** Scene pass into the pipeline's target, then the active effects' own passes. */
+  private drawScene(): void {
     const r = this.renderer;
     const active = sortEffects(this.list.filter((e) => e.active));
     this.update(active);
@@ -202,7 +340,6 @@ export class PostPipeline {
       };
       for (const e of active) e.prepare?.(frame);
     }
-    this.pipeline.render();
   }
 
   /** Rebuilds the node graph (and the scene target's attachments) when the active set changed. */
@@ -237,6 +374,12 @@ export class PostPipeline {
     if (!displayed) color = renderOutput(color, r.toneMapping, r.outputColorSpace);
     this.pipeline.outputNode = vec4(color);
     this.pipeline.needsUpdate = true;
+    // Same picture for supersampling samples, with the sample's weight as alpha (blended over the history).
+    const blend = this.sampleQuad.material as NodeMaterial;
+    blend.fragmentNode = vec4(vec4(color).rgb, this.weight);
+    blend.needsUpdate = true;
+    // The history holds the previous graph's picture.
+    this._samples = 0;
   }
 
   private setAttachments(names: string[], active: PostEffect[]): void {
@@ -291,6 +434,9 @@ export class PostPipeline {
     for (const e of this.list) e.dispose();
     this.list.length = 0;
     this.pipeline.dispose();
+    this.presentPipeline?.dispose();
+    (this.sampleQuad.material as NodeMaterial).dispose();
+    this.history?.dispose();
     this.target.dispose();
   }
 }

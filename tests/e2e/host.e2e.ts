@@ -52,13 +52,23 @@ test('host: two viewers from the package, dispose one then the other', async ({ 
       )
       .toBe(true);
 
-    // Idle frame-rate throttling (default 10 fps) once the left view has been quiet for a second,
-    // and back to the full rate on requestRender().
-    await expect.poll(() => page.evaluate(() => (window as unknown as SmokeWindow).left!.stats.throttled), { timeout: 15_000 }).toBe(true);
+    // Once the left view has been quiet for a second it is supersampled (default on), then held:
+    // frame updates at the idle rate (default 10 fps) that draw nothing. requestRender() goes back
+    // to live frames at the full rate.
+    await expect.poll(() => page.evaluate(() => (window as unknown as SmokeWindow).left!.stats.still), { timeout: 15_000 }).toBe(true);
+    const held = await page.evaluate(() => {
+      const v = (window as unknown as SmokeWindow).left!;
+      return { throttled: v.stats.throttled, samples: v.stats.samples, target: v.supersampling.samples, converged: v.supersampling.converged };
+    });
+    expect(held.throttled).toBe(true);
+    expect(held.converged).toBe(true);
+    expect(held.samples).toBe(held.target);
     const idle = await frameCount(page, 'left', 1000);
-    expect(idle, 'frames per second while quiet').toBeLessThanOrEqual(15);
+    expect(idle, 'frame updates per second while held').toBeLessThanOrEqual(15);
+    expect(await page.evaluate(() => (window as unknown as SmokeWindow).left!.stats.fps), 'frames drawn per second while held').toBe(0);
     await page.evaluate(() => (window as unknown as SmokeWindow).left!.requestRender());
     expect(await frameCount(page, 'left', 500), 'frames in 0.5 s after requestRender()').toBeGreaterThan(idle);
+    expect(await page.evaluate(() => (window as unknown as SmokeWindow).left!.stats.still)).toBe(false);
   }
 
   // Right: the sample building is entered. Left: the point in view (the other one lies behind the

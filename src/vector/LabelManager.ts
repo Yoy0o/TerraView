@@ -446,9 +446,12 @@ export class LabelManager {
     labelUniforms.cameraLow.value.set(lx, ly, lz);
   }
 
-  /** Declutters, fades and re-anchors labels. Call once per frame before rendering. */
-  update(camera: PerspectiveCamera, width: number, height: number, dt: number): void {
-    if (this.items.length === 0) return;
+  /**
+   * Declutters, fades and re-anchors labels. Call once per frame before rendering. Returns
+   * whether any label changed on screen (fading, moved to finer terrain): the picture changed.
+   */
+  update(camera: PerspectiveCamera, width: number, height: number, dt: number): boolean {
+    if (this.items.length === 0) return false;
     this.frame++;
     this.syncCamera(camera);
 
@@ -501,6 +504,7 @@ export class LabelManager {
 
     const k = Math.min(1, dt * 9);
     const dirty = new Set<AtlasPage>();
+    let moved = false;
     for (const it of this.items) {
       let o = it.opacity;
       if (!it.inView) {
@@ -525,10 +529,12 @@ export class LabelManager {
           const g = it.page.mesh.geometry;
           g.getAttribute('position').needsUpdate = true;
           g.getAttribute('posLow').needsUpdate = true;
+          moved = true;
         }
       }
     }
     for (const page of dirty) page.mesh.geometry.getAttribute('labelOpacity').needsUpdate = true;
+    return moved || dirty.size > 0;
   }
 
   /** Whether terrain blocks the line of sight from the camera to a label anchor. */

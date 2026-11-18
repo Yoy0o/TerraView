@@ -409,6 +409,11 @@ export class Globe {
   // ---------------------------------------------------------------------------
   // Per-frame update
 
+  /** @internal Imagery cross-fades or terrain morphs in progress: the picture changes from frame to frame. */
+  get animating(): boolean {
+    return this.fading.size > 0 || this.morphing.size > 0;
+  }
+
   /** @internal Called by the viewer every frame while the globe is shown. */
   update(camera: PerspectiveCamera, viewportHeightCss: number): void {
     // Frozen: keep the previous selection so it can be inspected from elsewhere.
@@ -486,6 +491,8 @@ export class Globe {
       if (m) h = (Math.imul(h, 31) + m.id * 7 + m.geometry.id * 13 + Math.round(t.material.morph * 4096)) | 0;
     }
     for (const f of this.fillList) h = (Math.imul(h, 31) + f.id * 7 + f.geometry.id * 13) | 0;
+    // The wireframe switch changes the picture of the same meshes (still views are held until the signature changes).
+    if (this.wireframe) h = ~h;
     this.surfaceSignature = h;
   }
 

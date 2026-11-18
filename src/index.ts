@@ -164,8 +164,11 @@ export type { ContributionCullingOptions, CullingRule } from './indoor/Contribut
 
 // ---------------------------------------------------------------- post-processing and per-object effects
 export { ViewerEffects } from './post/ViewerEffects';
-export { BUILTIN_OUTLINES } from './post/postMath';
-export type { ObjectEffects, OutlineStyle } from './post/postMath';
+export { BUILTIN_OUTLINES, COLOR_GRADING_PRESETS } from './post/postMath';
+export type { ColorGradingOptions, ObjectEffects, OutlineStyle } from './post/postMath';
+export { Supersampling } from './post/Supersampling';
+export type { SupersamplingOptions } from './post/Supersampling';
+export { ColorGrading } from './post/ColorGrading';
 export { PostPipeline } from './post/PostPipeline';
 export type { PostEffect, PostFrame, PostInputs, PostStage } from './post/PostPipeline';
 

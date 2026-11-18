@@ -29,6 +29,10 @@ export interface Settings {
   cloudSpeed: number;
   /** Play the opening spin on startup. */
   intro: boolean;
+  /** Refine still views (viewer.supersampling). */
+  supersampling: boolean;
+  /** Color grading preset (COLOR_GRADING_PRESETS). */
+  grading: 'neutral' | 'vivid';
   quality: number;
   tiandituKey: string;
   ionToken: string;
@@ -56,6 +60,8 @@ export const DEFAULT_SETTINGS: Settings = {
   cloudCoverage: 0.5,
   cloudSpeed: 0.5,
   intro: true,
+  supersampling: true,
+  grading: 'neutral',
   quality: 1.25,
   tiandituKey: '',
   ionToken: '',

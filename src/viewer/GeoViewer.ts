@@ -48,11 +48,15 @@ import { VectorService } from '../vector/VectorService';
 import { cameraDirection, getHeadingPitch, lookAtHeadingPitchRange } from './cameraMath';
 import { GlobeCameraController, type AutoOrbitOptions, type ControllerHost } from './GlobeCameraController';
 import { FrameCrossfade } from './FrameCrossfade';
+import { ColorGrading, ColorGradingEffect } from '../post/ColorGrading';
 import { EffectMarks } from '../post/EffectMarks';
 import { GlowEffect } from '../post/GlowEffect';
 import { OutlineEffect } from '../post/OutlineEffect';
+import type { ColorGradingOptions } from '../post/postMath';
 import { PostPipeline } from '../post/PostPipeline';
+import { Supersampling, type SupersamplingOptions } from '../post/Supersampling';
 import { ViewerEffects } from '../post/ViewerEffects';
+import { tileDebugUniforms } from '../globe/TileMaterial';
 import { IndoorBackdrop } from './IndoorBackdrop';
 import { InteractionManager, type PickInfo } from './InteractionManager';
 import type { IntroSpinOptions } from './IntroAnimation';
@@ -62,7 +66,7 @@ import { PickBuffer, type PickTarget } from './PickBuffer';
 import { checkViewerOptions } from './viewerOptions';
 import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
 import { LoadTracker, summarizeLoad, type LoadState } from './loadState';
-import { cloudFrameRate, DEFAULT_IDLE_FRAME_RATE, FramePacer, MAX_IDLE_FRAME_RATE, normalizeIdleFrameRate } from './framePacing';
+import { cloudFrameRate, DEFAULT_IDLE_FRAME_RATE, drawMode, FramePacer, MAX_IDLE_FRAME_RATE, normalizeIdleFrameRate } from './framePacing';
 
 export interface ViewPosition {
   /** Degrees. */
@@ -148,6 +152,15 @@ export interface GeoViewerOptions extends GlobeOptions {
    * 10–60 (below 10 the saving is unreliable and time-based motion would slow down).
    */
   idleFrameRate?: number;
+  /**
+   * Still supersampling (default on): once the view has been still for a second, the next
+   * frames are drawn with sub-pixel camera offsets and averaged (16 samples with MSAA, 32
+   * without), then nothing is drawn until something changes (docs/api.md §1.8). `false`: still
+   * views are drawn at `idleFrameRate` instead. Change later through `viewer.supersampling`.
+   */
+  supersampling?: boolean | SupersamplingOptions;
+  /** Exposure, contrast and saturation (default neutral); change later through `viewer.colorGrading`. */
+  colorGrading?: ColorGradingOptions;
 }
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 110, latitude: 28, height: 1.8e7 };
@@ -188,17 +201,27 @@ export interface MemoryReport {
 }
 
 export interface FrameStats {
-  /** Frames drawn per second (the idle frame rate while `throttled`). */
+  /** Frames drawn per second (the idle frame rate while `throttled`, 0 while `still`). */
   fps: number;
+  /** CPU time of a frame, ms (smoothed; frames that draw nothing count too). */
   frameMs: number;
   gpuMs: number | null;
+  /** Draw calls and triangles of the last scene pass drawn. */
   drawCalls: number;
   triangles: number;
-  /** Frames are currently drawn at `idleFrameRate` because the view has been quiet. */
+  /** Frames are currently updated at `idleFrameRate` because the view has been quiet. */
   throttled: boolean;
+  /**
+   * The view is still and its picture is final (supersampled): frames keep updating the viewer
+   * at the idle rate but draw nothing (`frame` events continue). False with supersampling off.
+   */
+  still: boolean;
+  /** Supersampling samples averaged in the picture on the canvas (0 while frames are drawn live). */
+  samples: number;
 }
 
 export interface ViewerEvents extends Record<string, unknown> {
+  /** After every frame update, also those of a still view that draw nothing (`stats.still`). */
   frame: FrameStats;
   'tilesets-changed': Tiles3DLayer[];
   'vectors-changed': GeoJsonLayer[];
@@ -270,6 +293,11 @@ const SURFACE_RAY_BOTTOM = 1_000;
 const INPUT_EVENTS = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const;
 /** How long suppressed 3D Tiles keep loading for a building still waiting for ground, after the last loading activity, ms. */
 const GROUND_PROBE_MS = 15_000;
+/**
+ * A gap between animation frames longer than this means they were paused (hidden page, sleep): the
+ * view is drawn again. Above the roughly 1 s rAF interval of occluded windows in automated browsers.
+ */
+const RESUME_GAP_MS = 2000;
 
 /**
  * WebGPU-first 3D globe viewer.
@@ -308,7 +336,7 @@ export class GeoViewer {
   readonly skyLight = new HemisphereLight(0xbcd7ff, 0x4a4136, 1.1);
   readonly events = new EventEmitter<ViewerEvents>();
   readonly info: RendererInfo;
-  readonly stats: FrameStats = { fps: 0, frameMs: 0, gpuMs: null, drawCalls: 0, triangles: 0, throttled: false };
+  readonly stats: FrameStats = { fps: 0, frameMs: 0, gpuMs: null, drawCalls: 0, triangles: 0, throttled: false, still: false, samples: 0 };
   readonly tilesets: Tiles3DLayer[] = [];
   /** @internal Worker-backed vector pipeline (draped rasterization, queries). */
   readonly vectors = new VectorService();
@@ -339,6 +367,13 @@ export class GeoViewer {
    * effects with `postProcessing.add(effect)` (see `PostEffect`).
    */
   readonly postProcessing: PostPipeline;
+  /**
+   * Still supersampling (M3.3): a still view is refined over a few frames, then not drawn until
+   * something changes (`enabled`, `samples`; `GeoViewerOptions.supersampling`).
+   */
+  readonly supersampling: Supersampling;
+  /** Exposure, contrast and saturation of the picture (`GeoViewerOptions.colorGrading`). */
+  readonly colorGrading: ColorGrading;
   /** @advanced Crossfade over level changes; `levelTransition.duration = 0` turns it off. */
   readonly levelTransition: FrameCrossfade;
   /**
@@ -412,8 +447,22 @@ export class GeoViewer {
   private sceneTriangles = 0;
   /** Overlay version seen by the last tick: raster overlays or GeoJSON changed when it moves. */
   private overlayVersion = -1;
-  /** Input on the container wakes the frame loop up to the full rate. */
-  private readonly onInput = () => this.requestRender();
+  /**
+   * What the last frame saw of things that change the picture without telling the viewer
+   * (`pictureChanged`): camera matrices, drawing buffer size, globe surface, simulated date,
+   * tone mapping, tile debug switches.
+   */
+  private readonly lastPicture = new Float64Array(32 + 8);
+  /** `performance.now()` of the last frame drawn (live or sample). */
+  private lastDrawAt = -Infinity;
+  /** Timestamp of the last animation frame (run or skipped), to notice that frames resumed after a pause. */
+  private lastAnimationFrame = -1;
+  /**
+   * Input on the container wakes the frame loop up to the full rate. It does not change the
+   * picture by itself (what it leads to does: camera motion, hover, selection), so a still,
+   * supersampled view stays as it is while the pointer moves over it.
+   */
+  private readonly onInput = () => this.wake();
 
   static async create(options: GeoViewerOptions): Promise<GeoViewer> {
     // Fail fast (before any GPU work) on what plain JavaScript hosts can get wrong.
@@ -550,9 +599,19 @@ export class GeoViewer {
     this.postProcessing = new PostPipeline(renderer, this.scene, this.camera);
     const outline = new OutlineEffect(this.marks);
     const glow = new GlowEffect(this.marks);
+    const grading = new ColorGradingEffect();
     this.postProcessing.add(glow);
+    this.postProcessing.add(grading);
     this.postProcessing.add(outline);
     this.effects = new ViewerEffects(this.marks, outline, glow, () => this.requestRender());
+    this.colorGrading = new ColorGrading(renderer, grading, () => this.requestRender());
+    if (options.colorGrading) this.colorGrading.set(options.colorGrading);
+    this.supersampling = new Supersampling(
+      this.postProcessing,
+      this.info.samples > 1,
+      { changed: () => this.requestRender(), wake: () => this.wake() },
+      options.supersampling,
+    );
     // Statistics of the scene pass alone (the pick buffer's signature and `stats`); the pick pass renders the scene later.
     this.scene.onAfterRender = (r) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -590,7 +649,8 @@ export class GeoViewer {
     this.controller.doubleClickHandler = (e) => this.interaction.dispatchDoubleClick(e);
     // Camera motion of any origin (gestures, flights, animations, inertia, auto-orbit) keeps the full frame rate.
     this.controller.events.on('change', () => this.requestRender());
-    this.controller.events.on('interactionstart', () => this.requestRender());
+    // A gesture starting changes nothing yet (a click without a drag must not discard a supersampled view).
+    this.controller.events.on('interactionstart', () => this.wake());
     for (const type of ['tilesets-changed', 'vectors-changed', 'points-changed'] as const) this.events.on(type, () => this.requestRender());
     // Labels sit above the canvas: their clicks reach the interaction listeners as clicks on the entity.
     this.markers.eventProxy = (type, marker, event) => {
@@ -1324,40 +1384,88 @@ export class GeoViewer {
 
   set idleFrameRate(value: number) {
     this.pacer.idleFrameRate = normalizeIdleFrameRate(value);
-    this.requestRender();
+    this.wake();
   }
 
   /**
-   * Back to the full frame rate for at least a second. The viewer notices changes made
-   * through the SDK (input, camera motion, loading, level changes, layers, entity styles and
-   * visibility, cloud and layer settings; docs/api.md §1.8); call this after changing three.js
-   * objects behind its back (objects added to `viewer.scene`, their transforms or materials)
-   * so the change shows at once rather than with the next idle frame.
+   * Draws the view again, at the full frame rate for at least a second (a still, supersampled
+   * view is drawn live and refined again). The viewer notices changes made through the SDK
+   * (input, camera motion, loading, level changes, layers, entity styles and visibility, cloud,
+   * layer and grading settings; docs/api.md §1.8); call this after changing three.js objects
+   * behind its back (objects added to `viewer.scene`, their transforms or materials), or the
+   * change shows only with the next idle frame, and in a still view only with the next change.
    */
   requestRender(): void {
-    this.pacer.markActivity(performance.now());
+    this.pacer.markChange(performance.now());
   }
 
-  /** Per animation frame: draw, unless the view is quiet and throttled, or the container is off screen. */
+  /** Full frame rate for a second without redrawing a still picture (input, work outside the canvas). */
+  private wake(): void {
+    this.pacer.markWake(performance.now());
+  }
+
+  /** Per animation frame: update and draw, unless the view is quiet and throttled, or the container is off screen. */
   private tick(time: number): void {
-    if (this.disposed || !this.onScreen) return;
-    if (this.workPending()) this.requestRender();
-    if (!this.pacer.shouldDraw(time, this.idleFloorRate())) return;
-    this.pacer.frameDrawn(time);
+    if (this.disposed) return;
+    // Animation frames stop while the page is hidden (or the computer sleeps): draw again when they
+    // resume rather than rely on the canvas still holding a still picture.
+    if (this.lastAnimationFrame >= 0 && time - this.lastAnimationFrame > RESUME_GAP_MS) this.requestRender();
+    this.lastAnimationFrame = time;
+    if (!this.onScreen) return;
+    this.checkPendingWork();
+    const floor = this.idleFloorRate();
+    // A still view being supersampled takes its samples at the full rate.
+    const refining = this.supersampling.enabled && !this.supersampling.converged && this.pacer.isStill(performance.now(), floor);
+    if (!this.pacer.shouldTick(time, floor, refining)) return;
+    this.pacer.ticked(time);
     this.frame(time);
   }
 
   /**
    * Work left for the next frames although the camera may stand still, also when started from
-   * code between two frames: overlays to composite again, markers to place, point markers to
-   * create (per-frame budget) or select again. Checked on every animation frame, so such work
-   * starts at once and finishes at the full frame rate instead of at the idle rate.
+   * code between two frames: overlays to composite again (the picture changes), markers to
+   * place, point markers to create (per-frame budget) or select again (DOM only: a wake).
+   * Checked on every animation frame, so such work starts at once and finishes at the full
+   * frame rate instead of at the idle rate.
    */
-  private workPending(): boolean {
+  private checkPendingWork(): void {
     const version = this.overlays.version;
-    const overlays = version !== this.overlayVersion;
+    if (version !== this.overlayVersion) this.requestRender();
     this.overlayVersion = version;
-    return overlays || this.markers.busy || this.pointLayers.some((l) => l.busy);
+    if (this.markers.busy || this.pointLayers.some((l) => l.busy)) this.wake();
+  }
+
+  /**
+   * Whether something changed the picture since the last frame without telling the viewer:
+   * the camera (also moved or reshaped behind the controller's back), the drawing buffer size
+   * (a resized canvas is cleared), the globe's tiles (a new selection, morphs, the wireframe
+   * switch), the simulated date (sun and stars), tone mapping and the tile debug switches.
+   * Cheap reads, so that a still view is not held on a picture that is out of date.
+   */
+  private pictureChanged(): boolean {
+    const v = this.lastPicture;
+    const cam = this.camera;
+    const canvas = this.renderer.domElement;
+    let changed = false;
+    let i = 0;
+    const put = (x: number) => {
+      if (v[i] !== x) {
+        v[i] = x;
+        changed = true;
+      }
+      i++;
+    };
+    for (const x of cam.matrixWorld.elements) put(x);
+    for (const x of cam.projectionMatrix.elements) put(x);
+    put(canvas.width);
+    put(canvas.height);
+    put(this._showGlobe ? this.globe.surfaceSignature : 0);
+    put(this.date.getTime());
+    put(this.renderer.toneMapping);
+    put(this.renderer.toneMappingExposure);
+    put(tileDebugUniforms.showTileBorders.value as number);
+    put(tileDebugUniforms.levelTint.value as number);
+    return changed;
   }
 
   /** Frames per second that what still moves on its own needs while quiet: simulated time, cloud drift. */
@@ -1411,10 +1519,18 @@ export class GeoViewer {
     const bare = this.indoorBackdrop && building !== null && !this._showGlobe && !this.tilesets.some((l) => l.active);
     if (this.backdrop.update(bare ? building : null, dt)) this.requestRender();
     this.interaction.update();
-    this.labels.update(this.camera, this.container.clientWidth, this.container.clientHeight, dt);
+    if (this.labels.update(this.camera, this.container.clientWidth, this.container.clientHeight, dt)) this.requestRender();
+    // Changes nothing reported: fades and morphs in progress, and what `pictureChanged` compares.
+    const globeAnimating = this._showGlobe && !this.globe.freeze && this.globe.animating;
+    if (globeAnimating || this.tilesets.some((l) => l.animating) || this.pictureChanged()) this.requestRender();
 
     this.marks.refresh();
-    this.postProcessing.render();
+    // Live, one more supersampling sample of a still view, or nothing (the still picture is complete).
+    const now = performance.now();
+    const mode = drawMode(this.pacer.isStill(now, this.idleFloorRate()), this.supersampling.enabled, this.postProcessing.samples, this.supersampling.samples);
+    if (mode === 'live') this.postProcessing.render();
+    else if (mode === 'sample') this.postProcessing.renderSample();
+    if (mode !== 'hold') this.lastDrawAt = now;
     // Point layers clamp to the terrain and cluster before the markers are placed.
     for (const layer of this.pointLayers) layer.update(this.camera, this.container.clientWidth, this.container.clientHeight);
     this.markers.update(this.camera, this.container.clientWidth, this.container.clientHeight);
@@ -1422,7 +1538,7 @@ export class GeoViewer {
     const triangles = this.sceneTriangles;
     // After the main render, whose statistics are part of the pick buffer's scene signature; counted in the frame time.
     this.pickBuffer?.update(performance.now(), drawCalls, triangles, this._showGlobe ? this.globe.surfaceSignature : 0);
-    this.updateStats(dt, performance.now() - t0, drawCalls, triangles);
+    this.updateStats(dt, performance.now() - t0, drawCalls, triangles, mode === 'hold');
     this.updateLoadState();
   }
 
@@ -1497,6 +1613,9 @@ export class GeoViewer {
    * wrote: put this viewer's camera and settings back first.
    */
   private renderOutsideFrame(): void {
+    // A supersampled picture that nothing has changed since is the view as it is: show it again
+    // (better, and no scene pass). Otherwise draw live.
+    if (this.postProcessing.samples > 0 && this.pacer.changedAt < this.lastDrawAt && this.postProcessing.present()) return;
     this.updateEnvironment();
     this.labels.syncCamera(this.camera);
     this.marks.refresh();
@@ -1551,12 +1670,14 @@ export class GeoViewer {
   }
 
   /** Frame statistics; draw calls and triangles are those of the scene pass (not the post-processing or pick passes). */
-  private updateStats(dt: number, cpuMs: number, drawCalls: number, triangles: number): void {
-    this.fpsFrames++;
+  private updateStats(dt: number, cpuMs: number, drawCalls: number, triangles: number, held: boolean): void {
+    if (!held) this.fpsFrames++;
     this.fpsTime += dt;
     this.stats.drawCalls = drawCalls;
     this.stats.triangles = triangles;
     this.stats.throttled = this.pacer.throttled;
+    this.stats.still = held;
+    this.stats.samples = this.supersampling.sampleCount;
     this.stats.frameMs = this.stats.frameMs * 0.9 + cpuMs * 0.1;
     if (this.fpsTime >= 0.5) {
       this.stats.fps = this.fpsFrames / this.fpsTime;
