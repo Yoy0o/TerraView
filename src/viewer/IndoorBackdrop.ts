@@ -59,6 +59,19 @@ function gridLines(p: TSLNode, spacing: number): TSLNode {
   return line.mul(float(1).sub(smoothstep(0.12, 0.35, max(w.x, w.y))));
 }
 
+/**
+ * Studio sky for a world direction around a local vertical `up`: a dark gradient above the
+ * horizon with a faint glow at the horizon, fading darker below. Also the background of local
+ * scenes (`LocalScene`).
+ */
+export function studioSkyNode(direction: TSLNode, up: TSLNode): TSLNode {
+  const t = dot(direction, up);
+  const sky = mix(color(HORIZON), color(ZENITH), smoothstep(0, 0.65, t));
+  const below = mix(color(HORIZON), color(BELOW), smoothstep(0, -0.3, t));
+  const studio = mix(below, sky, smoothstep(-0.002, 0.002, t));
+  return studio.add(color(HORIZON).mul(exp(abs(t).mul(-40))).mul(0.3));
+}
+
 export class IndoorBackdrop {
   /** Holds the disk in the building's anchor frame (matrix copied from `building.root`). */
   readonly group = new Group();
@@ -119,11 +132,7 @@ export class IndoorBackdrop {
    * scene background with `amount`.
    */
   backgroundNode(direction: TSLNode): TSLNode {
-    const t = dot(direction, this.up);
-    const sky = mix(color(HORIZON), color(ZENITH), smoothstep(0, 0.65, t));
-    const below = mix(color(HORIZON), color(BELOW), smoothstep(0, -0.3, t));
-    const studio = mix(below, sky, smoothstep(-0.002, 0.002, t));
-    return studio.add(color(HORIZON).mul(exp(abs(t).mul(-40))).mul(0.3));
+    return studioSkyNode(direction, this.up);
   }
 
   /**

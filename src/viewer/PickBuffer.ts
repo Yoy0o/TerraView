@@ -28,6 +28,7 @@ import {
 } from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, NodeMaterialInstance, type NodeMaterial, type WebGPURenderer } from 'three/webgpu';
+import { hasRegionMask, regionMaskNode } from '../local/regionMask';
 import type { TSLNode } from '../atmosphere/AtmosphereNodes';
 import { isTileMaterial, tileMorphPositionNode } from '../globe/TileMaterial';
 import { bufferPixel, decodeTexel, transformDirection, transformPoint, viewPositionFromDepth } from './pickMath';
@@ -120,9 +121,10 @@ function octEncodeNode(n: TSLNode): TSLNode {
 /**
  * Pick materials: one shared node graph writing the pick texel, as
  * `NodeMaterialInstance` variants per face side; sources with a custom
- * `positionNode` (globe tiles, which morph) get their own variant on a base
- * that reuses that position node, refreshed from the source before each
- * draw and freed when the source is disposed (bases are reference counted).
+ * `positionNode` (globe tiles, which morph) or clipped to a local scene region
+ * get their own variant on a base that reuses that position node and the clip
+ * mask, refreshed from the source before each draw and freed when the source
+ * is disposed (bases are reference counted).
  */
 export class PickMaterials {
   /** Object id written for the object being drawn (set by the owner before drawing). */
@@ -130,9 +132,9 @@ export class PickMaterials {
   private readonly output: TSLNode;
   private readonly defaults = new Map<Side, NodeMaterialInstance>();
   private readonly defaultBase: NodeMaterial;
-  /** Bases per custom position node, with the number of source variants using them. */
-  private readonly bases = new Map<TSLNode, { base: NodeMaterial; refs: number }>();
-  private readonly perSource = new WeakMap<Material, { pick: NodeMaterialInstance; keys: string[] }>();
+  /** Bases per custom position node and clip, with the number of source variants using them. */
+  private readonly bases = new Map<string, { base: NodeMaterial; refs: number }>();
+  private readonly perSource = new WeakMap<Material, { pick: NodeMaterialInstance; keys: string[]; clipped: boolean; release: () => void }>();
   /** Property names every node material has; anything else on a source is a custom (materialReference) value. */
   private readonly builtinKeys: Set<string>;
   private liveSources = 0;
@@ -149,11 +151,13 @@ export class PickMaterials {
     this.builtinKeys = new Set(Object.keys(new MeshBasicNodeMaterial()));
   }
 
-  private makeBase(positionNode: TSLNode | null): NodeMaterial {
+  private makeBase(positionNode: TSLNode | null, clipped = false): NodeMaterial {
     const m = new MeshBasicNodeMaterial();
     m.name = 'PickBuffer';
     m.fragmentNode = this.output;
     if (positionNode) m.positionNode = positionNode;
+    // Clipped geometry is not there to be picked: what the scene pass discards, this pass does too.
+    if (clipped) m.maskNode = regionMaskNode();
     m.blending = NoBlending; // integer targets cannot blend
     m.transparent = false;
     m.depthTest = true;
@@ -168,21 +172,26 @@ export class PickMaterials {
   forSource(source: Material): Material {
     const src = source as Material & { positionNode?: TSLNode | null; nodeMaterial?: NodeMaterial };
     const custom = isTileMaterial(source) ? tileMorphPositionNode() : (src.positionNode ?? src.nodeMaterial?.positionNode ?? null);
-    if (!custom) return this.defaultFor(source.side);
+    const clipped = hasRegionMask(source as Material & { maskNode?: TSLNode | null });
+    if (!custom && !clipped) return this.defaultFor(source.side);
     let entry = this.perSource.get(source);
+    // The source started or stopped clipping (3D Tiles entering or leaving a local scene).
+    if (entry && entry.clipped !== clipped) {
+      entry.release();
+      entry = undefined;
+    }
     if (!entry) {
-      let base = this.bases.get(custom);
+      const key = `${custom?.id ?? 0}:${clipped ? 1 : 0}`;
+      let base = this.bases.get(key);
       if (!base) {
-        base = { base: this.makeBase(custom), refs: 0 };
-        this.bases.set(custom, base);
+        base = { base: this.makeBase(custom, clipped), refs: 0 };
+        this.bases.set(key, base);
       }
       base.refs++;
       this.liveSources++;
       const pick = new NodeMaterialInstance(base.base);
       pick.side = source.side;
       const keys = Object.keys(source).filter((k) => !this.builtinKeys.has(k) && !k.endsWith('Node') && !k.startsWith('is') && k !== 'nodeMaterial');
-      entry = { pick, keys };
-      this.perSource.set(source, entry);
       const release = () => {
         source.removeEventListener('dispose', release);
         pick.dispose();
@@ -190,9 +199,11 @@ export class PickMaterials {
         this.liveSources--;
         if (--base!.refs === 0) {
           base!.base.dispose();
-          this.bases.delete(custom);
+          this.bases.delete(key);
         }
       };
+      entry = { pick, keys, clipped, release };
+      this.perSource.set(source, entry);
       source.addEventListener('dispose', release);
     }
     // Values the position node reads through materialReference (e.g. a tile's morph) follow the source.

@@ -48,6 +48,33 @@ export interface FlyToOptions {
   lookAt?: Vector3;
 }
 
+/**
+ * Area the view stays in (a local scene, or any host that wants a "max bounds"): the view may
+ * not lose it, the camera may not get farther than `maxRange` from `center`, and gestures over
+ * empty space (no surface under the cursor) use `center` and the reference ground instead of
+ * spinning the camera in place.
+ *
+ * "Not lose it": the line of sight through the screen center, from the camera down to the
+ * reference ground, has to pass over the area (widened by the host's margin). Its point
+ * closest to `center` is what `clampFocus` checks: looking straight down that is the point at
+ * the screen center; looking across the area at a low angle the view may reach far beyond it.
+ *
+ * @advanced
+ */
+export interface CameraBounds {
+  /** ECEF point orbited and zoomed towards when the cursor or the screen center is over empty space. */
+  readonly center: Vector3;
+  /** Ellipsoidal height (meters) of the reference ground: drags that miss the scene grab it; the view center is measured on it. */
+  readonly referenceHeight: number;
+  /** Farthest the camera may be from `center` (meters); zooming out stops there. */
+  readonly maxRange: number;
+  /**
+   * Moves a point of the line of sight (ECEF) horizontally back into the allowed area; returns
+   * whether it moved (`out` is then the moved point).
+   */
+  clampFocus(point: Vector3, out: Vector3): boolean;
+}
+
 /** Longest camera travel (meters) flown as a look-at hop rather than an arc. */
 export const LOOK_AT_FLIGHT_MAX = 5_000;
 
@@ -146,6 +173,8 @@ export class GlobeCameraController {
    * true to consume the event (e.g. to enter a building level).
    */
   doubleClickHandler: ((event: MouseEvent) => boolean) | null = null;
+  /** Area the view stays in (see `CameraBounds`); null = anywhere. Flights are not held back, the bounds apply after them. */
+  bounds: CameraBounds | null = null;
   readonly events = new EventEmitter<ControllerEvents>();
 
   private readonly camera: PerspectiveCamera;
@@ -311,7 +340,7 @@ export class GlobeCameraController {
    */
   orbitBy(deltaHeading: number, deltaTilt: number, duration = 0.6, pivot?: Vector3): Promise<void> {
     this.cancelMotion();
-    const p = pivot?.clone() ?? this.host.pick(CENTER);
+    const p = pivot?.clone() ?? this.host.pick(CENTER) ?? this.bounds?.center.clone() ?? null;
     if (!p) {
       const hp = getHeadingPitch(this.ellipsoid, this.camera.position, this.camera.quaternion);
       const [minPitch, maxPitch] = this.pitchRangeDeg;
@@ -365,7 +394,7 @@ export class GlobeCameraController {
    */
   startAutoOrbit(options: AutoOrbitOptions = {}): Promise<void> {
     this.cancelMotion();
-    const pivot = options.pivot?.clone() ?? this.host.pick(CENTER);
+    const pivot = options.pivot?.clone() ?? this.host.pick(CENTER) ?? this.bounds?.center.clone() ?? null;
     if (!pivot) return Promise.resolve();
     const speed = (options.degreesPerSecond ?? 12) * DEG2RAD;
     const total = options.totalDegrees !== undefined ? Math.abs(options.totalDegrees) * DEG2RAD * Math.sign(speed || 1) : Infinity;
@@ -571,14 +600,25 @@ export class GlobeCameraController {
   };
 
   private pickPivot(ndc: Vector2): Vector3 | null {
-    if (this.orbitPivot === 'center') return this.host.pick(CENTER) ?? this.host.pick(ndc);
-    return this.host.pick(ndc) ?? this.host.pick(CENTER);
+    const p = this.orbitPivot === 'center' ? (this.host.pick(CENTER) ?? this.host.pick(ndc)) : (this.host.pick(ndc) ?? this.host.pick(CENTER));
+    // Over empty space with bounds (a floating local scene): orbit its center rather than look around in place.
+    return p ?? this.bounds?.center.clone() ?? null;
+  }
+
+  /** Where a ray meets the bounds' reference ground (null without bounds, or when the ray misses it). */
+  private referencePoint(ray: Ray, out: Vector3): Vector3 | null {
+    const b = this.bounds;
+    if (!b) return null;
+    const t = this.ellipsoid.intersectRay(ray, b.referenceHeight);
+    return t === null ? null : ray.at(t, out);
   }
 
   private beginPan(ndc: Vector2): void {
     const hit = this.host.pick(ndc);
     if (hit) {
       this.grab.copy(hit);
+    } else if (this.referencePoint(rayFromNdc(this.camera, ndc, _ray), this.grab)) {
+      // Empty space inside bounds: grab the reference ground, so the drag still follows the cursor.
     } else {
       // Missed the globe: grab the closest point of the ray, lifted onto a sphere.
       rayFromNdc(this.camera, ndc, _ray);
@@ -645,6 +685,10 @@ export class GlobeCameraController {
     const t = intersectSphere(_ray, this.dragRadius);
     if (t !== null) {
       _ray.at(t, target);
+    } else if (this.bounds) {
+      // Cursor above the horizon: with bounds, hold still rather than swing the camera around the
+      // planet (it would come back from the bounds at another height).
+      return;
     } else {
       _ray.closestPointToPoint(_w.set(0, 0, 0), target);
       if (target.lengthSq() < 1) return;
@@ -655,7 +699,14 @@ export class GlobeCameraController {
     _q.setFromUnitVectors(from, to);
     const angle = 2 * Math.acos(clamp(Math.abs(_q.w), -1, 1));
     if (angle < 1e-12) return;
+    const before = this.bounds ? this.altitude() : 0;
     this.rotateAboutCenter(_q);
+    if (this.bounds) {
+      // A drag towards the horizon carries the camera far; the bounds pull it back sideways, so
+      // keep its height here (the ellipsoid's radius differs at the other latitude).
+      const c = this.ellipsoid.cartesianToCartographic(this.camera.position, _carto);
+      if (c) this.ellipsoid.cartographicToCartesian(c.longitude, c.latitude, before, this.camera.position);
+    }
 
     _axis.set(_q.x, _q.y, _q.z);
     if (_axis.lengthSq() > 0) {
@@ -751,6 +802,10 @@ export class GlobeCameraController {
     if (hit) {
       this.zoomTarget.copy(hit);
       this.zoomAnchored = true;
+    } else if (this.bounds) {
+      // Empty space inside bounds: towards the center of the area, not into the void.
+      this.zoomTarget.copy(this.bounds.center);
+      this.zoomAnchored = false;
     } else {
       // Sky: zoom along the view ray towards a point at the current altitude distance.
       rayFromNdc(this.camera, ndc, _ray);
@@ -770,7 +825,8 @@ export class GlobeCameraController {
       minDistance: Math.max(1, this.minimumAltitude),
       anchored: this.zoomAnchored,
     });
-    const tooFar = cam.position.length() > this.maximumDistance;
+    const b = this.bounds;
+    const tooFar = cam.position.length() > this.maximumDistance || (amount < 0 && b !== null && cam.position.distanceTo(b.center) > b.maxRange);
     const tooLow = amount > 0 && this.altitudeAboveGround() < this.minimumAltitude;
     if (tooFar || tooLow) {
       // Hit a limit: stop here instead of being pushed sideways by the limit enforcement.
@@ -811,7 +867,7 @@ export class GlobeCameraController {
     this.mode = 'touch';
     this.touchStart = { dist: m.dist, angle: m.angle, midY: m.mid.y };
     const ndc = this.ndc(m.mid.x, m.mid.y);
-    this.pivot = this.host.pick(ndc);
+    this.pivot = this.host.pick(ndc) ?? this.bounds?.center.clone() ?? null;
     this.setZoomTarget(ndc);
   }
 
@@ -904,6 +960,13 @@ export class GlobeCameraController {
     return c ? c.height : this.camera.position.length() - this.ellipsoid.maximumRadius;
   }
 
+  private enforceBounds(b: CameraBounds): void {
+    if (!holdInBounds(this.ellipsoid, this.camera, b)) return;
+    // Pushing against the edge: no inertia carrying on into it.
+    this.spinVelocity = 0;
+    this.markChanged();
+  }
+
   altitudeAboveGround(): number {
     const c = this.ellipsoid.cartesianToCartographic(this.camera.position, _carto);
     if (!c) return 0;
@@ -911,6 +974,7 @@ export class GlobeCameraController {
   }
 
   private enforceLimits(): void {
+    if (this.bounds) this.enforceBounds(this.bounds);
     const cam = this.camera;
     const len = cam.position.length();
     if (len > this.maximumDistance) {
@@ -925,6 +989,71 @@ export class GlobeCameraController {
       this.markChanged();
     }
   }
+}
+
+/**
+ * Keeps the camera within `bounds`: no farther than `maxRange` from the center, and the line
+ * of sight over the area (see `CameraBounds`). Moves the camera sideways at its height above
+ * the ellipsoid (only a camera higher than `maxRange` comes down), then levels it again with
+ * the same heading and pitch (zero roll: the local vertical turns as the camera moves), which
+ * shifts the line of sight a little: a few rounds settle it.
+ *
+ * The height is kept on purpose: moving along a straight line (towards the center on the
+ * ground, or across the tangent plane, which the earth curves away from) lowers the camera a
+ * little every frame of a drag that keeps pushing outwards, until it has slid to the ground.
+ */
+function holdInBounds(ellipsoid: Ellipsoid, camera: PerspectiveCamera, b: CameraBounds): boolean {
+  const pos = camera.position;
+  const start = ellipsoid.cartesianToCartographic(pos, _carto);
+  if (!start) return false;
+  const centerHeight = ellipsoid.cartesianToCartographic(b.center)?.height ?? 0;
+  const height = Math.min(start.height, centerHeight + b.maxRange);
+  const hp = getHeadingPitch(ellipsoid, pos, camera.quaternion);
+  let moved = false;
+  /** Puts the camera back at `height` above the ellipsoid, level, with the same heading and pitch. */
+  const settle = () => {
+    const c = ellipsoid.cartesianToCartographic(pos, _carto);
+    if (c) ellipsoid.cartographicToCartesian(c.longitude, c.latitude, height, pos);
+    orientationFromHeadingPitch(ellipsoid, pos, hp.heading, hp.pitch, camera.quaternion);
+    moved = true;
+  };
+  if (start.height > height) settle();
+  if (pos.distanceTo(b.center) > b.maxRange * 1.0001) {
+    // Closer horizontally: as far as maxRange allows at this height.
+    const up = ellipsoid.geodeticNormal(b.center, _axis);
+    const offset = _v.subVectors(pos, b.center);
+    const z = Math.min(offset.dot(up), b.maxRange);
+    const horizontal = offset.addScaledVector(up, -offset.dot(up));
+    const h = Math.sqrt(Math.max(0, b.maxRange * b.maxRange - z * z));
+    const len = horizontal.length();
+    if (len > h && len > 1e-6) {
+      horizontal.multiplyScalar(h / len);
+      pos.copy(b.center).add(horizontal).addScaledVector(up, z);
+      settle();
+    }
+  }
+  for (let round = 0; round < 3; round++) {
+    camera.updateMatrixWorld();
+    rayFromNdc(camera, CENTER, _ray);
+    // The line of sight down to the reference ground (or a long way, above the horizon).
+    const t = ellipsoid.intersectRay(_ray, b.referenceHeight) ?? b.maxRange * 4;
+    const end = _ray.at(Math.min(t, b.maxRange * 4), _w);
+    const closest = closestOnSegment(pos, end, b.center, _v);
+    if (!b.clampFocus(closest, _up)) break;
+    pos.add(_up.sub(closest));
+    settle();
+  }
+  return moved;
+}
+
+/** Point of segment ab closest to p. */
+function closestOnSegment(a: Vector3, b: Vector3, p: Vector3, out: Vector3): Vector3 {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abz = b.z - a.z;
+  const len2 = abx * abx + aby * aby + abz * abz;
+  const t = len2 > 0 ? clamp(((p.x - a.x) * abx + (p.y - a.y) * aby + (p.z - a.z) * abz) / len2, 0, 1) : 0;
+  return out.set(a.x + abx * t, a.y + aby * t, a.z + abz * t);
 }
 
 function isTyping(e: KeyboardEvent): boolean {

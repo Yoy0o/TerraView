@@ -6,7 +6,7 @@ import { type BufferAttribute, Mesh, Sphere, Texture, Vector3 } from 'three';
 import { computeHorizonCullingPoint, geodeticToEcef } from '../core/geodesy';
 import { sampleHeightGrid } from './terrain/terrainTiling';
 import type { GeoRect, WebMercatorTilingScheme } from './TilingScheme';
-import { createTileMaterial, MORPH_ATTRIBUTE, type TileMaterial } from './TileMaterial';
+import { createTileMaterial, isClippedTileMaterial, MORPH_ATTRIBUTE, retargetTileMaterial, type TileMaterial } from './TileMaterial';
 import { TileSelection, type SelectionNode } from './tileSelection';
 
 /** Reference-counted texture shared between a tile and descendants that magnify it. */
@@ -122,8 +122,13 @@ export class GlobeTile implements SelectionNode<GlobeTile> {
   /** Overlay used for rendering: own, a magnified ancestor's, or the empty texture. */
   overlay: SharedTexture | null = null;
   overlayGen = -1;
-  /** Per-tile material instance; all tiles share one node graph / GPU pipeline. */
-  readonly material: TileMaterial;
+  /**
+   * Per-tile material instance; all tiles share one node graph / GPU pipeline (two with a
+   * local scene: tiles crossing its boundary use the clipped base, see `setClipped`).
+   */
+  material: TileMaterial;
+  /** Local scene: value of `Globe.regionGen` the clip state was decided for (-1 = never). */
+  regionGen = -1;
 
   // Loading.
   readonly geo = new LoadChannel();
@@ -154,6 +159,20 @@ export class GlobeTile implements SelectionNode<GlobeTile> {
     this.latForResolution = south <= 0 && north >= 0 ? 0 : Math.min(Math.abs(south), Math.abs(north));
     this.material = createTileMaterial(undefined, level);
     this.estimateBounds();
+  }
+
+  /**
+   * Switches between the plain and the clipped tile material (local scene boundary). The
+   * mesh and its fills draw the new instance; the old one is disposed.
+   */
+  setClipped(clipped: boolean): void {
+    if (isClippedTileMaterial(this.material) === clipped) return;
+    const old = this.material;
+    const m = retargetTileMaterial(old, clipped);
+    this.material = m;
+    if (this.mesh) this.mesh.material = m;
+    if (this.fills) for (const f of this.fills) if (f) f.material = m;
+    old.dispose();
   }
 
   /** Whether the tile can be drawn. Imagery always resolves (own, ancestor or placeholder). */

@@ -61,7 +61,10 @@ import { PostPipeline, type PostStage } from '../post/PostPipeline';
 import { Supersampling, type SupersamplingOptions } from '../post/Supersampling';
 import { ViewerEffects } from '../post/ViewerEffects';
 import { tileDebugUniforms } from '../globe/TileMaterial';
-import { IndoorBackdrop } from './IndoorBackdrop';
+import { IndoorBackdrop, studioSkyNode } from './IndoorBackdrop';
+import { LocalScene } from '../local/LocalScene';
+import { RegionDimEffect } from '../local/RegionDimEffect';
+import { RegionWalls } from '../local/RegionWalls';
 import { InteractionManager, type PickInfo } from './InteractionManager';
 import type { IntroSpinOptions } from './IntroAnimation';
 import { NavigationControls } from './NavigationControls';
@@ -329,6 +332,7 @@ const _v = new Vector3();
 const _dir = new Vector3();
 const _carto = cartographic();
 const _lightPoint = new Vector3();
+const _localPoint = new Vector3();
 const CENTER_NDC = new Vector2(0, 0);
 /**
  * Hemisphere light kept at night with `lighting` on (fades out by day): the sky alone lights
@@ -409,6 +413,16 @@ export class GeoViewer {
   readonly indoor: IndoorManager;
   /** @internal Ground grid and studio sky under a building shown without any ground (see `indoorBackdrop`). */
   readonly backdrop: IndoorBackdrop;
+  /**
+   * Local scene ("sandbox"): show one area of the globe on its own, with walls, a studio
+   * background and the camera kept around it (`localScene.enter({ region })`). A mode of the
+   * globe scene, independent of the indoor levels.
+   */
+  readonly localScene: LocalScene;
+  /** Walls of the local scene. */
+  private readonly regionWalls = new RegionWalls();
+  /** "Dim outside" look of the local scene. */
+  private readonly regionDim = new RegionDimEffect();
   /**
    * Outlines and glow of three.js objects, outline styles and the look of both effects
    * (entities: `entity.effects`; selection and hover: `indoor.selectOutline` / `hoverOutline`).
@@ -611,7 +625,7 @@ export class GeoViewer {
     this.backdrop = new IndoorBackdrop(this.ellipsoid);
     this.scene.add(this.backdrop.group);
     const sky = skyColorNode(positionWorldDirection).add(vec3(0.0006, 0.0008, 0.0016));
-    this.scene.backgroundNode = mix(sky, this.backdrop.backgroundNode(positionWorldDirection), this.backdrop.amount);
+    const studioSky = this.backdrop.backgroundNode(positionWorldDirection);
 
     this.markers = new MarkerManager(this.container, renderer.domElement);
     this.markerOcclusion = new OcclusionProxies(renderer);
@@ -707,6 +721,13 @@ export class GeoViewer {
       toCartographic: (p) => this.ellipsoid.cartesianToCartographic(p),
     });
     this.controller.doubleClickHandler = (e) => this.interaction.dispatchDoubleClick(e);
+    this.scene.add(this.regionWalls.mesh);
+    this.postProcessing.add(this.regionDim);
+    this.localScene = this.createLocalScene();
+    // Background: the atmosphere, the studio sky of a building without ground, or the local scene's own.
+    const ls = this.localScene;
+    const localSky = mix(studioSkyNode(positionWorldDirection, ls.skyUp), ls.backgroundColor, ls.backgroundSolid);
+    this.scene.backgroundNode = mix(mix(sky, studioSky, this.backdrop.amount), localSky, ls.backgroundAmount);
     // Camera motion of any origin (gestures, flights, animations, inertia, auto-orbit) keeps the full frame rate.
     this.controller.events.on('change', () => this.requestRender());
     // A gesture starting changes nothing yet (a click without a drag must not discard a supersampled view).
@@ -967,17 +988,23 @@ export class GeoViewer {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this.raycaster as any).firstHitOnly = true;
     let best: SurfacePick | null = null;
+    // A local scene hiding its surroundings: what is clipped away cannot be hit either.
+    const ls = this.localScene;
+    const accept = ls.hidesOutside ? (p: Vector3) => ls.showsWorld(p) : undefined;
     const entity = this.indoor.pick(this.raycaster);
     if (entity) best = { point: entity.point.clone(), source: 'entity', distance: entity.distance, entity: entity.entity, via: 'ray' };
+    // All hits, not just the first: the first may be clipped away.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (accept) (this.raycaster as any).firstHitOnly = false;
     for (const layer of this.tilesets) {
       if (!layer.active || !layer.ready) continue;
-      const hits = this.raycaster.intersectObject(layer.group, true);
-      if (hits.length > 0 && hits[0].distance < (best?.distance ?? Infinity)) {
-        best = { point: hits[0].point.clone(), source: 'tiles', distance: hits[0].distance, tileset: layer, via: 'ray' };
+      const hit = this.raycaster.intersectObject(layer.group, true).find((h) => !accept || accept(h.point));
+      if (hit && hit.distance < (best?.distance ?? Infinity)) {
+        best = { point: hit.point.clone(), source: 'tiles', distance: hit.distance, tileset: layer, via: 'ray' };
       }
     }
     if (this._showGlobe) {
-      const g = this.globe.raycast(this.raycaster.ray);
+      const g = this.globe.raycast(this.raycaster.ray, accept);
       if (g && g.distance < (best?.distance ?? Infinity)) best = { point: g.point, source: 'globe', distance: g.distance, via: 'ray' };
     }
     return best;
@@ -1108,7 +1135,18 @@ export class GeoViewer {
    * @param latitude Degrees north.
    */
   surfaceHeight(longitude: number, latitude: number, options?: SurfaceHeightOptions): SurfaceHeight {
+    const outside = this.groundOutsideRegion(longitude * DEG2RAD, latitude * DEG2RAD);
+    if (outside !== null) return outside;
     return this.surface.query(longitude * DEG2RAD, latitude * DEG2RAD, options);
+  }
+
+  /** Outside a local scene that hides its surroundings, the ground is the base of its walls (radians in). */
+  private groundOutsideRegion(lon: number, lat: number): SurfaceHeight | null {
+    const ls = this.localScene;
+    if (!ls.hidesOutside) return null;
+    const p = this.ellipsoid.cartographicToCartesian(lon, lat, ls.groundOutside, _localPoint);
+    if (ls.showsWorld(p, 0)) return null;
+    return { height: ls.groundOutside, resolution: 0, source: 'ellipsoid', reliable: true, held: false };
   }
 
   /** Highest active 3D Tiles surface on the vertical through a position (radians), with the hit tile's geometric error. */
@@ -1144,6 +1182,8 @@ export class GeoViewer {
   /** Surface under a gesture: the scene, else the reference ground when no globe is drawn. */
   private gesturePick(ndc: Vector2): Vector3 | null {
     const hit = this.pick(ndc);
+    // In a local scene, empty space is handled by the camera bounds (region center, reference ground).
+    if (this.localScene.hidesOutside) return hit?.point ?? null;
     if (hit) {
       if (hit.source === 'tiles' && !this._showGlobe) this.lastSurfaceHeight = this.ellipsoid.cartesianToCartographic(hit.point, _carto)?.height ?? this.lastSurfaceHeight;
       return hit.point;
@@ -1186,6 +1226,9 @@ export class GeoViewer {
    * floor is 0 m.
    */
   private collisionGround(lon: number, lat: number): number | null {
+    // Beside a local scene: no diving below the base of its walls.
+    const outside = this.groundOutsideRegion(lon, lat);
+    if (outside) return outside.height;
     // Without the globe the entered building's ground is the floor of the world (no diving under the backdrop).
     const building = this._showGlobe ? null : this.currentBuilding();
     if (building) return building.groundHeight;
@@ -1257,6 +1300,62 @@ export class GeoViewer {
   // ---------------------------------------------------------------------------
   // 3D Tiles
 
+  /** The local scene and what it needs from the viewer. */
+  private createLocalScene(): LocalScene {
+    const scene = new LocalScene({
+      ellipsoid: this.ellipsoid,
+      renderer: this.renderer,
+      camera: this.camera,
+      globe: this.globe,
+      controller: this.controller,
+      walls: this.regionWalls,
+      dim: this.regionDim,
+      tilesets: () => this.tilesets,
+      globeShown: () => this._showGlobe,
+      setGlobeShown: (shown) => {
+        this.showGlobe = shown;
+      },
+      lighting: () => this._lighting,
+      sunDirection: () => atmosphereUniforms.lightDirection.value,
+      groundHeight: (lon, lat) => {
+        const s = this.surface.query(lon, lat);
+        return { height: s.height, reliable: s.reliable };
+      },
+      tilesHeight: (lon, lat) => this.raycastTilesVertical(lon, lat)?.height ?? null,
+      getView: () => this.getView(),
+      flyTo: (view, duration) => this.flyTo(view, duration),
+      flyToSphere: (sphere, heading, pitch, duration, rangeScale) => this.flyToSphere(sphere, heading, pitch, duration, { rangeScale }),
+      requestRender: () => this.requestRender(),
+    });
+    // Markers and labels whose anchor is clipped away go with it.
+    this.markers.regionFilter = (p) => scene.showsWorld(p);
+    this.labels.regionFilter = (p) => scene.showsWorld(p);
+    // Double click on empty space around the area: back to its overview.
+    this.interaction.on(
+      'dblclick',
+      (e) => {
+        if (!scene.active || e.kind !== 'none') return;
+        e.preventDefault();
+        void scene.fit();
+      },
+      { tag: 'local-scene' },
+    );
+    scene.events.on('exit', () => this.updateBuildingsInRegion());
+    return scene;
+  }
+
+  /** Buildings outside a local scene that hides its surroundings are hidden with them. */
+  private updateBuildingsInRegion(): void {
+    const ls = this.localScene;
+    for (const b of this.indoor.buildings) {
+      const hidden = ls.hidesOutside && !ls.showsWorld(_localPoint.setFromMatrixPosition(b.root.matrixWorld), 0);
+      if (hidden === (b.root.userData.tvHiddenByRegion === true)) continue;
+      b.root.userData.tvHiddenByRegion = hidden;
+      b.root.visible = !hidden;
+      this.pickBuffer?.invalidate();
+    }
+  }
+
   addTileset(options: Tiles3DLayerOptions): Tiles3DLayer {
     const layer = new Tiles3DLayer(options, this.getLoaders(), this.ellipsoid, this.gpu.tiles);
     layer.tiles.setCamera(this.camera);
@@ -1270,6 +1369,7 @@ export class GeoViewer {
     layer.events.on('moved', () => this.surface.clearHeld());
     this.scene.add(layer.group);
     this.tilesets.push(layer);
+    this.localScene.attachLayer(layer);
     this.surface.clearHeld();
     this.events.emit('tilesets-changed', this.tilesets);
     return layer;
@@ -1616,6 +1716,16 @@ export class GeoViewer {
       // The window counts from the last loading activity, not from when the tiles were suppressed.
       if (probe && layer.tiles.loadProgress < 1) this.extendGroundProbe();
     }
+    // The local scene's transition and walls follow this frame's globe and tiles.
+    if (this.localScene.update(dt)) {
+      // Clip and outside fade change what is drawn without changing the draw statistics.
+      this.pickBuffer?.invalidate();
+      this.requestRender();
+    }
+    if (this.localScene.engaged) {
+      this.clouds.mesh.visible = false;
+      this.updateBuildingsInRegion();
+    }
     // Floor expansion and re-grounding move content without changing the draw statistics.
     if (this.indoor.update(dt)) {
       this.pickBuffer?.invalidate();
@@ -1762,7 +1872,8 @@ export class GeoViewer {
     u.cameraAltitudeKm.value = Math.max(height, 0) / 1000;
     u.lightingEnabled.value = this._lighting ? 1 : 0;
     u.uniformLighting.value = this._lighting ? 0 : 1;
-    u.atmosphereEnabled.value = this._atmosphere ? 1 : 0;
+    // A local scene on its studio background has no sky to haze the ground towards.
+    u.atmosphereEnabled.value = this._atmosphere && !(this.localScene.backgroundAmount.value > 0.5) ? 1 : 0;
     u.groundHaze.value = this._lighting ? 0.7 : 0.5;
 
     // Stars: rotate with sidereal time, fade in when the sky is dark.
@@ -1770,7 +1881,7 @@ export class GeoViewer {
     const space = smoothstep(30_000, 120_000, height);
     const sunAltitude = up.dot(sun);
     const night = this._lighting ? smoothstep(0.05, -0.2, sunAltitude) : 0;
-    this.stars.uniforms.visibility.value = this._atmosphere ? Math.max(space, night) : 1;
+    this.stars.uniforms.visibility.value = (this._atmosphere ? Math.max(space, night) : 1) * (1 - this.localScene.backgroundAmount.value);
 
     // Lights for 3D Tiles and buildings (globe tiles shade themselves).
     if (this._lighting) {
@@ -1861,6 +1972,8 @@ export class GeoViewer {
     for (const layer of [...this.tilesets]) this.removeTileset(layer);
     for (const layer of [...this.vectorLayers]) this.removeGeoJson(layer);
     for (const layer of [...this.pointLayers]) this.removePoints(layer);
+    this.localScene.dispose();
+    this.regionWalls.dispose();
     this.indoor.dispose();
     this.pickBuffer?.dispose();
     this.postProcessing.dispose();

@@ -6,7 +6,9 @@ import type { Ellipsoid } from '../core/Ellipsoid';
 import { TerraViewError } from '../core/errors';
 import { gpuProfile, type TilesQuality } from '../core/gpuProfile';
 import { createAdaptiveErrorState, stepAdaptiveError, tilesFalloffDensity } from './lodPolicy';
-import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, type NodeMaterialLibrary } from './nodeMaterials';
+import type { ResolvedRegion } from '../local/region';
+import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, setObjectClipped, type NodeMaterialLibrary } from './nodeMaterials';
+import { RegionMaskPlugin } from './regionMaskPlugin';
 import { createFeatureHighlight, disposeFeatureHighlight, type FeatureHighlightStyle, type TileFeature } from './tileFeatures';
 
 export type TilesetSource =
@@ -117,6 +119,10 @@ export class Tiles3DLayer {
   private _suppressed = false;
   private readonly baseMatrix = new Matrix4();
   private readonly unload: UnloadTilesPlugin;
+  private readonly nodePlugin: NodeMaterialPlugin | null = null;
+  private readonly regionPlugin = new RegionMaskPlugin();
+  /** Clipped to a local scene region (`setRegion`). */
+  private clipped = false;
   private readonly adaptive = createAdaptiveErrorState();
   /** LOD cross-fade plugin (null without node materials or with `fadeDuration: 0`). */
   private fade: TilesFadePlugin | null = null;
@@ -159,7 +165,8 @@ export class Tiles3DLayer {
       }),
     );
     if (loaders.nodeLibrary) {
-      tiles.registerPlugin(new NodeMaterialPlugin(loaders.nodeLibrary, quality));
+      this.nodePlugin = new NodeMaterialPlugin(loaders.nodeLibrary, quality);
+      tiles.registerPlugin(this.nodePlugin);
       const fadeDuration = options.fadeDuration ?? 300;
       if (fadeDuration > 0) {
         const fade = new TilesFadePlugin({ fadeDuration, fadeRootTiles: true, maximumFadeOutTiles: 60 });
@@ -174,6 +181,7 @@ export class Tiles3DLayer {
     // (re-uploading is what makes turning around stutter). Their decoded data stays in the cache.
     this.unload = new UnloadTilesPlugin({ delay: quality.unloadDelayMs, bytesTarget: quality.gpuBytesTarget });
     tiles.registerPlugin(this.unload);
+    tiles.registerPlugin(this.regionPlugin);
     configureSharedQueues(tiles, quality);
     tiles.errorTarget = this.errorTarget * quality.errorTargetScale;
     tiles.group.name = `3D Tiles: ${this.name}`;
@@ -214,6 +222,22 @@ export class Tiles3DLayer {
   setHighlight(feature: TileFeature | null, style?: FeatureHighlightStyle): void {
     if (this.highlight?.overlay) disposeFeatureHighlight(this.highlight.overlay);
     this.highlight = feature ? { feature, overlay: createFeatureHighlight(feature, style) } : null;
+    // A feature crossing the region boundary must not show its outside part.
+    if (this.clipped && this.highlight?.overlay) setObjectClipped(this.highlight.overlay, true);
+    this.events.emit('change', undefined);
+  }
+
+  /**
+   * @internal Local scene region (null: none). Every material of the layer is clipped to it;
+   * with `cull`, tiles whose bounds miss it are not loaded either (off while the outside fades).
+   */
+  setRegion(region: ResolvedRegion | null, cull: boolean): void {
+    this.regionPlugin.region = region && cull ? region : null;
+    const clipped = region !== null;
+    if (clipped === this.clipped) return;
+    this.clipped = clipped;
+    if (this.nodePlugin) this.nodePlugin.clipped = clipped;
+    setObjectClipped(this.tiles.group, clipped);
     this.events.emit('change', undefined);
   }
 

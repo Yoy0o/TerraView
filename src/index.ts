@@ -18,6 +18,7 @@
  *
  * Groups below:
  *   viewer      GeoViewer, camera controller, navigation, interaction, picking
+ *   local       local scene (one area on its own, sandbox walls)
  *   globe       imagery providers and presets, terrain sources, raster overlays
  *   tiles3d     OGC 3D Tiles layers
  *   vector      GeoJSON layers and their styles
@@ -46,7 +47,7 @@ export type {
 } from './viewer/GeoViewer';
 export type { LoadState } from './viewer/loadState';
 export { GlobeCameraController } from './viewer/GlobeCameraController';
-export type { AutoOrbitOptions, CameraAnimationStep, ControllerEvents, FlyToOptions } from './viewer/GlobeCameraController';
+export type { AutoOrbitOptions, CameraAnimationStep, CameraBounds, ControllerEvents, FlyToOptions } from './viewer/GlobeCameraController';
 export { NavigationControls, AUTO_ROTATE_DEFAULTS } from './viewer/NavigationControls';
 export type { AutoRotateMode, AutoRotateSettings } from './viewer/NavigationControls';
 export { INTRO_DEFAULTS } from './viewer/IntroAnimation';
@@ -65,6 +66,12 @@ export {
   orientationFromHeadingPitch,
 } from './viewer/cameraMath';
 export type { HeadingPitch } from './viewer/cameraMath';
+
+// ---------------------------------------------------------------- local
+export { LocalScene } from './local/LocalScene';
+export type { LocalSceneCameraOptions, LocalSceneEvents, LocalSceneOptions, LocalSceneRegion, LocalSceneWallOptions } from './local/LocalScene';
+export { MAX_REGION_DIAMETER, MAX_REGION_VERTICES, MIN_REGION_RADIUS, ResolvedRegion } from './local/region';
+export type { LocalRegion } from './local/region';
 
 // ---------------------------------------------------------------- globe
 export { Globe } from './globe/Globe';

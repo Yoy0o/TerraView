@@ -180,8 +180,9 @@ export class NavigationControls {
     this.viewer.resetNorth();
   }
 
-  /** Flies to `homeView`; duration in seconds (default: automatic). */
+  /** Flies to `homeView` (in a local scene: to its overview); duration in seconds (default: automatic). */
   home(duration?: number): Promise<void> {
+    if (this.viewer.localScene.active) return this.viewer.localScene.fit(duration);
     return this.viewer.flyTo(this.homeView, duration);
   }
 
@@ -280,7 +281,8 @@ export class NavigationControls {
    * planet) instead of around a place.
    */
   orbitPivot(pivot?: Vector3): Vector3 | null {
-    const p = pivot ?? this.centerSurface();
+    // Over the background of a local scene: orbit its center.
+    const p = pivot ?? this.centerSurface() ?? this.viewer.controller.bounds?.center.clone() ?? null;
     return p && this.viewer.camera.position.distanceTo(p) <= this.autoRotate.orbitMaxDistance ? p : null;
   }
 
