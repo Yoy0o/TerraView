@@ -149,6 +149,9 @@ export class BatchMesh extends InstancedMesh {
     this.bimStyle = new InstancedBufferAttribute(new Float32Array(capacity * STYLE_SIZE), STYLE_SIZE);
     // Excluded from per-entity disposal: the batch group releases pooled resources.
     this.userData.pooled = true;
+    // Devices cast and receive the sun shadows (M3.9); transparent batches are skipped when the map is drawn.
+    this.castShadow = true;
+    this.receiveShadow = true;
   }
 
   /** Entity drawn by an instance index (picking, GPU pick ids), or null when out of range. */

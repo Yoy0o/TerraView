@@ -12,6 +12,7 @@ import {
 } from 'three';
 import { float, Fn, materialReference, screenCoordinate } from 'three/tsl';
 import { aerialPerspectiveOutputNode, type TSLNode } from '../atmosphere/AtmosphereNodes';
+import { unlitShadowOutputNode } from '../lighting/SunShadows';
 
 /** Converts plain materials to their node equivalents (`renderer.library.fromMaterial`). */
 export interface NodeMaterialLibrary {
@@ -104,12 +105,15 @@ export class NodeMaterialPlugin {
         // Photogrammetry often has inconsistent winding; avoid holes.
         node.side = DoubleSide;
         // Hazed by the atmosphere like the globe tiles around it (M3.5); one shared node keeps pipelines shared.
-        const n = node as Material & { isNodeMaterial?: boolean; outputNode?: TSLNode | null };
-        if (n.isNodeMaterial && n.outputNode === null) n.outputNode = aerialPerspectiveOutputNode();
+        // Unlit ones (photogrammetry, light baked in) also darken in the buildings' sun shadows (M3.9).
+        const n = node as Material & { isNodeMaterial?: boolean; outputNode?: TSLNode | null; isMeshBasicNodeMaterial?: boolean };
+        if (n.isNodeMaterial && n.outputNode === null) n.outputNode = n.isMeshBasicNodeMaterial ? unlitShadowOutputNode() : aerialPerspectiveOutputNode();
         applyTexturePolicy(node, this.textures);
         return node;
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(convert) : convert(mesh.material);
+      // Lit tiles receive the sun shadows through the sun light (M3.9).
+      mesh.receiveShadow = true;
     });
   }
 }

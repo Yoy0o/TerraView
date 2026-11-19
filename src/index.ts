@@ -172,8 +172,14 @@ export type { ColorGradingOptions, ObjectEffects, OutlineStyle } from './post/po
 export { Supersampling } from './post/Supersampling';
 export type { SupersamplingOptions } from './post/Supersampling';
 export { ColorGrading } from './post/ColorGrading';
+export { Transparency } from './post/Transparency';
+export type { TransparencyOptions } from './post/Transparency';
 export { PostPipeline } from './post/PostPipeline';
 export type { PostEffect, PostFrame, PostInputs, PostStage } from './post/PostPipeline';
+
+// ---------------------------------------------------------------- lighting
+export { SunShadows } from './lighting/SunShadows';
+export type { SunShadowOptions } from './lighting/SunShadows';
 
 // ---------------------------------------------------------------- atmosphere
 export { CloudLayer, CLOUD_DEFAULTS } from './atmosphere/CloudLayer';

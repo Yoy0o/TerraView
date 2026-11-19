@@ -116,9 +116,24 @@ describe('gpuProfile', () => {
     p.tiles.cacheMaxBytes = 1;
     p.globe.maxCachedTiles = 1;
     p.indoor.modelBytesTarget = 1;
+    p.shadows.mapSize = 1;
     expect(gpuProfile('medium').tiles.cacheMaxBytes).toBe(448 * MB);
     expect(gpuProfile('medium').globe.maxCachedTiles).toBe(500);
     expect(gpuProfile('medium').indoor.modelBytesTarget).toBe(128 * MB);
+    expect(gpuProfile('medium').shadows.mapSize).toBe(2048);
+  });
+
+  it('turns sun shadows on above low and order-independent transparency on ultra only (M3.9)', () => {
+    expect(gpuProfile('low').shadows.enabled).toBe(false);
+    for (const tier of ['medium', 'high', 'ultra'] as const) expect(gpuProfile(tier).shadows.enabled).toBe(true);
+    // Power-of-two maps, never shrinking with the tier; 4 bytes per texel stays within 64 MB.
+    for (let i = 0; i < GPU_TIERS.length; i++) {
+      const size = gpuProfile(GPU_TIERS[i]).shadows.mapSize;
+      expect(Math.log2(size) % 1).toBe(0);
+      expect(size * size * 4).toBeLessThanOrEqual(64 * MB);
+      if (i > 0) expect(size).toBeGreaterThanOrEqual(gpuProfile(GPU_TIERS[i - 1]).shadows.mapSize);
+    }
+    expect(GPU_TIERS.filter((t) => gpuProfile(t).orderIndependentTransparency)).toEqual(['ultra']);
   });
 });
 

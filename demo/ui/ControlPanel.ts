@@ -270,6 +270,24 @@ export class ControlPanel {
         this.save();
       }),
       toggle(
+        '日照阴影',
+        v.shadows.enabled,
+        (on) => {
+          v.shadows.enabled = on;
+        },
+        '开启太阳光照时，建筑和设备在自身、地面和 3D Tiles 上投下阴影（?shadows=0|1）',
+      ),
+      toggle(
+        '透明顺序无关混合（OIT）',
+        v.transparency.orderIndependent,
+        (on) => {
+          v.transparency.orderIndependent = on;
+        },
+        v.transparency.supported
+          ? '玻璃幕墙、半透明房间按权重混合，从任何角度看都不会因排序跳变；多占两张画布大小的缓冲（?oit=0|1）'
+          : 'WebGL 后端不支持，透明物体仍按距离排序',
+      ),
+      toggle(
         '静止超采样',
         v.supersampling.enabled,
         (on) => {

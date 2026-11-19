@@ -29,6 +29,7 @@ import {
   toAtmosphereSpace,
   type TSLNode,
 } from '../atmosphere/AtmosphereNodes';
+import { sunShadowFactor } from '../lighting/SunShadows';
 
 /**
  * Globe tile material: an instance of one shared node material (r187
@@ -217,10 +218,10 @@ function sharedNodes(): SharedNodes {
       albedo.assign(select(edge.lessThan(0.006), vec3(1, 0.85, 0.2), albedo));
     });
 
-    // Sun lighting (optional): direct sun attenuated by the atmosphere + sky ambient.
+    // Sun lighting (optional): direct sun attenuated by the atmosphere (and shaded by buildings, M3.9) + sky ambient.
     const n = normalize(normalLocal);
     const ndl = dot(n, U.lightDirection);
-    const direct = vSunTransmittance.mul(max(ndl, 0));
+    const direct = vSunTransmittance.mul(max(ndl, 0)).mul(sunShadowFactor());
     const skyAmbient = vec3(0.09, 0.11, 0.15).mul(smoothstep(-0.12, 0.35, vSunMu));
     const lit = albedo.mul(direct.add(skyAmbient).add(U.nightBrightness));
     const surface = mix(albedo, lit, U.lightingEnabled);

@@ -4,6 +4,7 @@ import {
   HemisphereLight,
   LightProbe,
   LinearSRGBColorSpace,
+  Matrix4,
   NeutralToneMapping,
   PerspectiveCamera,
   Quaternion,
@@ -47,6 +48,7 @@ import { resolveTileFeature, type FeatureHighlightStyle, type TileFeature } from
 import { GeoJsonLayer, type GeoJsonLayerOptions } from '../vector/GeoJsonLayer';
 import { lonLatToMerc } from '../vector/geometry';
 import { LabelManager } from '../vector/LabelManager';
+import { SunShadows, sunShadowFactor, type ShadowCaster, type SunShadowOptions } from '../lighting/SunShadows';
 import type { FeatureHit } from '../vector/types';
 import { VectorService } from '../vector/VectorService';
 import { cameraDirection, getHeadingPitch, lookAtHeadingPitchRange } from './cameraMath';
@@ -59,6 +61,7 @@ import { OutlineEffect } from '../post/OutlineEffect';
 import type { ColorGradingOptions } from '../post/postMath';
 import { PostPipeline, type PostStage } from '../post/PostPipeline';
 import { Supersampling, type SupersamplingOptions } from '../post/Supersampling';
+import { Transparency, type TransparencyOptions } from '../post/Transparency';
 import { ViewerEffects } from '../post/ViewerEffects';
 import { tileDebugUniforms } from '../globe/TileMaterial';
 import { IndoorBackdrop } from './IndoorBackdrop';
@@ -170,6 +173,13 @@ export interface GeoViewerOptions extends GlobeOptions {
   supersampling?: boolean | SupersamplingOptions;
   /** Exposure, contrast and saturation (default neutral); change later through `viewer.colorGrading`. */
   colorGrading?: ColorGradingOptions;
+  /**
+   * Sun shadows of buildings and devices while `lighting` is on (M3.9; default from the GPU
+   * tier: on, off on `low`). `false` turns them off; change later through `viewer.shadows`.
+   */
+  shadows?: boolean | SunShadowOptions;
+  /** Order-independent transparency of buildings (M3.9, WebGPU; default from the GPU tier: `ultra` only); change later through `viewer.transparency`. */
+  transparency?: TransparencyOptions;
 }
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 110, latitude: 28, height: 1.8e7 };
@@ -205,6 +215,8 @@ export interface MemoryReport {
    * floor ambient occlusion textures (`indoor.ambientOcclusion.bytes`).
    */
   buildings: number;
+  /** Sun shadow map (`shadows.bytes`; allocated the first time shadows are drawn). */
+  shadows: number;
   /** Sum of the above: the viewer's video memory, without generated building geometry, labels and the browser's own share. */
   gpuTotal: number;
   /** Decoded 3D Tiles content in the tile cache (mostly system memory; includes what is on the GPU) and its limit. */
@@ -239,9 +251,18 @@ export interface ViewerSnapshot {
     ambientOcclusion: { enabled: boolean; floors: number; bytes: number };
     culling: { enabled: boolean; candidates: number; culled: number };
   };
-  post: { effects: { name: string; stage: PostStage; active: boolean }[]; samples: number; supersampling: boolean; transitionMs: number };
+  post: {
+    effects: { name: string; stage: PostStage; active: boolean }[];
+    samples: number;
+    supersampling: boolean;
+    transitionMs: number;
+    /** Order-independent transparency: wanted, possible on this backend, drawn in the last frame. */
+    transparency: { orderIndependent: boolean; supported: boolean; active: boolean };
+  };
   /** Lights of buildings and 3D Tiles: sun color (linear RGB) and intensity, hemisphere and sky probe intensities. */
   lights: { sunColor: [number, number, number]; sunIntensity: number; hemisphere: number; skyProbe: number };
+  /** Sun shadows: settings, whether they were drawn, meters per shadow map texel (0 while not drawn). */
+  shadows: { enabled: boolean; active: boolean; mapSize: number; texelSize: number; maxDistance: number };
 }
 
 export interface FrameStats {
@@ -329,6 +350,8 @@ const _v = new Vector3();
 const _dir = new Vector3();
 const _carto = cartographic();
 const _lightPoint = new Vector3();
+const _shadowOrigin = new Vector3();
+const _shadowUp = new Vector3();
 const CENTER_NDC = new Vector2(0, 0);
 /**
  * Hemisphere light kept at night with `lighting` on (fades out by day): the sky alone lights
@@ -427,6 +450,13 @@ export class GeoViewer {
   /** Exposure, contrast and saturation of the picture (`GeoViewerOptions.colorGrading`). */
   readonly colorGrading: ColorGrading;
   /**
+   * Sun shadows (M3.9): buildings and devices shade themselves, the globe and 3D Tiles while
+   * `lighting` is on and the sun is up (`enabled`, `intensity`, `softness`, `maxDistance`, `mapSize`).
+   */
+  readonly shadows: SunShadows;
+  /** Order-independent transparency of buildings and devices (M3.9; `orderIndependent`, `supported`, `active`). */
+  readonly transparency: Transparency;
+  /**
    * @advanced Dissolve of the previous picture over level changes, reprojected with its depth as
    * the camera flies (`duration` in ms, 0 turns it off; `reproject`).
    */
@@ -461,6 +491,8 @@ export class GeoViewer {
   private _atmosphere = true;
   /** Sun color and sky light at the view from the CPU atmosphere model (M3.5). */
   private readonly atmosphereLight = new AtmosphereLighting();
+  /** Buildings casting sun shadows this frame (reused). */
+  private readonly shadowCasters: (ShadowCaster & { matrix: Matrix4 })[] = [];
   private _showGlobe = true;
   private _showStars = true;
   private readonly container: HTMLElement;
@@ -622,6 +654,8 @@ export class GeoViewer {
       // Entities changed from code (styles, visibility, moves), models arrived, indoor options set.
       contentChanged: (geometry) => {
         if (geometry) this.pickBuffer?.invalidate();
+        // Visibility, transparency (casting) or placement may have changed (also during construction: optional).
+        this.shadows?.invalidate();
         this.requestRender();
       },
       ellipsoid: this.ellipsoid,
@@ -672,6 +706,24 @@ export class GeoViewer {
       { changed: () => this.requestRender(), wake: () => this.wake() },
       options.supersampling,
     );
+    // Sun shadows (M3.9): our own map, read by lit materials through the sun light's shadow node
+    // (three's shadow passes are not used) and by globe tiles directly. `shadowMap.enabled` only
+    // lets lit materials take the node; `castShadow` follows `shadows.enabled` (receivers rebuild once).
+    renderer.shadowMap.enabled = true;
+    (this.sunLight.shadow as unknown as { shadowNode: unknown }).shadowNode = sunShadowFactor();
+    this.shadows = new SunShadows(renderer, profile.shadows, typeof options.shadows === 'boolean' ? { enabled: options.shadows } : (options.shadows ?? {}), (toggled) => {
+      if (toggled) this.sunLight.castShadow = this.shadows.enabled;
+      this.requestRender();
+    });
+    this.sunLight.castShadow = this.shadows.enabled;
+    // Building and device surfaces (entity meshes and device batches) blend order-independently.
+    this.postProcessing.oitTest = (object) => object.userData.entity !== undefined || (object as { isBatchMesh?: boolean }).isBatchMesh === true;
+    this.transparency = new Transparency(
+      this.postProcessing,
+      () => this.requestRender(),
+      { orderIndependent: profile.orderIndependentTransparency, supported: isWebGPU },
+      options.transparency,
+    );
     // Statistics of the scene pass alone (the pick buffer's signature and `stats`); the pick pass renders the scene later.
     this.scene.onAfterRender = (r) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -686,7 +738,11 @@ export class GeoViewer {
     this.pickBuffer =
       this.info.backend === 'WebGPU' ? new PickBuffer<Tiles3DLayer>({ renderer, scene: this.scene, camera: this.camera, classify: (o) => this.classifyPick(o) }) : null;
     // Level changes show and hide content without necessarily changing the draw statistics.
-    for (const type of ['enterLevel', 'leaveLevel', 'buildings-changed'] as const) this.indoor.events.on(type, () => this.pickBuffer?.invalidate());
+    for (const type of ['enterLevel', 'leaveLevel', 'buildings-changed'] as const)
+      this.indoor.events.on(type, () => {
+        this.pickBuffer?.invalidate();
+        this.shadows.invalidate();
+      });
     // Level changes, selection and hover change what is drawn: back to the full frame rate.
     for (const type of ['beforeEnterLevel', 'enterLevel', 'leaveLevel', 'buildings-changed', 'select', 'hover'] as const) {
       this.indoor.events.on(type, () => this.requestRender());
@@ -799,7 +855,8 @@ export class GeoViewer {
       tilesCacheMax = m.cacheMaxBytes;
     }
     const buildings = this.indoor.modelBytes + this.indoor.ambientOcclusion.bytes;
-    return { framebuffers, globe, tilesGpu, buildings, gpuTotal: framebuffers + globe + tilesGpu + buildings, tilesCache, tilesCacheMax };
+    const shadows = this.shadows.bytes;
+    return { framebuffers, globe, tilesGpu, buildings, shadows, gpuTotal: framebuffers + globe + tilesGpu + buildings + shadows, tilesCache, tilesCacheMax };
   }
 
   /**
@@ -841,8 +898,10 @@ export class GeoViewer {
         samples: this.postProcessing.samples,
         supersampling: this.supersampling.enabled,
         transitionMs: this.levelTransition.duration,
+        transparency: { orderIndependent: this.transparency.orderIndependent, supported: this.transparency.supported, active: this.transparency.active },
       },
       lights: { sunColor: [c.r, c.g, c.b], sunIntensity: this.sunLight.intensity, hemisphere: this.skyLight.intensity, skyProbe: this.skyProbe.intensity },
+      shadows: { enabled: this.shadows.enabled, active: this.shadows.active, mapSize: this.shadows.mapSize, texelSize: this.shadows.texelSize, maxDistance: this.shadows.maxDistance },
     };
   }
 
@@ -1619,6 +1678,7 @@ export class GeoViewer {
     // Floor expansion and re-grounding move content without changing the draw statistics.
     if (this.indoor.update(dt)) {
       this.pickBuffer?.invalidate();
+      this.shadows.invalidate();
       this.requestRender();
     }
     const building = this.currentBuilding();
@@ -1634,6 +1694,8 @@ export class GeoViewer {
     // Live, one more supersampling sample of a still view, or nothing (the still picture is complete).
     const now = performance.now();
     const mode = drawMode(this.pacer.isStill(now, this.idleFloorRate()), this.supersampling.enabled, this.postProcessing.samples, this.supersampling.samples);
+    // The shadow map is drawn again only when its fit moved or the buildings changed.
+    if (mode !== 'hold') this.shadows.render(this.indoor.root);
     if (mode === 'live') this.postProcessing.render();
     else if (mode === 'sample') this.postProcessing.renderSample();
     if (mode !== 'hold') this.lastDrawAt = now;
@@ -1728,6 +1790,7 @@ export class GeoViewer {
     if (!fromHistory) {
       // Drawn outside the frame loop: this viewer's shared uniforms first (see renderOutsideFrame).
       this.updateEnvironment();
+      this.shadows.render(this.indoor.root);
       this.labels.syncCamera(this.camera);
       this.marks.refresh();
     }
@@ -1740,6 +1803,7 @@ export class GeoViewer {
     // (better, and no scene pass). Otherwise draw live.
     if (this.postProcessing.samples > 0 && this.pacer.changedAt < this.lastDrawAt && this.postProcessing.present()) return;
     this.updateEnvironment();
+    this.shadows.render(this.indoor.root);
     this.labels.syncCamera(this.camera);
     this.marks.refresh();
     this.postProcessing.render();
@@ -1797,6 +1861,47 @@ export class GeoViewer {
     this.sunLight.target.updateMatrixWorld();
     this.skyLight.position.copy(up);
     this.skyLight.updateMatrixWorld();
+    this.updateShadows(sun);
+  }
+
+  /**
+   * Fits the sun shadow map to the buildings in view (M3.9) and writes this viewer's shadow
+   * uniforms (shared by the viewers on the page). The map itself is drawn just before the scene.
+   */
+  private updateShadows(sun: Vector3): void {
+    const casters = this.shadowCasters;
+    const entered = this.currentBuilding();
+    let focus: Building | null = entered;
+    let nearest = Infinity;
+    let n = 0;
+    for (const b of this.indoor.buildings) {
+      if (!b.root.visible || !b.visible) continue;
+      const c = casters[n] ?? (casters[n] = { matrix: new Matrix4(), min: new Vector3(), max: new Vector3() });
+      c.matrix.copy(b.root.matrixWorld);
+      b.shadowBounds(c.min, c.max);
+      n++;
+      // The light frame hangs on the entered building, else on the nearest one (texels are snapped to it).
+      if (!entered) {
+        const d = _lightPoint.setFromMatrixPosition(c.matrix).distanceToSquared(this.camera.position);
+        if (d < nearest) {
+          nearest = d;
+          focus = b;
+        }
+      }
+    }
+    casters.length = n;
+    const origin = focus ? _shadowOrigin.setFromMatrixPosition(focus.root.matrixWorld) : _shadowOrigin.set(0, 0, 0);
+    const cam = this.camera;
+    const tanY = Math.tan((cam.fov * DEG2RAD) / 2) / cam.zoom;
+    this.shadows.update({
+      sun,
+      lighting: this._lighting,
+      casters,
+      origin,
+      up: this.ellipsoid.geodeticNormal(origin, _shadowUp),
+      view: { matrixWorld: cam.matrixWorld, tanX: tanY * cam.aspect, tanY, near: cam.near },
+    });
+    this.shadows.bind();
   }
 
   /**
@@ -1864,6 +1969,7 @@ export class GeoViewer {
     this.indoor.dispose();
     this.pickBuffer?.dispose();
     this.postProcessing.dispose();
+    this.shadows.dispose();
     this.marks.dispose();
     this.markers.dispose();
     this.markerOcclusion.dispose();

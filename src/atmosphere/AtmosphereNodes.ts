@@ -283,19 +283,26 @@ let aerialOutput: TSLNode = null;
  */
 export function aerialPerspectiveOutputNode(): TSLNode {
   if (aerialOutput) return aerialOutput;
-  const u = atmosphereUniforms;
-  aerialOutput = Fn(() => {
-    const color = vec4(output).toVar();
-    If(u.atmosphereEnabled.greaterThan(0.5), () => {
-      const d = cameraWorldMatrix.mul(vec4(positionView, 0)).xyz;
-      const dKm = vec3(d.x, d.y, d.z.mul(Z_SCALE)).mul(0.001);
-      const dist = length(dKm);
-      If(dist.greaterThan(AERIAL_MIN_KM), () => {
-        const s = integrateScattering(u.cameraPositionKm, dKm.div(dist), dist, u.sunDirection, AERIAL_STEPS, null);
-        color.assign(vec4(color.rgb.mul(s.transmittance).add(s.inscatter.mul(u.groundHaze)), color.a));
-      });
-    });
-    return color;
-  })();
+  aerialOutput = Fn(() => applyAerialPerspective(vec4(output)))();
   return aerialOutput;
+}
+
+/**
+ * The aerial perspective of `aerialPerspectiveOutputNode` applied to another color (call it
+ * inside a `Fn`): for output nodes that change the lit color first (unlit 3D Tiles in a sun
+ * shadow, `lighting/SunShadows`).
+ */
+export function applyAerialPerspective(input: TSLNode): TSLNode {
+  const u = atmosphereUniforms;
+  const color = vec4(input).toVar();
+  If(u.atmosphereEnabled.greaterThan(0.5), () => {
+    const d = cameraWorldMatrix.mul(vec4(positionView, 0)).xyz;
+    const dKm = vec3(d.x, d.y, d.z.mul(Z_SCALE)).mul(0.001);
+    const dist = length(dKm);
+    If(dist.greaterThan(AERIAL_MIN_KM), () => {
+      const s = integrateScattering(u.cameraPositionKm, dKm.div(dist), dist, u.sunDirection, AERIAL_STEPS, null);
+      color.assign(vec4(color.rgb.mul(s.transmittance).add(s.inscatter.mul(u.groundHaze)), color.a));
+    });
+  });
+  return color;
 }

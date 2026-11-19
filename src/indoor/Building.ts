@@ -279,8 +279,15 @@ function roomWalls(room: RoomDef, height: number): BufferGeometry | null {
   return merged;
 }
 
+/** Building meshes cast and receive the sun shadows (M3.9; transparent ones are skipped when the map is drawn). */
+function shadowed<T extends Object3D>(o: T): T {
+  o.castShadow = true;
+  o.receiveShadow = true;
+  return o;
+}
+
 function addMesh(entity: BimEntity, geometry: BufferGeometry, mat: MeshStandardNodeMaterial, managed = true): Mesh {
-  const mesh = new Mesh(geometry, mat);
+  const mesh = shadowed(new Mesh(geometry, mat));
   mesh.userData.entity = entity;
   entity.group.add(mesh);
   if (managed) entity.meshes.push(mesh);
@@ -316,6 +323,9 @@ export class Building extends BimEntity {
   private expandGap = 0;
   private expandTarget = 0;
   private readonly topElevation: number;
+  /** Plan extent of everything the document places (footprint, outlines, rooms), local meters: x0, y0, x1, y1. */
+  private readonly plan: [number, number, number, number];
+  private readonly bottomElevation: number;
   /** Device and exterior model loads per entity (settled when attached or failed). */
   private readonly modelLoads = new Map<BimEntity, Promise<void>[]>();
   /** Per floor: its own model and whether its devices' models were requested. */
@@ -360,6 +370,8 @@ export class Building extends BimEntity {
 
     const footprint = doc.footprint ?? this.floorUnionBounds();
     this.topElevation = Math.max(...doc.floors.map((f) => f.elevation + f.height));
+    this.bottomElevation = Math.min(0, ...doc.floors.map((f) => f.elevation)) - SLAB_THICKNESS;
+    this.plan = bounds2([...footprint, ...doc.floors.flatMap((f) => [...(f.outline ?? []), ...(f.rooms ?? []).flatMap((r) => r.footprint)])]);
     for (const f of doc.floors) this.buildFloor(f, footprint);
     this.buildExterior(footprint);
 
@@ -739,7 +751,7 @@ export class Building extends BimEntity {
     const color = ext?.color ?? '#8fb3d9';
     // Glass curtain wall with opaque floor bands, and a roof slab.
     const glass = material(color, { opacity: ext?.opacity ?? 0.5, roughness: 0.15, metalness: 0.4, side: DoubleSide });
-    const shell = new Mesh(prism(footprint, 0, this.topElevation), glass);
+    const shell = shadowed(new Mesh(prism(footprint, 0, this.topElevation), glass));
     shell.renderOrder = 2;
     shell.userData.entity = this;
     this.exterior.add(shell);
@@ -752,7 +764,7 @@ export class Building extends BimEntity {
     bands.push(prism(footprint.map(grow), this.topElevation - 0.1, this.topElevation + 0.6));
     const merged = mergeGeometries(bands.map(nonIndexed));
     for (const b of bands) b.dispose();
-    const bandMesh = new Mesh(merged, band);
+    const bandMesh = shadowed(new Mesh(merged, band));
     bandMesh.userData.entity = this;
     this.exterior.add(bandMesh);
     this.meshes.push(bandMesh);
@@ -843,6 +855,19 @@ export class Building extends BimEntity {
     }
   }
 
+  /**
+   * @internal Local bounds of the building for its sun shadows (building frame: the ENU frame at
+   * the anchor, turned by the heading; `root.matrixWorld` takes it to the world): the plan of the
+   * document with a margin for models reaching past it, from below the lowest slab to the roof of
+   * the expanded floors.
+   */
+  shadowBounds(min: Vector3, max: Vector3): void {
+    const [x0, y0, x1, y1] = this.plan;
+    const margin = 2;
+    min.set(x0 - margin, y0 - margin, this.bottomElevation);
+    max.set(x1 + margin, y1 + margin, this.topElevation + 1 + this.expandGap * Math.max(0, this.floors.length - 1));
+  }
+
   /** Local (building frame) point to world ECEF. */
   localToWorld(p: Vector3): Vector3 {
     return p.applyMatrix4(this.group.matrixWorld);
@@ -880,7 +905,8 @@ export class Building extends BimEntity {
  * Turns a loaded model's materials into node materials (the same conversion the renderer
  * would do on first draw) with the aerial perspective of the globe (M3.5); floor-model
  * surfaces can then take the floor ambient occlusion (M3.4). Shared materials stay shared;
- * types without a node equivalent (custom shaders) are left as they are.
+ * types without a node equivalent (custom shaders) are left as they are. Meshes cast and
+ * receive the sun shadows (M3.9).
  */
 function adoptModelMaterials(scene: Object3D): void {
   const converted = new Map<Material, Material>();
@@ -899,6 +925,7 @@ function adoptModelMaterials(scene: Object3D): void {
     const mesh = o as Mesh;
     if (!mesh.isMesh) return;
     mesh.material = Array.isArray(mesh.material) ? mesh.material.map(convert) : convert(mesh.material);
+    shadowed(mesh);
   });
 }
 

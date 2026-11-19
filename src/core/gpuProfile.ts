@@ -112,6 +112,13 @@ export interface GpuProfile {
   };
   tiles: TilesQuality;
   indoor: IndoorQuality;
+  /** Sun shadows of buildings (`viewer.shadows`): on by default, and texels along a side of the shadow map (4 bytes each). */
+  shadows: { enabled: boolean; mapSize: number };
+  /**
+   * Order-independent transparency for buildings (`viewer.transparency`, WebGPU): two more
+   * multisampled targets the size of the canvas (9 bytes per sample and pixel), so off by default below `ultra`.
+   */
+  orderIndependentTransparency: boolean;
 }
 
 const PROFILES: Record<GpuTier, GpuProfile> = {
@@ -136,6 +143,8 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 12,
     },
     indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000, aoMaxResolution: 512 },
+    shadows: { enabled: false, mapSize: 1024 },
+    orderIndependentTransparency: false,
   },
   // Current integrated graphics (Intel Xe / Arc, Radeon 600M-800M), entry discrete cards.
   medium: {
@@ -158,6 +167,8 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 20,
     },
     indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
+    shadows: { enabled: true, mapSize: 2048 },
+    orderIndependentTransparency: false,
   },
   // Discrete cards (4 GB and up), Apple silicon.
   high: {
@@ -180,6 +191,8 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 25,
     },
     indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
+    shadows: { enabled: true, mapSize: 2048 },
+    orderIndependentTransparency: false,
   },
   // 12 GB cards and up, picked explicitly: large screens, long flights without reloading.
   ultra: {
@@ -202,13 +215,15 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 30,
     },
     indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000, aoMaxResolution: 2048 },
+    shadows: { enabled: true, mapSize: 4096 },
+    orderIndependentTransparency: true,
   },
 };
 
 /** The settings of a tier (a fresh copy, safe to modify). @advanced */
 export function gpuProfile(tier: GpuTier): GpuProfile {
   const p = PROFILES[tier];
-  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor } };
+  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor }, shadows: { ...p.shadows } };
 }
 
 /** `low` / `medium` / `high` / `ultra` (any case, surrounding spaces ignored), else undefined. @advanced */

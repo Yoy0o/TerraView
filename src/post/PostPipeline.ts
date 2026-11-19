@@ -25,24 +25,42 @@
  * only a still view is refined, and any change goes back to live frames (`render`). three's
  * `TRAANode` was not used: its velocity pass multiplies float32 ECEF matrices on the GPU (meters
  * of error at globe scale) and its history never converges to a plain mean.
+ *
+ * Order-independent transparency (roadmap M3.9, `viewer.transparency`; WebGPU): transparent
+ * surfaces the viewer marks (`oitTest`: buildings and devices) leave the scene pass and are
+ * drawn in a pass of their own into a weighted color sum and a revealage (weighted blended OIT,
+ * McGuire and Bavoil, as three's `OITPassNode`), tested against the scene depth without writing
+ * it; the first node of the graph composes them over the scene color. Glass shells, faded rooms
+ * and windows then blend the same from every angle instead of popping as their sort order
+ * changes. The two targets share the scene target's (multisampled) depth, so they are
+ * multisampled like it: 9 bytes per sample and pixel, allocated the first time marked surfaces
+ * are drawn. The WebGL backend keeps sorted transparency (no depth sharing with MSAA).
  */
 import {
+  CustomBlending,
   DepthTexture,
   DepthFormat,
   FloatType,
   HalfFloatType,
   LinearFilter,
   NormalBlending,
+  OneFactor,
+  OneMinusSrcColorFactor,
+  RedFormat,
   RenderTarget,
+  UnsignedByteType,
   UnsignedIntType,
   Vector2,
+  ZeroFactor,
+  type Material,
+  type Object3D,
   type PerspectiveCamera,
   type Scene,
   type Texture,
   type TextureDataType,
 } from 'three';
-import { mrt, output, renderOutput, texture, uniform, vec4 } from 'three/tsl';
-import { NodeMaterial, QuadMesh, RenderPipeline, type WebGPURenderer } from 'three/webgpu';
+import { float, mix, mrt, output, positionView, renderOutput, texture, uniform, vec4 } from 'three/tsl';
+import { BlendMode, NodeMaterial, QuadMesh, RenderPipeline, RendererUtils, type WebGPURenderer } from 'three/webgpu';
 import type { TSLNode } from '../atmosphere/AtmosphereNodes';
 import { collectAttachments, graphKey, jitterOffset, sampleWeight, sortEffects, type PostStage } from './postMath';
 
@@ -50,7 +68,10 @@ export type { PostStage } from './postMath';
 
 /** Inputs an effect builds its part of the node graph from. */
 export interface PostInputs {
-  /** Scene color (linear HDR) as a texture node. */
+  /**
+   * Scene color (linear HDR), with order-independent transparency composed in when it is on: a
+   * node for the fragment's own pixel (not a texture to sample elsewhere).
+   */
   readonly sceneColor: TSLNode;
   /** Scene depth (`renderer.reversedDepthBuffer`: 1 is near) as a texture node. */
   readonly sceneDepth: TSLNode;
@@ -111,6 +132,18 @@ export interface PostEffect {
 
 const _size = new Vector2();
 
+/** Order-independent transparency targets and nodes (created the first time marked surfaces are drawn). */
+interface OitState {
+  /** Weighted color sum (RGBA16F) and revealage (R8), sharing the scene target's depth. */
+  readonly target: RenderTarget;
+  readonly mrt: TSLNode;
+  readonly accum: TSLNode;
+  readonly revealage: TSLNode;
+}
+
+let rendererState: ReturnType<typeof RendererUtils.saveRendererState> | undefined;
+let sceneState: ReturnType<typeof RendererUtils.resetSceneState> | undefined;
+
 /**
  * @advanced The viewer's frame pipeline (`viewer.postProcessing`): scene pass, effects, final
  * pass. The built-in outline and glow effects are registered as `outline` and `glow`.
@@ -139,6 +172,17 @@ export class PostPipeline {
   /** Copies the history into another target (`capture`). */
   private copyQuad: QuadMesh | null = null;
   private _samples = 0;
+  /** @internal Order-independent transparency wanted (`viewer.transparency`); used only where `oitSupported`. */
+  oitEnabled = false;
+  /** @internal Whether the backend can share the multisampled scene depth with the OIT targets (WebGPU). */
+  oitSupported = false;
+  /** @internal Which transparent surfaces go through OIT (the viewer marks buildings and devices). */
+  oitTest: (object: Object3D, material: Material) => boolean = () => false;
+  private oit: OitState | null = null;
+  /** The OIT pass runs (the graph composes it); decided from what the previous scene pass met. */
+  private oitActive = false;
+  /** Marked transparent surfaces the last scene pass met. */
+  private oitSeen = 0;
 
   constructor(
     private readonly renderer: WebGPURenderer,
@@ -197,6 +241,11 @@ export class PostPipeline {
     return this.list.find((e) => e.name === name) ?? null;
   }
 
+  /** @internal Order-independent transparency drew marked surfaces in the last frame (`viewer.transparency.active`). */
+  get oitDrawn(): boolean {
+    return this.oitActive;
+  }
+
   /** Whether an active effect animates on its own (the viewer keeps drawing at full rate). */
   get animating(): boolean {
     return this.list.some((e) => e.active && e.animating === true);
@@ -212,6 +261,8 @@ export class PostPipeline {
     bytes += this.attachmentNames.length * width * height * 8 * (samples > 1 ? samples + 1 : 1);
     // Supersampling history, RGBA16F.
     if (this.history) bytes += this.history.width * this.history.height * 8;
+    // OIT: RGBA16F + R8 per sample, and their resolved copies.
+    if (this.oit) bytes += this.oit.target.width * this.oit.target.height * 9 * (samples > 1 ? samples + 1 : 1);
     return bytes;
   }
 
@@ -349,6 +400,13 @@ export class PostPipeline {
   /** Scene pass into the pipeline's target, then the active effects' own passes. */
   private drawScene(): void {
     const r = this.renderer;
+    // OIT runs when the last scene pass met marked surfaces (the first frame they appear in is sorted).
+    const oit = this.oitEnabled && this.oitSupported;
+    const useOit = oit && this.oitSeen > 0;
+    if (useOit !== this.oitActive) {
+      this.oitActive = useOit;
+      this.key = null;
+    }
     const active = sortEffects(this.list.filter((e) => e.active));
     this.update(active);
 
@@ -357,11 +415,29 @@ export class PostPipeline {
     target.setSize(size.x, size.y);
     const prevTarget = r.getRenderTarget();
     const prevMRT = r.getMRT();
+    const prevFunction = r.getRenderObjectFunction();
     r.setRenderTarget(target);
     r.setMRT(this.mrtNode);
-    r.render(this.scene, this.camera);
-    r.setRenderTarget(prevTarget);
-    r.setMRT(prevMRT);
+    let seen = 0;
+    if (oit) {
+      const test = this.oitTest;
+      r.setRenderObjectFunction((object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) => {
+        if (material.transparent === true && material.blending === NormalBlending && test(object, material)) {
+          seen++;
+          if (useOit) return;
+        }
+        r.renderObject(object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId);
+      });
+    }
+    try {
+      r.render(this.scene, this.camera);
+    } finally {
+      r.setRenderObjectFunction(prevFunction);
+      r.setRenderTarget(prevTarget);
+      r.setMRT(prevMRT);
+    }
+    this.oitSeen = seen;
+    if (useOit) this.drawTransparent(size.x, size.y);
 
     if (active.length > 0) {
       const frame: PostFrame = {
@@ -382,15 +458,16 @@ export class PostPipeline {
   private update(active: PostEffect[]): void {
     const r = this.renderer;
     const infos = active.map((e) => ({ name: e.name, stage: e.stage, order: e.order, graphVersion: e.graphVersion, attachments: Object.keys(e.attachments ?? {}) }));
-    const key = graphKey(infos, `${r.toneMapping}/${r.outputColorSpace}`);
+    const key = graphKey(infos, `${r.toneMapping}/${r.outputColorSpace}/${this.oitActive ? 'oit' : ''}`);
     if (key === this.key) return;
     this.key = key;
 
     const names = collectAttachments(infos);
     if (names.join(',') !== this.attachmentNames.join(',')) this.setAttachments(names, active);
 
+    const sceneColor = this.oitActive ? this.composeTransparent(this.colorNode) : this.colorNode;
     const inputs: PostInputs = {
-      sceneColor: this.colorNode,
+      sceneColor,
       sceneDepth: this.depthNode,
       attachment: (name) => {
         const node = this.attachmentNodes.get(name);
@@ -398,7 +475,7 @@ export class PostPipeline {
         return node;
       },
     };
-    let color: TSLNode = this.colorNode;
+    let color: TSLNode = sceneColor;
     let displayed = false;
     for (const e of active) {
       if (e.stage === 'display' && !displayed) {
@@ -423,6 +500,7 @@ export class PostPipeline {
     this.target = this.createTarget(names);
     this.colorNode.value = this.target.texture;
     this.depthNode.value = this.target.depthTexture;
+    if (this.oit) this.oit.target.depthTexture = this.target.depthTexture;
     old.dispose();
     this.attachmentNames = names;
     this.attachmentNodes.clear();
@@ -437,6 +515,81 @@ export class PostPipeline {
       this.attachmentNodes.set(name, texture(this.target.textures[names.indexOf(name) + 1]));
     }
     this.mrtNode = mrt(outputs);
+  }
+
+  /** The marked transparent surfaces into the OIT targets, over the scene pass's depth (not written). */
+  private drawTransparent(width: number, height: number): void {
+    const r = this.renderer;
+    const state = this.oitTargets();
+    const target = state.target;
+    if (target.depthTexture !== this.target.depthTexture) target.depthTexture = this.target.depthTexture;
+    target.samples = this.target.samples;
+    target.setSize(width, height);
+    const scene = this.scene;
+    rendererState = RendererUtils.saveRendererState(r, rendererState!);
+    // No sky in the sums; and the scene's statistics hook (`stats`, pick signature) belongs to the scene pass.
+    sceneState = RendererUtils.resetSceneState(scene, sceneState!);
+    const afterRender = scene.onAfterRender;
+    scene.onAfterRender = () => {};
+    const test = this.oitTest;
+    try {
+      r.setRenderTarget(target);
+      r.setMRT(state.mrt);
+      r.setRenderObjectFunction((object, sc, camera, geometry, material, group, lightsNode, clippingContext, passId) => {
+        if (material.transparent !== true || material.blending !== NormalBlending || !test(object, material)) return;
+        const depthWrite = material.depthWrite;
+        material.depthWrite = false;
+        r.renderObject(object, sc, camera, geometry, material, group, lightsNode, clippingContext, passId);
+        material.depthWrite = depthWrite;
+      });
+      r.autoClear = true;
+      r.autoClearColor = true;
+      r.autoClearDepth = false; // the scene pass's depth
+      r.autoClearStencil = false;
+      r.opaque = false;
+      r.transparent = true;
+      r.render(scene, this.camera);
+    } finally {
+      scene.onAfterRender = afterRender;
+      RendererUtils.restoreSceneState(scene, sceneState!);
+      RendererUtils.restoreRendererState(r, rendererState!);
+    }
+  }
+
+  private oitTargets(): OitState {
+    if (this.oit) return this.oit;
+    const target = new RenderTarget(1, 1, { count: 2, depthBuffer: true, samples: this.target.samples, generateMipmaps: false });
+    target.depthTexture = this.target.depthTexture;
+    const accum = target.textures[0];
+    // MRT outputs are matched to the target's textures by name.
+    accum.name = 'accum';
+    accum.type = HalfFloatType;
+    const revealage = target.textures[1];
+    revealage.name = 'revealage';
+    revealage.format = RedFormat;
+    revealage.type = UnsignedByteType;
+    // Weighted sums (equation 9 of the paper, view depth in meters): rgb·a·w and a·w add up,
+    // the revealage multiplies by (1 − a).
+    const alpha = output.a;
+    const z = positionView.z.negate();
+    const weight = alpha.mul(float(0.03).div(z.div(200).pow(4).add(1e-5)).clamp(1e-2, 3e3));
+    const add = new BlendMode(CustomBlending);
+    add.blendSrc = OneFactor;
+    add.blendDst = OneFactor;
+    const reveal = new BlendMode(CustomBlending);
+    reveal.blendSrc = ZeroFactor;
+    reveal.blendDst = OneMinusSrcColorFactor;
+    const node: TSLNode = mrt({ accum: vec4(output.rgb.mul(alpha), alpha).mul(weight), revealage: alpha });
+    node.setBlendMode('accum', add).setBlendMode('revealage', reveal).setClearColor('accum', 0x000000, 0).setClearColor('revealage', 0xffffff, 1);
+    this.oit = { target, mrt: node, accum: texture(accum), revealage: texture(revealage) };
+    return this.oit;
+  }
+
+  /** Scene color with the OIT sums composed over it (the first node of the graph). */
+  private composeTransparent(scene: TSLNode): TSLNode {
+    const { accum, revealage } = this.oitTargets();
+    const color = accum.rgb.div(accum.a.max(1e-5));
+    return vec4(mix(color, scene.rgb, revealage.r), scene.a);
   }
 
   private createTarget(attachments: string[]): RenderTarget {
@@ -474,6 +627,7 @@ export class PostPipeline {
     (this.sampleQuad.material as NodeMaterial).dispose();
     (this.copyQuad?.material as NodeMaterial | undefined)?.dispose();
     this.history?.dispose();
+    this.oit?.target.dispose();
     this.target.dispose();
   }
 }

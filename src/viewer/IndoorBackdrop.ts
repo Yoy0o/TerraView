@@ -7,6 +7,7 @@
  */
 import { CircleGeometry, Group, Mesh, Vector3, Vector4 } from 'three';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
+import { sunShadowFactor } from '../lighting/SunShadows';
 import {
   abs,
   color,
@@ -93,6 +94,8 @@ export class IndoorBackdrop {
     ground = mix(ground, color(HORIZON), smoothstep(this.radius.mul(0.08), this.radius.mul(0.45), r));
     const shadow = float(1).sub(smoothstep(0, 9, outside)).mul(0.45);
     ground = ground.mul(float(1).sub(shadow));
+    // The building's sun shadow (M3.9) with real lighting, as dark as the contact shadow.
+    ground = ground.mul(mix(0.55, 1, sunShadowFactor()));
     // Fine lines near the building only; 10 m lines fade out within a few hundred meters (a full-screen grid is busy).
     const minor = gridLines(p, 1).mul(0.22).mul(float(1).sub(smoothstep(25, 90, outside)));
     const major = gridLines(p, 10).mul(0.38).mul(float(1).sub(smoothstep(80, 450, outside)));

@@ -19,7 +19,9 @@
  * the frame rate once the view is quiet (0 = every frame; docs/api.md §1.8); ?ss=0|1 turns still
  * supersampling off / on and ?ssSamples=<4–64> sets its samples; ?grade=neutral|vivid picks the
  * color grading preset (docs/api.md §1.8, §1.9); ?ao=0|1 turns the floor ambient occlusion off / on
- * and ?aoIntensity=0..1 sets its strength (docs/agents/indoor-bim.md §5.6).
+ * and ?aoIntensity=0..1 sets its strength (docs/agents/indoor-bim.md §5.6); ?shadows=0|1 turns the
+ * sun shadows off / on and ?oit=0|1 order-independent transparency (docs/api.md §1.11; defaults
+ * from the GPU tier).
  */
 import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
 

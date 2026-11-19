@@ -75,6 +75,9 @@ async function main(): Promise<void> {
       contributionCulling: { ...cullParams.options, enabled: cullParams.enabled ?? false },
       // ?ao=0|1 floor ambient occlusion off / on (default on), ?aoIntensity=0..1 its strength.
       ambientOcclusion: { enabled: parseFlag(params, 'ao') ?? true, intensity: parseNumber(params, 'aoIntensity', 0, 1) },
+      // ?shadows=0|1 sun shadows, ?oit=0|1 order-independent transparency (default: from the GPU tier).
+      shadows: parseFlag(params, 'shadows'),
+      transparency: { orderIndependent: parseFlag(params, 'oit') },
       container,
       imagery: createImagery(settings),
       // Sources that need network setup (Cesium ion, layer.json) are applied once the panel exists.
