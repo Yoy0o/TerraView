@@ -4,6 +4,27 @@
 
 ## [未发布]
 
+### 日照阴影、透明顺序无关混合（2026-11-19，路线图 §0.2 P3.6：M3.9）
+
+打开真实光照时，建筑和设备在自身、地面、3D Tiles 上投下随时间变化的阴影；玻璃幕墙和半透明房间可以改用与绘制顺序无关的混合。说明见 [docs/api.md](docs/api.md) §1.11。
+
+**新增**
+
+- 日照阴影（默认按显存档位开，`low` 关；只在 `viewer.lighting = true` 且太阳在地平线以上时出现）：一张沿太阳光线的正交阴影图，每帧按"建筑包围盒 ∩ 视锥"适配范围（楼外是整栋楼和它的影子，楼里只剩相机附近，示例办公楼的纹素约 2.6–3.7 cm），中心按纹素对齐、边长分档量化，相机移动时影子边缘不抖。接收方：建筑、设备、glTF 模型、地球地面、3D Tiles（有光照的削弱直射，倾斜摄影整体变暗）、无地表时的展台背景。玻璃、窗、半透明房间不投影，阳光能照进窗户；被层级隐藏的楼层不投影。`viewer.shadows`（`SunShadows`：`enabled`、`intensity`、`softness`、`maxDistance`、`mapSize`、`configure`、只读 `active` / `texelSize` / `bytes`、`invalidate()`），`GeoViewerOptions.shadows`（`boolean` 或 `SunShadowOptions`）。
+- 透明顺序无关混合（OIT，WebGPU）：建筑和设备的透明表面改用加权混合，转动视角时玻璃外壳、窗、半透明房间不再因排序变化跳变。`viewer.transparency`（`Transparency`：`orderIndependent`、只读 `supported` / `active`、`set`），`GeoViewerOptions.transparency`（`TransparencyOptions`）。默认只在 `ultra` 档位开（多两张画布大小的多重采样缓冲，1080p、4x MSAA 约 93 MB）；WebGL 后端保持按距离排序。
+- `viewer.memory.shadows`（阴影图字节数，2048 图 16 MB，也计入 `gpuTotal`）；`viewer.snapshot()` 新增 `shadows` 和 `post.transparency`；`viewer.gpu` 新增 `shadows: { enabled, mapSize }`（`low` 关 1024 / `medium` 2048 / `high` 2048 / `ultra` 4096）和 `orderIndependentTransparency`。
+- 演示应用："场景"里的"日照阴影"和"透明顺序无关混合（OIT）"开关；URL 参数 `?shadows=0|1`、`?oit=0|1`。
+
+**变更**
+
+- 建筑、设备批次和建筑 glTF 的网格默认 `castShadow` / `receiveShadow` 为 true，3D Tiles 的网格 `receiveShadow` 为 true；太阳平行光的 `castShadow` 跟随 `shadows.enabled`（开关一次让带光照的材质重编一次着色器）。
+
+**工程**
+
+- `lighting/shadowFit.ts`（纯函数：光源坐标系、包围盒沿光线的足迹与地面投影深度、与视锥足迹求交、纹素对齐、2^(1/4) 分档）、`lighting/SunShadows.ts`（自己的仅深度阴影图：只把建筑树当场景画，不经主场景、不碰统计；共享接收节点 `sunShadowFactor`：逐对象 float64 的"阴影矩阵 × 对象矩阵"、按 PCF 覆盖范围和受光角算的法线偏移、4×4 次硬件比较采样；无光照材质的 `unlitShadowOutputNode`）。没有用 three 的 `SunLight`（着色器里用 float32 世界坐标乘阴影矩阵，地球尺度上误差约半米）。
+- `post/PostPipeline`：OIT 的场景 pass 分流、透明 pass（与场景目标共享多重采样深度）和合成；`post/Transparency.ts`。`AtmosphereNodes.applyAerialPerspective(color)`（空气透视作用于任意颜色）。
+- 测试：`tests/shadows.test.ts`（光源坐标系、量化、强度随太阳高度、包围盒与地面影子的覆盖、纹素对齐与小幅移动不变、楼内收缩、超出距离 / 身后不画、深度范围随太阳高度、阴影矩阵在三种深度约定下的取值、设置范围），`tests/gpuProfile.test.ts` 补档位的阴影和 OIT 设置。
+
 ### 楼层环境光遮蔽、光照跟随大气（2026-11-19，路线图 §0.2 P3.5：M3.4、M3.5）
 
 楼层地面沿墙根、设备周围柔和变暗；打开真实光照时，建筑和 3D Tiles 的阳光颜色、天光跟着大气走，远处和地球一样有空气透视。说明见 [docs/api.md](docs/api.md) §1.10、[indoor-bim.md](docs/agents/indoor-bim.md) §5.6。

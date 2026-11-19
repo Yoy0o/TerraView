@@ -190,6 +190,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - 层级导航：双击进入、右键 / Esc / 面包屑返回、楼层切换条、楼层展开；沿层级路径逐级切换（可取消、可跳级），每一级都发 `beforeEnterLevel` / `enterLevel` / `leaveLevel`；往下钻时缓存视点，返回时飞回；相机取最近的对角视点（按视场归一化距离），文档可写 `viewpoint`
 - 层级控制策略：每一级的显隐、同级半透明聚焦、拾取映射（`filterObject`）和取景都可以按选择器 + 优先级注册替换（`indoor.registerLevelControl`）
 - 实体 API：选择器表达式（`.room && [温度>26]`、`tags:or(alarm, camera)`、`!` 与括号，编译后缓存）、链式查询与批量样式（`EntitySet`）、标签、样式（颜色 / 透明度）、包围体、属性面板
+- 日照阴影：真实光照下，建筑和设备在自身、地面、3D Tiles 上投下随时间变化的阴影，一张按"建筑 ∩ 视野"适配的阴影图，只在变化时重画（`viewer.shadows`）；建筑的透明表面可选顺序无关混合（`viewer.transparency`，WebGPU）
 - 楼层环境光遮蔽：楼层第一次显示时在 GPU 上烘焙一次，墙根、柜体和桌子周围的地面柔和变暗，不增加每帧开销（`viewer.indoor.ambientOcclusion`）
 - 描边与发光：选中、悬停、告警用描边（可透视被遮挡部分、可闪烁）和选择性泛光表示，不改材质，合批设备可单独描边（`entity.effects`、`viewer.effects`）；所有帧经可扩展的后期管线（`viewer.postProcessing`）
 

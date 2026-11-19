@@ -227,6 +227,16 @@ viewer.indoor.culling.stats;           // { candidates, culled }：上一次评�
 - **代价**（2026-11-19，RTX 4060 笔记本，示例办公楼，每层 796 × 346 纹素）：每层主线程 3–4 ms（WebGPU）/ 5–7 ms（WebGL），读回在 10–170 ms 后到达（第一层含着色器编译）；5 层贴图共 1.4 MB，计入 `viewer.memory.buildings`。每帧只是接收材质多一次贴图采样。
 - **对楼层模型的要求**：地面朝上、在楼层标高处；墙、柜体做成封闭体（单面片的墙从上面看是一条线，投不出遮挡）；楼板底面至少在地面 2 cm 以下（更薄的地面底面会被当成遮挡物，整层变暗）。见 [建筑数据制作手册](../building-data-manual.md) §7.1。
 
+### 5.7 日照阴影与透明（M3.9）
+
+打开真实光照（`viewer.lighting`）时，建筑和设备投下日照阴影（`viewer.shadows`，API 见 [api.md](../api.md) §1.11）；透明表面可选顺序无关混合（`viewer.transparency`）。
+
+- **谁投影、谁接收**：程序生成的楼板、墙、房间、构件、外壳，楼层 / 外壳 / 设备的 glTF，以及设备批次（`BatchMesh`）都是 `castShadow` + `receiveShadow`（`Building` 的 `shadowed()`、`BatchMesh` 构造、`adoptModelMaterials`）。画阴影图时跳过透明材质：玻璃外壳、窗、层级里半透明的兄弟房间（`levelOpacity` < 1 的实体变成透明材质）都不挡光，阳光能从窗户照进房间。被层级隐藏的楼层不画，所以进入某层时，上面几层不再遮住它（"揭开屋顶"的样子，和楼层视角一致）。
+- **范围**：每栋显示着的建筑按文档的平面范围（外轮廓、楼层轮廓、房间，外扩 2 m）和标高范围（最低楼板到屋顶，含楼层展开的间距）算一个局部包围盒（`Building.shadowBounds`），阴影图按这些包围盒的足迹 ∩ 视锥足迹适配，光源坐标系挂在进入的建筑（否则最近的建筑）的锚点上。glTF 外壳明显超出文档平面范围时，超出部分的影子可能被裁掉。
+- **何时重画**：建筑经实体发生的变化（显隐、样式、移动、模型加载 / 卸载、层级切换、楼层展开、贡献剔除）都让阴影图在下一帧重画；直接改了建筑网格（不经实体 API）后调用 `viewer.shadows.invalidate()`。
+- **透明顺序无关混合**：开了 `viewer.transparency.orderIndependent`（WebGPU）时，带 `userData.entity` 的网格和设备批次中的透明材质走 OIT，宿主自己的物体不受影响。
+- **对数据的要求**：不用额外字段。窗、玻璃隔断做成透明材质（`kind: window` 默认就是）就不会挡光；单面片的屋顶 / 楼板也能投影（阴影图两面都画）。
+
 ## 6. 层级控制
 
 ### 6.1 切换流程
@@ -337,10 +347,12 @@ resume(); // 或 viewer.interaction.resume() 撤销全部
 - 实时数据（如 IoT 状态）：更新 `entity.properties`，调用 `setStyle()` 改颜色；顶牌内容改变后调用 `marker.invalidateSize()`。
 - 大规模设备（成千上万个）：设备已按楼层合批（§5.2），1 万个设备约 40 次绘制。新增设备类的构建要走 `InstanceBatcher.add`（给出几何键、基础材质键和 `BaseLook`），不要给设备单独建网格；需要逐实例的新外观参数时扩展 `bimStyle` 与 `resolveLook`，不要克隆材质。
 - 层级效果写在层级控制里，不要在别处直接改楼层的 `group.visible`；同级半透明用 `levelOpacity`，不要占用 `setStyle` 的 `opacity`（那是用户样式）。
+- 新增建筑网格时设 `castShadow` / `receiveShadow`（用 `Building.ts` 的 `shadowed()`），透明的东西自然不投影（§5.7）。
 - 新增楼层上的网格（新构件种类、新的程序几何）：想清楚它在楼层 AO 里的角色（§5.6），贴着地面的面设 `mesh.userData.aoRole = 'floor'`，透明或不该变暗的设 `'occluder'`；材质用 `Building.ts` 的 `material()`（节点材质，带空气透视）。改了楼层上的内容又不经过 `visible` / `refreshTransform()` / 模型加载时，调 `building.floorContentChanged(entity)`（内部）让 AO 重新烘焙。
 
 ## 9. 路线图
 
+- 日照阴影、透明顺序无关混合已完成（§5.7，M3.9）。以后可做：透明物体按透明度投出浅影（彩色玻璃）、3D Tiles 作为遮挡物投影到建筑上（每次重画要画大量瓦片，按需评估）。
 - 楼层环境光遮蔽已完成（§5.6，M3.4）。以后可做：透明物体（玻璃隔断）按透明度投射、按房间分区烘焙超大楼层、楼层模型的单面片墙（需要按法线朝向补厚度）。
 - IFC 直读（web-ifc）；楼层模型使用 3D Tiles 或 glTF LOD。楼层模型按需加载、按预算卸载已完成（§5.4）。
 - 剖切面 / 剖切盒（ThingJS"剖切"）、室内导航（路网 + A*）、热力图和点位聚合。

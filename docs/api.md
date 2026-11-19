@@ -209,6 +209,36 @@ viewer.events.on('idle', () => {
 
 楼层**第一次显示时**烘焙一次（GPU 上画一张俯视遮挡图再做两次可分离滤波，主线程 3–7 ms，结果读回成一张单通道贴图），之后只是材质里多采样一次贴图，不增加每帧的 pass；楼层模型加载 / 卸载、楼层上的设备显隐或移动（`entity.visible`、`refreshTransform()`）之后，改动稳定 250 ms 再重新烘焙。做法、哪些网格接收和投射见 [indoor-bim.md](agents/indoor-bim.md) §5.6。
 
+### 1.11 日照阴影与透明顺序无关混合
+
+**日照阴影**（路线图 M3.9，`viewer.shadows`，类 `SunShadows`；创建时 `GeoViewerOptions.shadows`，`true` / `false` 或 `SunShadowOptions`）：`viewer.lighting = true` 且太阳在地平线以上时，建筑和设备投下阴影，落在建筑自身、设备、地球地面、3D Tiles 和展台背景上。默认按显存档位开（`low` 关）。
+
+| 项 | 说明 |
+| --- | --- |
+| `enabled` | 开关。开关一次会让带光照的材质（建筑、设备、3D Tiles）重编一次着色器；关掉时释放阴影图 |
+| `intensity` | 完全背阴处去掉多少直射阳光，0..1（默认 0.85）。天光和夜间补光不受影响 |
+| `softness` | 阴影边缘的柔化宽度，阴影图纹素数，0.5–4（默认 1.5） |
+| `maxDistance` | 离相机多远以内画阴影，米（默认 2000） |
+| `mapSize` | 阴影图边长，512–4096 的 2 的幂（默认按档位：2048，`ultra` 4096）；每纹素 4 字节，2048 为 16 MB，计入 `viewer.memory.shadows` |
+| `configure(options)`、`options` | 改其中几项（超出范围的夹到范围内）、读当前设置 |
+| `active`、`texelSize`、`bytes` | 上一帧是否画了阴影、阴影图一个纹素多少米（清晰度）、阴影图字节数 |
+| `invalidate()` | 下一帧重画阴影图。经实体改动建筑（显隐、样式、移动、模型、层级切换、楼层展开）时 viewer 自己会做；直接改了建筑网格时调用 |
+
+一张正交阴影图沿太阳光线看过去，每帧按"建筑包围盒 ∩ 视锥"重新适配范围：在楼外看是整栋楼加它的影子，进到楼里只剩相机附近的部分，纹素随之变小（示例办公楼 2048 图约 2.6–3.7 cm）。范围的中心按纹素对齐、边长按 2^(1/4) 一档量化，相机移动时影子边缘不抖。阴影图只在范围变了或建筑内容变了时重画（只画建筑树，示例楼约 40–120 次绘制），静止和超采样期间不重画。透明的东西（玻璃幕墙、窗、层级里半透明的兄弟房间）不投影，阳光能透过窗户照进室内；被层级隐藏的楼层也不投影，所以进入某层时那一层是"揭开屋顶"的样子。
+
+接收方读同一个共享节点：带光照的材质经太阳光的 `shadow.shadowNode` 只削弱直射光；地球瓦片乘在自己的直射项上；无光照的 3D Tiles（倾斜摄影，光照已烘在贴图里）和展台背景按阴影整体变暗一半左右。坐标精度：阴影坐标是逐对象在 CPU 上用 float64 算好的"阴影矩阵 × 对象矩阵"作用在局部坐标上，ECEF 大数不进 GPU。没有用 three 的 `SunLight`（级联阴影）：它在着色器里用 float32 世界坐标乘阴影矩阵，地球尺度上误差约半米，而且是给单个大场景用的，建筑尺度上一张适配好的图更清楚。做法和规则见 [roadmap.md](agents/roadmap.md) §0.2"P3.6 落地"。
+
+**透明顺序无关混合（OIT）**（`viewer.transparency`，类 `Transparency`；创建时 `GeoViewerOptions.transparency`）：
+
+| 项 | 说明 |
+| --- | --- |
+| `orderIndependent` | 建筑和设备的透明表面改用加权混合 OIT（McGuire–Bavoil，同 three 的 `OITPassNode`）：玻璃外壳、窗、半透明房间互相叠加时与绘制顺序无关，转动视角时不会因为排序变化而跳变。默认只在 `ultra` 档位开 |
+| `supported` | 当前后端能否使用（WebGPU 能；WebGL 后端不能和多重采样的场景共享深度，保持按距离排序） |
+| `active` | 上一帧是否有表面走了 OIT |
+| `set(options)` | 改设置 |
+
+代价：被标记的透明表面从场景 pass 拿出来，单独画进两张与场景目标同样多重采样的缓冲（RGBA16F 权重和 + R8 透射率，每像素每样本 9 字节，1280×720、4x MSAA 约 41 MB；1920×1080 约 93 MB），在第一次有这类表面要画时分配，计入 `viewer.memory.framebuffers`；后期图最前面多一次合成。实测 1280×720 进入房间（兄弟房间半透明）时 GPU 1.0 → 1.6 ms。只处理建筑和设备的网格；宿主自己加进场景的透明物体、云、注记照旧排序。加权混合是近似：很多层高不透明度的表面叠在一起时颜色会偏淡，适合玻璃和半透明淡化这类低不透明度的场合。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -232,14 +262,16 @@ viewer.events.on('idle', () => {
 | `ViewerEffects`（`viewer.effects`）、`ObjectEffects`、`OutlineStyle`、`BUILTIN_OUTLINES` | 三维对象的描边与发光、描边样式、宽度与光晕（§1.9） | 稳定 |
 | `ColorGrading`（`viewer.colorGrading`）、`ColorGradingOptions`、`COLOR_GRADING_PRESETS` | 曝光、对比度、饱和度（§1.9） | 稳定 |
 | `Supersampling`（`viewer.supersampling`）、`SupersamplingOptions` | 静止超采样：开关、样本数、`sampleCount` / `converged`（§1.8） | 稳定 |
+| `SunShadows`（`viewer.shadows`）、`SunShadowOptions` | 日照阴影：`enabled`、`intensity`、`softness`、`maxDistance`、`mapSize`、`configure`、`active` / `texelSize` / `bytes`、`invalidate`（§1.11） | 稳定 |
+| `Transparency`（`viewer.transparency`）、`TransparencyOptions` | 透明顺序无关混合：`orderIndependent`、`supported`、`active`（§1.11） | 稳定 |
 | `PostPipeline`（`viewer.postProcessing`）、`PostEffect`、`PostFrame`、`PostInputs`、`PostStage` | 后期管线与自定义效果（§1.9） | 高级 |
 | `viewer.levelTransition` | 层级切换过渡：上一帧按深度重投影、随相机飞行溶解（`duration` 毫秒，0 关闭；`reproject`，§1.9）；类型 `LevelTransition` 不从入口导出 | 高级 |
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
 | `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
-| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，`buildings` 含建筑模型和楼层 AO 贴图）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
+| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，`buildings` 含建筑模型和楼层 AO 贴图，`shadows` 是阴影图）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
-| `viewer.snapshot()`、`ViewerSnapshot` | 诊断快照：后端、帧统计、显存、加载状态、视点、地球、3D Tiles、室内（AO、剔除）、后期效果、灯光，纯 JSON 值（路线图 M5.1） | 高级 |
+| `viewer.snapshot()`、`ViewerSnapshot` | 诊断快照：后端、帧统计、显存、加载状态、视点、地球、3D Tiles、室内（AO、剔除）、后期效果与透明混合、灯光、阴影，纯 JSON 值（路线图 M5.1） | 高级 |
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` / `still` / `samples` | 安静时降帧、静止后停画与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
 | `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
@@ -282,6 +314,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 实现与规则见 [tile-loading.md](agents/tile-loading.md) §7.1。
 
+3D Tiles 接收建筑的日照阴影（§1.11）：有光照的瓦片材质经太阳光削弱直射，无光照的（倾斜摄影）在阴影里整体变暗；瓦片本身不投影。
+
 ### 3.4 矢量
 
 `GeoJsonLayer`（`viewer.addGeoJson`）、`GeoJsonLayerOptions`、`VectorStyle`、`LabelStyle`、`DEFAULT_VECTOR_STYLE`、`DEFAULT_LABEL_STYLE`、`FeatureHit`、`LayerSummary`；`lonLatToMerc` / `mercToLonLat`。级别：稳定。
@@ -318,7 +352,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | `CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS` | 稳定 |
 | `Ellipsoid`、`cartographic`、`WGS84_A` / `WGS84_B`、`geodeticToEcef`、`geodeticNormal`、`sunDirectionECEF` | 稳定 |
 | `EventEmitter`；`DEG2RAD`、`RAD2DEG`、`clamp`、`formatDegrees`、`formatDistance` | 稳定 |
-| `GpuTier`、`GpuProfile`、`TilesQuality`、`IndoorQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
+| `GpuTier`、`GpuProfile`（含 `shadows`、`orderIndependentTransparency`）、`TilesQuality`、`IndoorQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
 | `gpuProfile`、`classifyGpu`、`parseGpuTier`、`GPU_TIERS`、`GpuHints` | 高级 |
 | 语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError` | 稳定 |
 
@@ -326,7 +360,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（2026-11-18 起由 `LevelTransition` 取代，类型经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
-公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`skyProbe`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`viewer.indoor.ambientOcclusion` 的 `update`、`pending`、`forget`、`dispose`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`、`floorContentChanged`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
+公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`skyProbe`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`viewer.indoor.ambientOcclusion` 的 `update`、`pending`、`forget`、`dispose`；`viewer.shadows` 的 `update`、`bind`、`render`；`viewer.postProcessing` 的 `oitEnabled`、`oitSupported`、`oitTest`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`、`floorContentChanged`、`shadowBounds`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
 
 ## 4. 多个 viewer
 
@@ -344,6 +378,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | 3D Tiles 渐显遮罩节点 | `tiles3d/nodeMaterials` | 只读节点图，逐材质参数走 `materialReference` |
 | 空气透视的 `outputNode` | `atmosphere/AtmosphereNodes`（`aerialPerspectiveOutputNode`） | 只读节点图，读的是上面的大气 uniform（渲染前按 viewer 重写） |
 | 楼层 AO 的 `colorNode` | `indoor/FloorOcclusion` | 只读节点图；贴图、范围、强度是材质属性，楼层坐标是逐对象 uniform（取自网格的 `userData`），都不跨 viewer |
+| 日照阴影的接收节点（`sunShadowFactor`、无光照材质的 `unlitShadowOutputNode`）和它的 uniform：阴影图纹理、阴影矩阵、太阳方向、强度、纹素、柔化 | `lighting/SunShadows` | 每个 viewer 渲染前用 `shadows.bind()` 重写全部值（在 `updateEnvironment` 里，帧外渲染也先调用）；阴影图是各 viewer 自己的渲染目标，没有阴影时绑定自己的 1×1 空图。逐对象的阴影坐标矩阵在绘制时用当前值现算 |
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
 | 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |

@@ -58,6 +58,8 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 │  └─ terrain/  地形源描述、quantized-mesh 解码、terrainTiling（主线程与 Worker 共用的分块 / 插值规则）
 ├─ atmosphere/  大气散射 TSL 节点（含建筑与 3D Tiles 的空气透视 `aerialPerspectiveOutputNode`）、大气的 CPU 版（atmosphereModel：透射率、天空、SH，常数两边共用）、
 │               AtmosphereLighting（光照跟随大气：太阳颜色、天光探针）、星空、云层（CloudLayer）
+├─ lighting/    日照阴影：shadowFit（阴影图范围适配：包围盒足迹 ∩ 视锥足迹、纹素对齐、分档，纯函数）、
+│               SunShadows（viewer.shadows：自管的仅深度阴影图、共享接收节点 sunShadowFactor / unlitShadowOutputNode）
 ├─ tiles3d/     3D Tiles 图层（含档位预算）；nodeMaterials（节点材质转换 + WebGPU 渐显 + 纹理过滤策略）；
 │               lodPolicy（远处放宽、缓存满时自适应降精度，纯函数）；tileFeatures（要素编号与属性、高亮叠加网格）
 ├─ vector/      GeoJSON 图层、矢量 Worker、注记（LabelManager）
@@ -72,7 +74,8 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果；静止超采样的抖动样本与历史缓冲）、EffectMarks（描边 / 发光对象登记）、
 │               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、
 │               Supersampling（viewer.supersampling）、ColorGrading（viewer.colorGrading + 对比度 / 饱和度效果）、
-│               LevelTransition（viewer.levelTransition：层级切换时截帧，按深度重投影后溶解）、postMath（纯函数）
+│               LevelTransition（viewer.levelTransition：层级切换时截帧，按深度重投影后溶解）、
+│               Transparency（viewer.transparency：建筑和设备的透明顺序无关混合，透明 pass 在 PostPipeline 里）、postMath（纯函数）
 └─ viewer/      GeoViewer（总装、拾取、帧循环）、GlobeCameraController、cameraMath、CameraFlight（弧线 / 注视飞行）、
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
                 IndoorBackdrop（无地表时的展台背景）、
@@ -85,7 +88,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -189,6 +192,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **矢量**：GeoJSON 在 Worker 中解析和栅格化，按瓦片贴地；注记做屏幕空间避让。
 - **帧率与静止超采样**：画面安静 1 秒后先做静止超采样（默认 16 / 32 个亚像素抖动样本，P3.3），画完就**不再画帧**，只按 `idleFrameRate`（默认 10）更新状态；关掉超采样时按 `idleFrameRate` 重画。有变化立刻恢复实时画面（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。两种信号：**变化**（`requestRender()`，画面可能不同了，丢掉超采样）和**唤醒**（`GeoViewer.wake()`，输入或 DOM 上的工作，只要求全帧率更新，不丢画面）；新信号先想清楚是哪一种，输入本身只能是唤醒，否则鼠标一动静止画面就先变糙再变细。画面静止后漏接一个变化，改动要等下一次别的变化才出现（不再是"晚 100 ms"），所以新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`（如 `labels.update`、`Globe.animating`、`Tiles3DLayer.animating`），或像云层那样给出最低帧率（大于 0 就永远不算静止）；能廉价读到的状态放进 `GeoViewer.pictureChanged()` 每帧比较。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `GeoViewer.checkPendingWork()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
 - **光照跟随大气与空气透视**（M3.5）：开光照时，建筑和 3D Tiles 的平行光颜色、天光探针（`viewer.skyProbe`，内部）由大气的 CPU 版（`atmosphere/atmosphereModel.ts`）在视点处算出，和着色器用同一套常数（改大气常数只改那里）。建筑、设备、3D Tiles 的材质挂共享的 `aerialPerspectiveOutputNode()` 作为 `outputNode`（与地球瓦片相同的空气透视，逐像素，100 m 内跳过）；新增这类材质时照样挂上，不要用 `scene.fog` / `scene.fogNode`（会作用到注记、云、展台等所有材质）。见 docs/api.md §1.10。
+- **日照阴影与透明混合**（M3.9）：开光照时一张自管的平行光阴影图（`viewer.shadows`，`lighting/SunShadows`），每帧按"建筑包围盒 ∩ 视锥"适配，只把建筑树（`indoor.root`）画进去，只在范围或建筑内容变化时重画。接收方读共享的 `sunShadowFactor()`：光照材质经太阳光的 `shadow.shadowNode`（只削弱直射），地球瓦片乘在直射项上，无光照的 3D Tiles 和展台背景用 `unlitShadowOutputNode` / 直接乘。新建的建筑网格要 `castShadow` / `receiveShadow`（`Building` 的 `shadowed()`、`BatchMesh` 构造里已设）；透明材质不投影。不要用 three 的 `SunLight` / `CSMShadowNode`（float32 世界坐标乘阴影矩阵，ECEF 下差半米），也不要给太阳光开 three 自己的阴影图。直接改建筑网格后调用 `viewer.shadows.invalidate()`。透明顺序无关混合（`viewer.transparency`，WebGPU，默认只在 `ultra`）只处理建筑实体网格和设备批次（`postProcessing.oitTest`）。见 docs/api.md §1.11。
 - **开场动画、云层、导航控制**：核心 API 是 `viewer.playIntro()`、`viewer.clouds`、`viewer.navigation`，演示界面（`ui/NavigationBar`、面板开关、URL 参数）只调用它们。脚本化的相机运动走 `controller.playAnimation`，程序缩放 / 环绕走 `zoomBy` / `orbitBy`，不要直接改相机位姿，否则手势打断不了。见 [intro-and-navigation.md](docs/agents/intro-and-navigation.md)。
 
 ## 5. 常见任务
@@ -267,6 +271,9 @@ docs/agents/    子系统规范（本文档的展开）
 - **材质的 `mrtNode` 会顶掉所有渲染目标里的输出**（2026-11-17，P3.1）：r187 的 `NodeMaterial` 在渲染到渲染目标时，渲染器没设 MRT 就直接用 `material.mrtNode` 当输出，拾取缓冲、渲染器自带的 HDR 目标都算渲染目标。three 官方选择性泛光示例那种"给材质挂 `mrtNode`"的写法在本仓库会弄坏拾取和画面。逐对象的后期效果走 `post/EffectMarks` 的遮罩重绘，逐材质的附件用 `PostEffect.attachments` 的全局节点。
 - **`setViewOffset` 会改 `camera.aspect`**（2026-11-18，P3.3）：three 的 `PerspectiveCamera.setViewOffset(fullWidth, fullHeight, …)` 把 `aspect` 设成 `fullWidth / fullHeight`，`clearViewOffset()` 不还原。按画布像素传入时它和容器的宽高比差在最后几位，恢复后的投影矩阵就和原来不一样：静止判定每帧比较相机矩阵，会认为画面一直在变，超采样永远开始不了（或无限重来）。抖动时先存下 `aspect`，`fullWidth` 用 `aspect × 高`，恢复时先写回 `aspect` 再 `clearViewOffset()`（`PostPipeline.renderSample`）。
 - **渲染目标纹理不要经 `materialReference` 长期挂在材质上**（2026-11-19，M3.4）：楼层 AO 起初把烘焙用的渲染目标纹理作为材质属性采样，实测 WebGPU、WebGL 两个后端都上下颠倒（直接 `texture(rt.texture)` 的后期 pass 没有这个问题），在 WebGPU 上手动翻转后又完全采不到；three 对渲染目标纹理的 y 翻转按纹理节点处理，对 `materialReference` 创建的节点不可靠。烘焙一次就长期使用的结果，用 `readRenderTargetPixelsAsync` 读回成 `DataTexture`，行序自己定（WebGPU 读回从画面顶行开始，WebGL 从底行，见 `FloorOcclusion.occlusionRows`）。
+- **没有挂在渲染目标上的深度纹理会被当成多重采样**（2026-11-19，M3.9）：three 的 WebGPU 后端对 `texture.renderTarget` 为空的 `DepthTexture` 按渲染器当前的采样数（开 MSAA 时是 4）判断，于是认为它不可过滤、不生成采样器，着色器里 `textureSampleCompare` 编译失败（`unresolved value '..._sampler'`）。要当纹理采样的深度纹理一律挂在一个渲染目标上（`new RenderTarget(w, h, { depthTexture, count: 0 })` 是仅深度目标），占位的空图也一样。
+- **放大已绑定的渲染目标，材质仍读旧纹理**（2026-11-19，M3.9）：阴影图起初以 1×1 创建、开阴影时再 `setSize` 到 2048，结果材质采样到的一直是旧的 1×1 清空值（深度全是 0，影子完全不出现，没有任何报错）。被材质长期绑定的渲染目标纹理不要改尺寸；要换尺寸就新建一个目标，让纹理对象本身变（节点的 `value` 换成新纹理，绑定会跟着更新）。
+- **MRT 的输出按纹理名对应**（2026-11-19，M3.9）：`mrt({ accum, revealage })` 的名字要和渲染目标各纹理的 `name` 一致，对不上时生成的 WGSL 输出结构是空的（`structures must have at least one member`），整帧提交失败。
 - **统计要取场景 pass 的**：后期管线和描边遮罩也会增加 `renderer.info` 的绘制数。拾取缓冲的签名和 `stats` 用 `scene.onAfterRender` 时记下的数，否则悬停改变描边就会让拾取缓冲失效。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
