@@ -41,6 +41,7 @@ export type {
   ViewerError,
   ViewerErrorSource,
   ViewerEvents,
+  ViewerSnapshot,
   ViewPosition,
 } from './viewer/GeoViewer';
 export type { LoadState } from './viewer/loadState';
@@ -161,6 +162,8 @@ export type { LevelContext, LevelControl } from './indoor/LevelControl';
 export type { Framing, LevelView } from './indoor/levelView';
 export { ContributionCuller, DEFAULT_CULLING } from './indoor/ContributionCulling';
 export type { ContributionCullingOptions, CullingRule } from './indoor/ContributionCulling';
+export { FloorOcclusion, FLOOR_OCCLUSION_DEFAULTS } from './indoor/FloorOcclusion';
+export type { BakedOcclusion, FloorOcclusionOptions, OcclusionGrid } from './indoor/FloorOcclusion';
 
 // ---------------------------------------------------------------- post-processing and per-object effects
 export { ViewerEffects } from './post/ViewerEffects';

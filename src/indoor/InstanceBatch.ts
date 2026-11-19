@@ -20,7 +20,7 @@ import {
 } from 'three';
 import { materialEmissive, materialOpacity, referenceAttribute } from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshPhongNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type NodeMaterial } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import { aerialPerspectiveOutputNode, type TSLNode } from '../atmosphere/AtmosphereNodes';
 import type { DrawableSink } from '../post/EffectMarks';
 import type { BaseLook, BimEntity, EntityInstance, ResolvedLook } from './BimEntity';
 import { variantKey, type MaterialState, type StylePool } from './StylePool';
@@ -52,6 +52,8 @@ export function makeBatchMaterial<T extends NodeMaterial>(m: T): T {
   }
   mat.opacity = 1;
   mat.opacityNode = (materialOpacity as TSLNode).mul(style.a);
+  // Hazed by the atmosphere like the globe around it (M3.5).
+  if (mat.outputNode === null) mat.outputNode = aerialPerspectiveOutputNode();
   mat.transparent = false;
   mat.depthWrite = true;
   return m;
@@ -66,6 +68,11 @@ const NODE_CLASSES: Record<string, new () => NodeMaterial> = {
 };
 /** Properties not carried over to the node material (identity, listeners, type). */
 const SKIPPED = new Set(['uuid', 'type', 'version', 'userData', '_listeners']);
+
+/** Whether a material is a node material or has a node equivalent `toNodeMaterial` converts it to exactly. */
+export function hasNodeEquivalent(m: Material): boolean {
+  return (m as Material & { isNodeMaterial?: boolean }).isNodeMaterial === true || m.type in NODE_CLASSES;
+}
 
 /**
  * Node-material copy of a (glTF) material for batching, the same property
@@ -350,6 +357,11 @@ export class BatchedInstance implements EntityInstance {
     const mesh = this.mesh;
     if (!mesh || !this.active || !mesh.visible) return;
     add(this.group.geometry, (mesh.material as Material).side, _m.multiplyMatrices(mesh.matrixWorld, this.matrix));
+  }
+
+  floorDrawable(add: (geometry: BufferGeometry, matrix: Matrix4) => void): void {
+    // `matrix` is in the batch owner's frame: the batches sit untransformed in the floor's group.
+    add(this.group.geometry, this.matrix);
   }
 
   private join(): void {

@@ -25,10 +25,11 @@ import {
 } from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { aerialPerspectiveOutputNode } from '../atmosphere/AtmosphereNodes';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { DEG2RAD } from '../core/math';
 import { BimEntity, STRUCTURE_TAG, type BaseLook } from './BimEntity';
-import { InstanceBatcher, lookOf, makeBatchMaterial, toNodeMaterial, type BatchMesh, type BatchSpec } from './InstanceBatch';
+import { hasNodeEquivalent, InstanceBatcher, lookOf, makeBatchMaterial, toNodeMaterial, type BatchMesh, type BatchSpec } from './InstanceBatch';
 import { disposeModel, estimateModelBytes, type ModelResidency } from './modelBudget';
 import { sharedStylePool, type StylePool } from './StylePool';
 import {
@@ -183,6 +184,8 @@ function material(color: string, options: { opacity?: number; roughness?: number
     m.depthWrite = false;
   }
   if (options.side !== undefined) m.side = options.side;
+  // Hazed by the atmosphere like the globe around it (M3.5).
+  m.outputNode = aerialPerspectiveOutputNode();
   return m;
 }
 
@@ -196,6 +199,14 @@ function shapeOf(points: Vec2[]): Shape {
   points.forEach(([x, y], i) => (i === 0 ? s.moveTo(x, y) : s.lineTo(x, y)));
   s.closePath();
   return s;
+}
+
+/**
+ * Geometry without an index, for merging (boxes are indexed, extrusions are not;
+ * `toNonIndexed` on the latter only warns and copies).
+ */
+function nonIndexed(g: BufferGeometry): BufferGeometry {
+  return g.index ? g.toNonIndexed() : g;
 }
 
 /** Prism over a polygon from z0 to z1. */
@@ -263,7 +274,7 @@ function roomWalls(room: RoomDef, height: number): BufferGeometry | null {
     if (tail) parts.push(tail);
   }
   if (parts.length === 0) return null;
-  const merged = mergeGeometries(parts.map((p) => p.toNonIndexed()));
+  const merged = mergeGeometries(parts.map(nonIndexed));
   for (const p of parts) p.dispose();
   return merged;
 }
@@ -309,6 +320,8 @@ export class Building extends BimEntity {
   private readonly modelLoads = new Map<BimEntity, Promise<void>[]>();
   /** Per floor: its own model and whether its devices' models were requested. */
   private readonly floorModels = new Map<BimEntity, FloorModels>();
+  /** Content version per floor (`contentVersion`). */
+  private readonly floorContent = new Map<BimEntity, number>();
   /** Device model loads waiting for their floor to be shown (lazy models). */
   private readonly deferredLoads = new Map<BimEntity, (() => void)[]>();
   /** Bytes of the models that stay loaded: exterior, device models (a shared template counts once). */
@@ -399,6 +412,20 @@ export class Building extends BimEntity {
     return Promise.all(pending).then(() => undefined);
   }
 
+  /**
+   * Version of what stands on a floor (floor model, device models, devices shown, hidden or
+   * moved): increases with every change, so the floor ambient occlusion knows when to re-bake.
+   */
+  contentVersion(floor: BimEntity): number {
+    return this.floorContent.get(floor) ?? 0;
+  }
+
+  /** @internal Notes that the content of the floor an entity belongs to changed (`contentVersion`). */
+  floorContentChanged(entity: BimEntity): void {
+    const floor = entity.closest('floor');
+    if (floor) this.floorContent.set(floor, this.contentVersion(floor) + 1);
+  }
+
   /** Estimated GPU bytes of the glTF models loaded for this building (floors, devices, exterior). */
   get modelBytes(): number {
     let bytes = this.staticModelBytes;
@@ -437,6 +464,7 @@ export class Building extends BimEntity {
     m.state = 'idle';
     m.load = null;
     m.bytes = 0;
+    this.floorContentChanged(floor);
     this.onChange?.(true);
     return true;
   }
@@ -462,6 +490,7 @@ export class Building extends BimEntity {
       m.state = 'loaded';
       m.bytes = attached.bytes;
       m.release = attached.release;
+      this.floorContentChanged(floor);
     });
   }
 
@@ -478,6 +507,8 @@ export class Building extends BimEntity {
       entity,
       load.then((attached) => {
         if (attached) this.staticModelBytes += attached.bytes;
+        // Device models stand on their floor (the exterior has none).
+        if (!this.disposed) this.floorContentChanged(entity);
       }),
     );
   }
@@ -533,8 +564,8 @@ export class Building extends BimEntity {
     this.add(floor);
     this.floors.push(floor);
 
-    // Slab: managed by the floor itself (picking empty floor area selects the floor).
-    addMesh(floor, prism(outline, -SLAB_THICKNESS, 0), material('#d9dee6', { roughness: 0.95 }));
+    // Slab: managed by the floor itself (picking empty floor area selects the floor). A floor surface for the AO.
+    addMesh(floor, prism(outline, -SLAB_THICKNESS, 0), material('#d9dee6', { roughness: 0.95 })).userData.aoRole = 'floor';
 
     for (const r of def.rooms ?? []) this.buildRoom(floor, r, def.height);
     for (const t of def.things ?? []) this.buildThing(floor, t);
@@ -552,7 +583,7 @@ export class Building extends BimEntity {
     const color = def.color ?? ROOM_COLORS[room.category] ?? '#e8edf4';
     const geometry = new ShapeGeometry(shapeOf(ccw(def.footprint)));
     geometry.translate(0, 0, 0.02);
-    addMesh(room, geometry, material(color, { roughness: 0.9 }));
+    addMesh(room, geometry, material(color, { roughness: 0.9 })).userData.aoRole = 'floor';
     if (def.walls !== false) {
       const walls = roomWalls(def, height);
       if (walls) addMesh(room, walls, material('#f3f5f9', { roughness: 0.7 }));
@@ -680,7 +711,7 @@ export class Building extends BimEntity {
         .slice(1)
         .map((b, i) => wallBox(def.path![i], b, 0, def.height ?? floorHeight, def.thickness ?? WALL_THICKNESS))
         .filter((g): g is BufferGeometry => g !== null);
-      if (parts.length) geometry = mergeGeometries(parts.map((p) => p.toNonIndexed()));
+      if (parts.length) geometry = mergeGeometries(parts.map(nonIndexed));
     } else if (def.kind === 'slab' && def.path && def.path.length >= 3) {
       geometry = prism(def.path, -(def.thickness ?? SLAB_THICKNESS), 0);
     } else if (def.position) {
@@ -691,7 +722,10 @@ export class Building extends BimEntity {
       geometry.computeBoundingBox();
       const box = geometry.boundingBox!;
       el.labelAnchor.set((box.min.x + box.max.x) / 2, (box.min.y + box.max.y) / 2, box.max.z + 0.3);
-      addMesh(el, geometry, material(color, { opacity: def.kind === 'window' ? 0.45 : 1 }));
+      const mesh = addMesh(el, geometry, material(color, { opacity: def.kind === 'window' ? 0.45 : 1 }));
+      // Glass casts the floor AO but is not darkened by it; slabs are floor surfaces.
+      if (def.kind === 'window') mesh.userData.aoRole = 'occluder';
+      else if (def.kind === 'slab') mesh.userData.aoRole = 'floor';
     }
   }
 
@@ -716,7 +750,7 @@ export class Building extends BimEntity {
     const bands: BufferGeometry[] = [];
     for (const f of this.doc.floors) bands.push(prism(footprint.map(grow), f.elevation - 0.35, f.elevation + 0.05));
     bands.push(prism(footprint.map(grow), this.topElevation - 0.1, this.topElevation + 0.6));
-    const merged = mergeGeometries(bands.map((b) => b.toNonIndexed()));
+    const merged = mergeGeometries(bands.map(nonIndexed));
     for (const b of bands) b.dispose();
     const bandMesh = new Mesh(merged, band);
     bandMesh.userData.entity = this;
@@ -747,6 +781,7 @@ export class Building extends BimEntity {
         return null;
       }
       const bytes = estimateModelBytes(scene);
+      adoptModelMaterials(scene);
       const holder = new Group();
       holder.name = `model ${ref.uri}`;
       if ((ref.upAxis ?? 'Y') === 'Y') holder.rotation.x = Math.PI / 2; // glTF +Y up -> local +Z up
@@ -839,6 +874,32 @@ export class Building extends BimEntity {
     for (const p of this.templates.values()) void p.then((scene) => scene && disposeModel(scene));
     this.templates.clear();
   }
+}
+
+/**
+ * Turns a loaded model's materials into node materials (the same conversion the renderer
+ * would do on first draw) with the aerial perspective of the globe (M3.5); floor-model
+ * surfaces can then take the floor ambient occlusion (M3.4). Shared materials stay shared;
+ * types without a node equivalent (custom shaders) are left as they are.
+ */
+function adoptModelMaterials(scene: Object3D): void {
+  const converted = new Map<Material, Material>();
+  const convert = (m: Material): Material => {
+    if (!hasNodeEquivalent(m)) return m;
+    let node = converted.get(m);
+    if (!node) {
+      const n = toNodeMaterial(m);
+      if (n.outputNode === null) n.outputNode = aerialPerspectiveOutputNode();
+      node = n;
+      converted.set(m, node);
+    }
+    return node;
+  };
+  scene.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(convert) : convert(mesh.material);
+  });
 }
 
 function isAncestor(a: Object3D, b: Object3D): boolean {

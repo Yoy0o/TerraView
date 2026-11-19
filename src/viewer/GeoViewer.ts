@@ -2,6 +2,8 @@ import {
   Color,
   DirectionalLight,
   HemisphereLight,
+  LightProbe,
+  LinearSRGBColorSpace,
   NeutralToneMapping,
   PerspectiveCamera,
   Quaternion,
@@ -19,6 +21,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { AtmosphereLighting, type AtmosphereLight } from '../atmosphere/AtmosphereLighting';
 import { atmosphereUniforms, skyColorNode, Z_SCALE } from '../atmosphere/AtmosphereNodes';
 import { CloudLayer, type CloudOptions } from '../atmosphere/CloudLayer';
 import { StarField } from '../atmosphere/Stars';
@@ -28,16 +31,17 @@ import { classifyGpu, effectivePixelRatio, estimateFramebufferBytes, gpuProfile,
 import { clamp, DEG2RAD, smoothstep } from '../core/math';
 import { greenwichMeanSiderealTime, sunDirectionECEF } from '../core/SunPosition';
 import { DEFAULT_LOCALE, resolveMessages, type LocaleId, type ViewerMessageOverrides, type ViewerMessages } from '../core/i18n';
-import { Globe, type GlobeOptions } from '../globe/Globe';
+import { Globe, type GlobeOptions, type GlobeStats } from '../globe/Globe';
 import { OverlayCompositor } from '../globe/OverlayCompositor';
 import { BimEntity } from '../indoor/BimEntity';
 import type { Building } from '../indoor/Building';
 import type { ContributionCullingOptions } from '../indoor/ContributionCulling';
+import { FloorOcclusionBaker, type FloorOcclusionOptions } from '../indoor/FloorOcclusion';
 import { IndoorManager } from '../indoor/IndoorManager';
-import { MarkerManager } from '../markers/MarkerManager';
+import { MarkerManager, type MarkerStats } from '../markers/MarkerManager';
 import { PointLayer, type PointLayerOptions } from '../markers/PointLayer';
 import type { PointRecord } from '../markers/points';
-import { Tiles3DLayer, type LoaderKit, type Tiles3DLayerOptions, type TilesViewState } from '../tiles3d/Tiles3DLayer';
+import { Tiles3DLayer, type LoaderKit, type Tiles3DLayerOptions, type TilesMemoryStats, type TilesViewState } from '../tiles3d/Tiles3DLayer';
 import type { NodeMaterialLibrary } from '../tiles3d/nodeMaterials';
 import { resolveTileFeature, type FeatureHighlightStyle, type TileFeature } from '../tiles3d/tileFeatures';
 import { GeoJsonLayer, type GeoJsonLayerOptions } from '../vector/GeoJsonLayer';
@@ -53,7 +57,7 @@ import { GlowEffect } from '../post/GlowEffect';
 import { LevelTransition } from '../post/LevelTransition';
 import { OutlineEffect } from '../post/OutlineEffect';
 import type { ColorGradingOptions } from '../post/postMath';
-import { PostPipeline } from '../post/PostPipeline';
+import { PostPipeline, type PostStage } from '../post/PostPipeline';
 import { Supersampling, type SupersamplingOptions } from '../post/Supersampling';
 import { ViewerEffects } from '../post/ViewerEffects';
 import { tileDebugUniforms } from '../globe/TileMaterial';
@@ -124,6 +128,11 @@ export interface GeoViewerOptions extends GlobeOptions {
    * `enabled: true`. Change later with `viewer.indoor.culling.configure()`.
    */
   contributionCulling?: ContributionCullingOptions;
+  /**
+   * Floor ambient occlusion (M3.4, default on): floors darken softly along walls and under
+   * devices. Change later with `viewer.indoor.ambientOcclusion.configure()`.
+   */
+  ambientOcclusion?: FloorOcclusionOptions;
   /** Upper bound of the canvas pixel ratio (default from the GPU tier: 1 / 1.5 / 2 / 2). */
   maxPixelRatio?: number;
   /**
@@ -191,13 +200,48 @@ export interface MemoryReport {
   globe: number;
   /** 3D Tiles content uploaded to the GPU. */
   tilesGpu: number;
-  /** glTF models of the buildings (floor, device and exterior models; `indoor.modelBytes`). */
+  /**
+   * Buildings: glTF models (floor, device and exterior models; `indoor.modelBytes`) and the
+   * floor ambient occlusion textures (`indoor.ambientOcclusion.bytes`).
+   */
   buildings: number;
   /** Sum of the above: the viewer's video memory, without generated building geometry, labels and the browser's own share. */
   gpuTotal: number;
   /** Decoded 3D Tiles content in the tile cache (mostly system memory; includes what is on the GPU) and its limit. */
   tilesCache: number;
   tilesCacheMax: number;
+}
+
+/**
+ * @advanced Diagnostics of a viewer at one moment (`viewer.snapshot()`, roadmap M5.1): plain
+ * JSON-serializable values to attach to a bug report or hand to a tool. The shape may grow
+ * between minor versions.
+ */
+export interface ViewerSnapshot {
+  /** When it was taken (ISO 8601) and the simulated date driving the sun. */
+  time: string;
+  date: string;
+  info: RendererInfo;
+  stats: FrameStats;
+  memory: MemoryReport;
+  load: LoadState;
+  view: Required<ViewPosition>;
+  scene: { lighting: boolean; atmosphere: boolean; showGlobe: boolean; showStars: boolean; clouds: boolean; timeMultiplier: number };
+  globe: GlobeStats & { shown: boolean };
+  tilesets: { id: number; name: string; visible: boolean; active: boolean; pending: number; errorScale: number; memory: TilesMemoryStats }[];
+  layers: { vector: number; points: number; markers: MarkerStats };
+  indoor: {
+    buildings: number;
+    /** Entered level (id and type), null on the globe. */
+    current: { id: string; type: string } | null;
+    selected: string | null;
+    modelBytes: number;
+    ambientOcclusion: { enabled: boolean; floors: number; bytes: number };
+    culling: { enabled: boolean; candidates: number; culled: number };
+  };
+  post: { effects: { name: string; stage: PostStage; active: boolean }[]; samples: number; supersampling: boolean; transitionMs: number };
+  /** Lights of buildings and 3D Tiles: sun color (linear RGB) and intensity, hemisphere and sky probe intensities. */
+  lights: { sunColor: [number, number, number]; sunIntensity: number; hemisphere: number; skyProbe: number };
 }
 
 export interface FrameStats {
@@ -284,7 +328,13 @@ const _ndc = new Vector2();
 const _v = new Vector3();
 const _dir = new Vector3();
 const _carto = cartographic();
+const _lightPoint = new Vector3();
 const CENTER_NDC = new Vector2(0, 0);
+/**
+ * Hemisphere light kept at night with `lighting` on (fades out by day): the sky alone lights
+ * buildings to almost nothing then, and interiors should stay readable.
+ */
+const NIGHT_FILL = 0.25;
 /** Vertical surface rays start this high above the ellipsoid (meters; above any building or photogrammetry)… */
 const SURFACE_RAY_TOP = 10_000;
 /** …and reach this far below it (Dead Sea shore, ellipsoid below the geoid). */
@@ -334,6 +384,8 @@ export class GeoViewer {
   readonly sunLight = new DirectionalLight(0xffffff, 3);
   /** @internal */
   readonly skyLight = new HemisphereLight(0xbcd7ff, 0x4a4136, 1.1);
+  /** @internal Sky and ground light from the atmosphere when `lighting` is on (M3.5); intensity 0 otherwise. */
+  readonly skyProbe = new LightProbe(undefined, 0);
   readonly events = new EventEmitter<ViewerEvents>();
   readonly info: RendererInfo;
   readonly stats: FrameStats = { fps: 0, frameMs: 0, gpuMs: null, drawCalls: 0, triangles: 0, throttled: false, still: false, samples: 0 };
@@ -407,6 +459,8 @@ export class GeoViewer {
 
   private _lighting = false;
   private _atmosphere = true;
+  /** Sun color and sky light at the view from the CPU atmosphere model (M3.5). */
+  private readonly atmosphereLight = new AtmosphereLighting();
   private _showGlobe = true;
   private _showStars = true;
   private readonly container: HTMLElement;
@@ -552,7 +606,7 @@ export class GeoViewer {
     this.clouds.onChange = () => this.requestRender();
     if (options.clouds) this.clouds.set(options.clouds);
     this.scene.add(this.clouds.mesh);
-    this.scene.add(this.sunLight, this.sunLight.target, this.skyLight);
+    this.scene.add(this.sunLight, this.sunLight.target, this.skyLight, this.skyProbe);
     this.scene.background = new Color(0x000000);
     this.backdrop = new IndoorBackdrop(this.ellipsoid);
     this.scene.add(this.backdrop.group);
@@ -593,6 +647,8 @@ export class GeoViewer {
       setTilesetsVisible: (visible) => this.setTilesetsSuppressed(!visible),
       loadModel: (uri) => this.loadModel(uri),
       followMove: (delta) => this.controller.translate(delta),
+      occlusionBaker: new FloorOcclusionBaker(renderer),
+      ambientOcclusion: { maxResolution: profile.indoor.aoMaxResolution, ...options.ambientOcclusion },
     });
     this.scene.add(this.indoor.root);
     this.marks = new EffectMarks(this.scene);
@@ -742,8 +798,52 @@ export class GeoViewer {
       tilesCache = m.cachedBytes;
       tilesCacheMax = m.cacheMaxBytes;
     }
-    const buildings = this.indoor.modelBytes;
+    const buildings = this.indoor.modelBytes + this.indoor.ambientOcclusion.bytes;
     return { framebuffers, globe, tilesGpu, buildings, gpuTotal: framebuffers + globe + tilesGpu + buildings, tilesCache, tilesCacheMax };
+  }
+
+  /**
+   * @advanced Diagnostics of the viewer as of the last frame, JSON-serializable (`ViewerSnapshot`,
+   * roadmap M5.1): `JSON.stringify(viewer.snapshot())` for a bug report.
+   */
+  snapshot(): ViewerSnapshot {
+    const indoor = this.indoor;
+    const c = this.sunLight.color;
+    return {
+      time: new Date().toISOString(),
+      date: this.date.toISOString(),
+      info: { ...this.info },
+      stats: { ...this.stats },
+      memory: this.memory,
+      load: { ...this._loadState },
+      view: this.getView(),
+      scene: {
+        lighting: this._lighting,
+        atmosphere: this._atmosphere,
+        showGlobe: this._showGlobe,
+        showStars: this._showStars,
+        clouds: this.clouds.mesh.visible,
+        timeMultiplier: this.timeMultiplier,
+      },
+      globe: { ...this.globe.stats, shown: this._showGlobe },
+      tilesets: this.tilesets.map((l) => ({ id: l.id, name: l.name, visible: l.visible, active: l.active, pending: l.pending, errorScale: l.errorScale, memory: { ...l.memory } })),
+      layers: { vector: this.vectorLayers.length, points: this.pointLayers.length, markers: { ...this.markers.stats } },
+      indoor: {
+        buildings: indoor.buildings.length,
+        current: indoor.current ? { id: indoor.current.id, type: indoor.current.type } : null,
+        selected: indoor.selected?.id ?? null,
+        modelBytes: indoor.modelBytes,
+        ambientOcclusion: { enabled: indoor.ambientOcclusion.enabled, floors: indoor.ambientOcclusion.bakedFloors, bytes: indoor.ambientOcclusion.bytes },
+        culling: { enabled: indoor.culling.enabled, ...indoor.culling.stats },
+      },
+      post: {
+        effects: this.postProcessing.effects.map((e) => ({ name: e.name, stage: e.stage, active: e.active })),
+        samples: this.postProcessing.samples,
+        supersampling: this.supersampling.enabled,
+        transitionMs: this.levelTransition.duration,
+      },
+      lights: { sunColor: [c.r, c.g, c.b], sunIntensity: this.sunLight.intensity, hemisphere: this.skyLight.intensity, skyProbe: this.skyProbe.intensity },
+    };
   }
 
   get showStars(): boolean {
@@ -1166,6 +1266,8 @@ export class GeoViewer {
     layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'tileset', error, layer }));
     // Tiles loaded, `visible` or `heightOffset` set.
     layer.events.on('change', () => this.requestRender());
+    // Heights measured on a tileset that moved are out of date.
+    layer.events.on('moved', () => this.surface.clearHeld());
     this.scene.add(layer.group);
     this.tilesets.push(layer);
     this.surface.clearHeld();
@@ -1672,22 +1774,50 @@ export class GeoViewer {
 
     // Lights for 3D Tiles and buildings (globe tiles shade themselves).
     if (this._lighting) {
+      // The sun's color and the sky light where the view is (the entered building, else the
+      // ground under the camera), from the same atmosphere the globe is drawn with (M3.5).
       this.sunLight.position.copy(sun);
-      const day = smoothstep(-0.15, 0.2, sunAltitude);
-      this.sunLight.intensity = 3.2 * day;
-      this.skyLight.intensity = 0.25 + 0.9 * day;
+      const light = this.updateAtmosphereLight(sun);
+      this.sunLight.color.setRGB(light.sunColor[0], light.sunColor[1], light.sunColor[2], LinearSRGBColorSpace);
+      this.sunLight.intensity = light.sunIntensity;
+      this.skyProbe.intensity = 1;
+      // A little fill at night so interiors stay readable (the sky alone gives next to nothing).
+      this.skyLight.intensity = NIGHT_FILL * (1 - smoothstep(-0.15, 0.2, sunAltitude));
     } else {
       // Head light from above and behind the viewer.
       cameraDirection(cam.quaternion, _dir);
       this.sunLight.position.copy(up).addScaledVector(_dir, -0.7).normalize();
+      this.sunLight.color.setRGB(1, 1, 1);
       this.sunLight.intensity = 2.4;
       this.skyLight.intensity = 1.2;
+      this.skyProbe.intensity = 0;
     }
     this.sunLight.target.position.set(0, 0, 0);
     this.sunLight.updateMatrixWorld();
     this.sunLight.target.updateMatrixWorld();
     this.skyLight.position.copy(up);
     this.skyLight.updateMatrixWorld();
+  }
+
+  /**
+   * Sun color and sky light (SH) at the point the view is about (the entered building, else
+   * the ground under the camera), recomputed when the sun or the point moved noticeably; the
+   * SH goes into the light probe when it changed.
+   */
+  private updateAtmosphereLight(sun: Vector3): AtmosphereLight {
+    const building = this.currentBuilding();
+    const c = this.cameraCarto;
+    let p: Vector3;
+    if (building) {
+      p = building.group.getWorldPosition(_lightPoint);
+    } else {
+      const ground = this._showGlobe ? (this.globe.getHeight(c.longitude, c.latitude) ?? 0) : this.viewGround;
+      p = this.ellipsoid.cartographicToCartesian(c.longitude, c.latitude, Math.max(ground, 0), _lightPoint);
+    }
+    if (this.atmosphereLight.update([p.x, p.y, p.z], [sun.x, sun.y, sun.z])) {
+      this.atmosphereLight.current!.sh.forEach((rgb, i) => this.skyProbe.sh.coefficients[i].set(rgb[0], rgb[1], rgb[2]));
+    }
+    return this.atmosphereLight.current!;
   }
 
   /** Frame statistics; draw calls and triangles are those of the scene pass (not the post-processing or pick passes). */

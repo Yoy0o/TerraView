@@ -11,7 +11,7 @@ import {
   type Object3D,
 } from 'three';
 import { float, Fn, materialReference, screenCoordinate } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import { aerialPerspectiveOutputNode, type TSLNode } from '../atmosphere/AtmosphereNodes';
 
 /** Converts plain materials to their node equivalents (`renderer.library.fromMaterial`). */
 export interface NodeMaterialLibrary {
@@ -103,6 +103,9 @@ export class NodeMaterialPlugin {
         const node = this.library.fromMaterial(m) ?? m;
         // Photogrammetry often has inconsistent winding; avoid holes.
         node.side = DoubleSide;
+        // Hazed by the atmosphere like the globe tiles around it (M3.5); one shared node keeps pipelines shared.
+        const n = node as Material & { isNodeMaterial?: boolean; outputNode?: TSLNode | null };
+        if (n.isNodeMaterial && n.outputNode === null) n.outputNode = aerialPerspectiveOutputNode();
         applyTexturePolicy(node, this.textures);
         return node;
       };

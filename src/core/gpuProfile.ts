@@ -87,6 +87,8 @@ export interface IndoorQuality {
   modelBytesTarget: number;
   /** Milliseconds a floor stays hidden before its model may be unloaded. */
   unloadDelayMs: number;
+  /** Texels along the longer side of a floor's ambient occlusion texture at most (`indoor.ambientOcclusion.maxResolution`). */
+  aoMaxResolution: number;
 }
 
 /** Everything a tier decides. Explicit viewer / layer options take precedence over these. */
@@ -133,7 +135,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 3,
       downloadJobs: 12,
     },
-    indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000 },
+    indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000, aoMaxResolution: 512 },
   },
   // Current integrated graphics (Intel Xe / Arc, Radeon 600M-800M), entry discrete cards.
   medium: {
@@ -155,7 +157,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 4,
       downloadJobs: 20,
     },
-    indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000 },
+    indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
   },
   // Discrete cards (4 GB and up), Apple silicon.
   high: {
@@ -177,7 +179,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 5,
       downloadJobs: 25,
     },
-    indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000 },
+    indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
   },
   // 12 GB cards and up, picked explicitly: large screens, long flights without reloading.
   ultra: {
@@ -199,7 +201,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       parseJobs: 6,
       downloadJobs: 30,
     },
-    indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000 },
+    indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000, aoMaxResolution: 2048 },
   },
 };
 

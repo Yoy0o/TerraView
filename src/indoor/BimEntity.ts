@@ -2,7 +2,7 @@
  * Managed BIM entities (building, floor, room, thing, element): the entity
  * tree, per-entity style overrides, tags, and selector matching.
  */
-import { Box3, Color, Group, Sphere, Vector3, type Material, type Mesh, type Object3D } from 'three';
+import { Box3, Color, Group, Sphere, Vector3, type BufferGeometry, type Material, type Matrix4, type Mesh, type Object3D } from 'three';
 import type { DrawableSink } from '../post/EffectMarks';
 import { mergeEffects, resolveEffects, type ObjectEffects, type ResolvedEffects } from '../post/postMath';
 import { disposeModel } from './modelBudget';
@@ -75,6 +75,11 @@ export interface EntityInstance {
   dispose(): void;
   /** @internal Reports the instance's geometry and world matrix to `add` when it is drawn (outline and glow passes). */
   collectDrawable?(add: DrawableSink): void;
+  /**
+   * @internal Reports the instance's geometry and its matrix in the frame of the batch owner
+   * (the floor), whether or not it is drawn right now (floor ambient occlusion bake).
+   */
+  floorDrawable?(add: (geometry: BufferGeometry, matrix: Matrix4) => void): void;
 }
 
 type StylableMaterial = Material & { color?: Color; emissive?: Color; opacity: number; transparent: boolean; depthWrite: boolean };
@@ -129,7 +134,7 @@ export class BimEntity implements Selectable {
    * covers (`geometry` true: shown, hidden, moved), so the viewer draws at the full frame
    * rate and refreshes picking. Not called for `culled`, which the viewer sets itself.
    */
-  onChange: ((geometry: boolean) => void) | null = null;
+  onChange: ((geometry: boolean, source?: BimEntity) => void) | null = null;
   /**
    * @internal Set on the root entity by its owner: called with the entity whose effects or
    * highlight changed, so the viewer can keep the set of entities it draws effects for.
@@ -211,7 +216,7 @@ export class BimEntity implements Selectable {
   private changed(geometry: boolean): void {
     let root: BimEntity = this;
     while (root.parent) root = root.parent;
-    root.onChange?.(geometry);
+    root.onChange?.(geometry, this);
   }
 
   /** Visible including all ancestors (three.js raycasting ignores `visible`). */

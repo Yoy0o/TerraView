@@ -44,6 +44,8 @@ export interface Tiles3DLayerEvents extends Record<string, unknown> {
   error: { message: string; error: Error };
   /** Something to draw changed: tiles loaded, `visible` or `heightOffset` set. */
   change: void;
+  /** The tileset moved (`heightOffset` set): heights measured on it before are out of date. */
+  moved: void;
 }
 
 /** Loader dependencies shared by all tilesets (decoders are heavy). */
@@ -262,8 +264,10 @@ export class Tiles3DLayer {
   }
 
   set heightOffset(meters: number) {
+    if (meters === this._heightOffset) return;
     this._heightOffset = meters;
     this.applyPlacement();
+    this.events.emit('moved', undefined);
     this.events.emit('change', undefined);
   }
 

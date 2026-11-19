@@ -18,7 +18,8 @@
  * docs/agents/gpu-memory.md) instead of the one guessed from the adapter; ?idleFps=<0, 10–60> sets
  * the frame rate once the view is quiet (0 = every frame; docs/api.md §1.8); ?ss=0|1 turns still
  * supersampling off / on and ?ssSamples=<4–64> sets its samples; ?grade=neutral|vivid picks the
- * color grading preset (docs/api.md §1.8, §1.9).
+ * color grading preset (docs/api.md §1.8, §1.9); ?ao=0|1 turns the floor ambient occlusion off / on
+ * and ?aoIntensity=0..1 sets its strength (docs/agents/indoor-bim.md §5.6).
  */
 import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
 

@@ -16,17 +16,21 @@
 import { Vector3 } from 'three';
 import {
   abs,
+  cameraWorldMatrix,
   clamp,
   dot,
   exp,
   float,
   Fn,
   If,
+  length,
   Loop,
   max,
   min,
   mix,
   normalize,
+  output,
+  positionView,
   pow,
   renderGroup,
   select,
@@ -35,26 +39,19 @@ import {
   uniform,
   vec2,
   vec3,
+  vec4,
 } from 'three/tsl';
-import { WGS84_A, WGS84_B } from '../core/geodesy';
+import * as model from './atmosphereModel';
+import { GROUND_RADIUS_KM, MIE_EXTINCTION, MIE_G, MIE_SCALE_HEIGHT, MIE_SCATTERING, OZONE_CENTER, OZONE_HALF_WIDTH, RAYLEIGH_SCALE_HEIGHT, TOP_RADIUS_KM, Z_SCALE } from './atmosphereModel';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type TSLNode = any;
 
-export const GROUND_RADIUS_KM = WGS84_A / 1000;
-export const ATMOSPHERE_HEIGHT_KM = 80;
-export const TOP_RADIUS_KM = GROUND_RADIUS_KM + ATMOSPHERE_HEIGHT_KM;
-export const Z_SCALE = WGS84_A / WGS84_B;
+// Constants live in the CPU model (`atmosphereModel.ts`) so both sides compute the same atmosphere.
+export { ATMOSPHERE_HEIGHT_KM, GROUND_RADIUS_KM, TOP_RADIUS_KM, Z_SCALE } from './atmosphereModel';
 
-const RAYLEIGH_SCATTERING = vec3(5.802e-3, 13.558e-3, 33.1e-3); // 1/km
-const RAYLEIGH_SCALE_HEIGHT = 8.0; // km
-const MIE_SCATTERING = 3.996e-3;
-const MIE_EXTINCTION = 4.44e-3;
-const MIE_SCALE_HEIGHT = 1.2;
-const MIE_G = 0.8;
-const OZONE_ABSORPTION = vec3(0.65e-3, 1.881e-3, 0.085e-3);
-const OZONE_CENTER = 25.0;
-const OZONE_HALF_WIDTH = 15.0;
+const RAYLEIGH_SCATTERING = vec3(...model.RAYLEIGH_SCATTERING); // 1/km
+const OZONE_ABSORPTION = vec3(...model.OZONE_ABSORPTION);
 
 /** Uniforms shared by every atmosphere-aware material (updated once per frame). */
 export const atmosphereUniforms = {
@@ -266,3 +263,39 @@ export const skyColorNode = Fn(([viewDir]: [TSLNode]) => {
 
   return inscatter.add(halo).mul(u.atmosphereEnabled).add(sun);
 });
+
+/** Ray-march steps of the aerial perspective on buildings and 3D Tiles (per pixel; globe tiles use 10 per vertex). */
+const AERIAL_STEPS = 6;
+/** Closer than this (km) the haze is under 0.5 % and is skipped: rooms seen from inside cost nothing. */
+const AERIAL_MIN_KM = 0.1;
+
+let aerialOutput: TSLNode = null;
+
+/**
+ * Output node giving a material the same aerial perspective as the globe
+ * tiles (M3.5): the lit color is attenuated by the transmittance between the
+ * camera and the fragment and the in-scattered light is added, scaled like
+ * the ground haze. Set it as `material.outputNode` of buildings and 3D Tiles
+ * (one shared node, so materials keep sharing pipelines). Per pixel: the
+ * view position is exact (float64 model-view matrices), so only the camera's
+ * rotation turns it into a world direction; nothing touches ECEF positions
+ * in float32. Off when the atmosphere is off, and skipped up close.
+ */
+export function aerialPerspectiveOutputNode(): TSLNode {
+  if (aerialOutput) return aerialOutput;
+  const u = atmosphereUniforms;
+  aerialOutput = Fn(() => {
+    const color = vec4(output).toVar();
+    If(u.atmosphereEnabled.greaterThan(0.5), () => {
+      const d = cameraWorldMatrix.mul(vec4(positionView, 0)).xyz;
+      const dKm = vec3(d.x, d.y, d.z.mul(Z_SCALE)).mul(0.001);
+      const dist = length(dKm);
+      If(dist.greaterThan(AERIAL_MIN_KM), () => {
+        const s = integrateScattering(u.cameraPositionKm, dKm.div(dist), dist, u.sunDirection, AERIAL_STEPS, null);
+        color.assign(vec4(color.rgb.mul(s.transmittance).add(s.inscatter.mul(u.groundHaze)), color.a));
+      });
+    });
+    return color;
+  })();
+  return aerialOutput;
+}

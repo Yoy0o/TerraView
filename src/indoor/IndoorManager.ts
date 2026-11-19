@@ -17,6 +17,7 @@ import { BimEntity, selectorPredicate, type EntitySelector } from './BimEntity';
 import { Building, type ModelLoader } from './Building';
 import { ContributionCuller } from './ContributionCulling';
 import { EntitySet } from './EntitySet';
+import { FloorOcclusion, type FloorOcclusionOptions, type OcclusionBaker } from './FloorOcclusion';
 import { isBatchMesh } from './InstanceBatch';
 import {
   basicLevelControl,
@@ -94,6 +95,10 @@ export interface IndoorHost {
   contentChanged?: (geometry: boolean) => void;
   /** Display text: names of the properties buildings add to entities; default `zh-CN`. */
   readonly messages?: ViewerMessages;
+  /** Bakes the floor ambient occlusion (M3.4) on the GPU; without one no floor gets AO. */
+  occlusionBaker?: OcclusionBaker | null;
+  /** Floor ambient occlusion settings to start with (the viewer passes its options and GPU tier). */
+  ambientOcclusion?: FloorOcclusionOptions;
 }
 
 export interface EnterOptions {
@@ -184,6 +189,13 @@ export class IndoorManager {
    * The entered level and the selection are never culled.
    */
   readonly culling: ContributionCuller;
+  /**
+   * Floor ambient occlusion (M3.4): floors darken softly along walls and under
+   * devices, baked once per floor when it is first shown or what stands on it
+   * changes. On by default; `indoor.ambientOcclusion.configure({ intensity: 0.4 })`,
+   * `enabled = false` to remove it.
+   */
+  readonly ambientOcclusion: FloorOcclusion;
   private _showLabels = true;
   private _expandFloors = false;
   private readonly labels = new Map<BimEntity, Marker>();
@@ -205,6 +217,7 @@ export class IndoorManager {
     this.culling = new ContributionCuller(host.camera, () => this.buildings, (e) => e === this.current || e === this.selected);
     // Newly shown floors and a new selection get their state at once, not after the interval.
     for (const type of ['enterLevel', 'select'] as const) this.events.on(type, () => this.culling.invalidate());
+    this.ambientOcclusion = new FloorOcclusion(host.occlusionBaker ?? null, () => host.contentChanged?.(false), host.ambientOcclusion);
   }
 
   get showLabels(): boolean {
@@ -255,7 +268,7 @@ export class IndoorManager {
       messages: this.host.messages,
     });
     this.buildings.push(building);
-    building.onChange = (geometry) => this.entityChanged(geometry);
+    building.onChange = (geometry, source) => this.entityChanged(building, geometry, source);
     building.onEffects = (e) => {
       if (e.resolvedEffects()) this.marked.add(e);
       else this.marked.delete(e);
@@ -283,6 +296,7 @@ export class IndoorManager {
     if (this.viewCache.get(null)?.building === building) this.viewCache.delete(null);
     this.buildings.splice(i, 1);
     this.culling.forget(building);
+    this.ambientOcclusion.forget(building);
     building.traverse((e) => this.marked.delete(e));
     building.onChange = null;
     building.onEffects = null;
@@ -291,9 +305,12 @@ export class IndoorManager {
   }
 
   /** An entity of a loaded building changed (`BimEntity.onChange`). */
-  private entityChanged(geometry: boolean): void {
+  private entityChanged(building: Building, geometry: boolean, source?: BimEntity): void {
     // Shown, hidden or moved: what is too small on screen may differ now.
     if (geometry) this.culling.invalidate();
+    // Something standing on a floor was shown, hidden or moved: its AO is baked again once it settles.
+    // (Floors and buildings shown or hidden by level changes do not change what stands on a floor.)
+    if (geometry && source && source.type !== 'floor' && source.type !== 'building') building.floorContentChanged(source);
     this.host.contentChanged?.(geometry);
   }
 
@@ -672,6 +689,7 @@ export class IndoorManager {
       b.updateModels(this.clock);
     }
     this.unloadOverBudget();
+    this.ambientOcclusion.update(this.buildings, this.clock);
     if (this.culling.update()) changed = true;
     return changed;
   }
@@ -716,6 +734,7 @@ export class IndoorManager {
   dispose(): void {
     if (this.transition) this.transition.cancelled = true;
     for (const b of [...this.buildings]) this.remove(b);
+    this.ambientOcclusion.dispose();
     this.root.removeFromParent();
   }
 }

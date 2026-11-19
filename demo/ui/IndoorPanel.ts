@@ -61,6 +61,7 @@ export class IndoorPanel {
         '进出建筑、切换楼层时，从上一帧画面淡出过渡，避免 3D Tiles、外壳、楼层突然出现或消失',
       ),
       ...this.effectControls(),
+      ...this.occlusionControls(),
       ...this.cullingControls(),
       h('p', { class: 'hint' }, '双击建筑 / 楼层 / 房间逐级进入，右键单击或 Esc 返回上一级。'),
       this.list,
@@ -92,6 +93,27 @@ export class IndoorPanel {
   private applyAlarmEffects(): void {
     const alarms = this.viewer.indoor.query((e) => String(e.properties['状态'] ?? '').startsWith('告警'));
     alarms.setEffects(this.alarmEffects ? { outline: 'alarm', glow: 0.6 } : { outline: null, glow: null });
+  }
+
+  /** Floor ambient occlusion (M3.4): on / off and strength. */
+  private occlusionControls(): HTMLElement[] {
+    const ao = this.viewer.indoor.ambientOcclusion;
+    const strength = slider(
+      '墙根阴影强度',
+      { min: 0, max: 1, step: 0.05, value: ao.options.intensity, format: (v) => `${Math.round(v * 100)}%` },
+      (v) => ao.configure({ intensity: v }),
+    );
+    strength.root.hidden = !ao.enabled;
+    const on = toggle(
+      '楼层环境光遮蔽（墙根、设备底部变暗）',
+      ao.enabled,
+      (v) => {
+        ao.enabled = v;
+        strength.root.hidden = !v;
+      },
+      '楼层第一次显示时烘焙一次：墙根、柜体和桌子周围的地面柔和变暗，墙面底部随高度淡出；不增加每帧开销',
+    );
+    return [on, strength.root];
   }
 
   /** Contribution culling (M2.3): on / off, threshold, and how much is culled right now. */
