@@ -66,6 +66,15 @@ heading = atan2(H·e, H·n)
 
 防入地（`host.groundHeight`）走 `viewer.surfaceHeight`：地球显示时是地形；地球隐藏时是 3D Tiles 表面，同样只采用精度不超过 `max(50 m, 离地高度 × 1.5)` 的数据（瓦片几何误差），不可靠时以 0 m 为底；在建筑里以建筑地面为准。
 
+### 3.6 活动范围（`bounds`，局部场景）
+
+`CameraBounds { center, referenceHeight, maxRange, clampFocus(point, out) }`。每帧手势之后（飞行、脚本动画中不约束）由 `holdInBounds` 执行：
+
+1. **视线不离开区域**：屏幕中心射线从相机到参考面（`referenceHeight` 的椭球面）的一段上，离 `center` 最近的点交给 `clampFocus`；夹过就把相机平移同样的量。俯视时它就是屏幕中心的地面点；低角度看过区域时视线落在远处也不会被推回。最初版本夹的是"屏幕中心的地面点"，低俯仰时这个点在几公里外，相机被一路推离区域。
+2. **最远距离**：离 `center` 超过 `maxRange` 时水平拉近。缩小手势到这里停住（同 `tooFar`）。
+3. **高度不变**：约束只在相机原来的椭球高上横向移动，然后按原航向、俯仰重建零 roll 姿态（不变量 1、2），重复最多 3 轮。沿直线拉回（朝地面上的中心、或沿中心的切平面）每帧都让相机低一点，持续往外拖会滑到地面（2026-11-18 实测从 2342 m 滑到 75 m）。
+4. 有 `bounds` 时的手势：抓地平移落空时抓参考面；光标越过地平线时平移不动（不再绕地心甩出）；平移后保持椭球高；滚轮落空时向 `center` 缩放；右键、触控、`orbitBy`、`startAutoOrbit` 落空时绕 `center`。
+
 ### 3.5 高空的竖直方向
 
 `eastNorthUp` 使用 `Ellipsoid.geodeticNormal`（先投影到椭球面再取法线）。原先的 `geodeticSurfaceNormal(p)` 用在高空点上会有偏差（17,000 km 高度约 0.42°），导致"俯视"并不真正对准星下点。
@@ -83,6 +92,7 @@ heading = atan2(H·e, H·n)
 | `orbitPivot` | `'center'` | 右键环绕中心：屏幕中心点或光标处 |
 | `inertia` / `zoomSpeed` / `rotateSpeed` | | 手感参数 |
 | `doubleClickHandler` | null | 返回 true 时吞掉默认的"双击飞近" |
+| `bounds` | null | 活动范围（`CameraBounds`，§3.6）；局部场景进入时设置 |
 | `events` | | `interactionstart`、`change` |
 
 方法：`setView`、`flyTo(target, duration?, { lookAt? })`、`zoomBy(amount, ndc?)`（程序缩放：与滚轮同一套保持姿态的缩放，`amount` 为对数距离系数，ln 2 = 距离减半）、`orbitBy(dHeading, dTilt, duration?, pivot?)`（程序环绕 / 倾斜，绕屏幕中心点，倾斜受 `pitchRangeDeg` 限制；中心没有地表时原地转动）、`playAnimation(step)` / `stopAnimation()` / `isAnimating`（脚本动画：每帧由 `step(dt, camera)` 直接写位姿，任何手势、飞行、缩放、环绕都会打断，Promise 解析为是否播完；开场自转用它）、`rotateHeadingAround`（指北针复位用）、`startAutoOrbit({ pivot?, degreesPerSecond?, totalDegrees? })`（`rotateAround.start` / `earthFlyRotateBySpeed`）、`stopAutoOrbit`、`cancelFlight`、`translate(delta)`（平移相机；飞行中则平移飞行终点，按飞行进度混入。被观察的对象移动时用它保持取景，例如建筑贴地）。
@@ -97,7 +107,7 @@ GeoViewer 层面：`flyTo(ViewPosition)`、`flyToTarget({ target, heading, pitch
 
 ## 5. 测试要求
 
-`tests/flight.test.ts` 覆盖注视飞行：终点位姿、全程无滚转且视线穿过两个主体之间的连线、不低于主体地平线、时长随距离增长、对面跳转退回弧线、终点偏移。`tests/camera.test.ts` 覆盖了：航向 / 俯仰往返（含 ±90°）、越过天底时航向保持、全球俯视向四个方向缩放不翻转且光标锚定、倾斜视角缩放保持姿态、对称缩小、环绕的航向 / 俯仰直接映射、环绕不越顶、全球视角环绕、跨纬度拖动保持朝北。
+`tests/flight.test.ts` 覆盖注视飞行：终点位姿、全程无滚转且视线穿过两个主体之间的连线、不低于主体地平线、时长随距离增长、对面跳转退回弧线、终点偏移。`tests/localRegion.test.ts` 覆盖活动范围：视线拉回且保持航向俯仰与零 roll、范围内不动、低角度看过区域不被推回、拉远停在 `maxRange`、落空时绕中心、往外拖到地平线以外高度不变。`tests/camera.test.ts` 覆盖了：航向 / 俯仰往返（含 ±90°）、越过天底时航向保持、全球俯视向四个方向缩放不翻转且光标锚定、倾斜视角缩放保持姿态、对称缩小、环绕的航向 / 俯仰直接映射、环绕不越顶、全球视角环绕、跨纬度拖动保持朝北。
 
 `tests/intro.test.ts` 覆盖 `playAnimation`（播完与被打断）、`zoomBy`（距离、姿态、中心点不漂移）、`orbitBy`（航向、枢轴不漂移、抬到俯视不越顶、压低受俯仰范围限制）和开场自转的位姿。
 

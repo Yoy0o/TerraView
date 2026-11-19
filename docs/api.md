@@ -209,6 +209,32 @@ viewer.events.on('idle', () => {
 
 楼层**第一次显示时**烘焙一次（GPU 上画一张俯视遮挡图再做两次可分离滤波，主线程 3–7 ms，结果读回成一张单通道贴图），之后只是材质里多采样一次贴图，不增加每帧的 pass；楼层模型加载 / 卸载、楼层上的设备显隐或移动（`entity.visible`、`refreshTransform()`）之后，改动稳定 250 ms 再重新烘焙。做法、哪些网格接收和投射见 [indoor-bim.md](agents/indoor-bim.md) §5.6。
 
+### 1.11 局部场景（沙盘）
+
+`viewer.localScene` 只显示地球上的一块区域（园区到城区，直径不超过 100 km）：区域内的地形、影像、贴地矢量和 3D Tiles 照常分级加载，区域外不绘制、不加载；边缘一圈土层侧壁，背景换成展台天空，相机围着区域活动。它是地球场景的子模式，与建筑层级独立。规范见 [local-scene.md](agents/local-scene.md)。
+
+```ts
+await viewer.localScene.enter({ region: { type: 'circle', center: [116.39, 39.91], radius: 3000 } });
+viewer.localScene.enter({ region: { type: 'rectangle', west: 7.96, south: 46.55, east: 8.07, north: 46.62 }, walls: false });
+viewer.localScene.enter({ region: { type: 'tileset', layer }, globe: 'hide' }); // 只看一个倾斜摄影数据集
+await viewer.localScene.exit(); // 默认飞回进入前的视点
+```
+
+| 项 | 说明 |
+| --- | --- |
+| `enter(options)` | 进入或换区域（再次调用即换区域、改选项）；飞行和区域外淡出都完成时 resolve。区域不合法时同步抛 `option-invalid`（`details.option = 'region'`），状态不变 |
+| `region` | 圆（`center` 度、`radius` 米，20 m–50 km）、矩形（`west / south / east / north` 度）、多边形（`coordinates` 度，单环、不自交，超过 64 个顶点自动抽稀）或 `{ type: 'tileset', layer }`（图层包围盒在地面的投影）。不能跨反子午线，|纬度| ≤ 84° |
+| `outside` | `'hide'`（默认）不画不加载；`'dim'` 压暗去饱和，照常显示和加载（后期效果，不裁剪、无侧壁） |
+| `walls` | 默认 `true`（沙盘侧壁）；`false` 为悬浮地块（隐形侧壁，裁口露出背景）；对象 `{ depth, color, edge }`：底面在边界最低点以下多深（米，默认区域直径的 2%，30–1000）、土色、顶边亮线 |
+| `background` | `'studio'`（默认）、`'space'`（保留星空和大气）或颜色 |
+| `globe` | `'clip'`（默认）；`'hide'` 在局部场景期间隐藏地球（数据自带地面时用，退出时恢复） |
+| `camera` | `fit`（进入时飞到总览，默认 true）、`heading` / `pitch`（度，默认当前航向、-35）、`constrain`（活动范围，默认 true）、`margin`（视线可越出区域的距离，占半径的比例，默认 0.25）、`maxRangeScale`（最远距离 = 总览距离 × 它，默认 2） |
+| `transition` | 区域外淡出 / 淡入的秒数（默认 0.8，0 立即） |
+| `exit({ restoreView })` | 退出；`restoreView: false` 留在原地 |
+| `fit(duration?)`、`set(options)`、`contains(lon, lat)`、`active`、`region`（`ResolvedRegion`）、`events`（`enter`、`exit`） | 回到总览；只改外观 / 相机 / 过渡；判断位置（度）；状态；事件 |
+
+局部场景中：拾取（含拾取缓冲）、`surfaceHeight`、防入地在区域外分别落空、返回侧壁底面高度；锚点在区域外的顶牌、注记、建筑隐藏；双击区域外回到总览（`interaction` 上 `tag: 'local-scene'`），`navigation.home()` 回到总览；云层隐藏。相机的活动范围是通用的 `controller.bounds`（`CameraBounds`，高级），不开局部场景也能用。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -242,6 +268,8 @@ viewer.events.on('idle', () => {
 | `viewer.snapshot()`、`ViewerSnapshot` | 诊断快照：后端、帧统计、显存、加载状态、视点、地球、3D Tiles、室内（AO、剔除）、后期效果、灯光，纯 JSON 值（路线图 M5.1） | 高级 |
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` / `still` / `samples` | 安静时降帧、静止后停画与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
+| `LocalScene`（`viewer.localScene`）、`LocalSceneOptions`、`LocalSceneRegion`、`LocalSceneWallOptions`、`LocalSceneCameraOptions`、`LocalSceneEvents`、`LocalRegion`、`ResolvedRegion`、`MAX_REGION_DIAMETER` / `MAX_REGION_VERTICES` / `MIN_REGION_RADIUS` | 局部场景（沙盘）：只显示一块区域、侧壁、展台背景、相机范围（§1.11） | 稳定 |
+| `CameraBounds`（`viewer.controller.bounds`） | 相机活动范围：视线不离开区域、最远距离、落空时的枢轴与参考地面；[camera-controller.md](agents/camera-controller.md) §3.6 | 高级 |
 | `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
 | `InteractionManager`（`viewer.interaction`） | `on(type, handler, { selector, tag, priority, once })`、`off`、`pause`；类型 `InteractionEvent`（`event.tileFeature()`：指针下的 3D Tiles 要素，§3.3）、`ListenerOptions`、`PauseScope`、`PickInfo` | 稳定 |
 | `PickBuffer`（`viewer.pickBuffer`）、`GpuPick`、`PickTarget`、`PickBufferOptions` | GPU 拾取缓冲；改了签名看不到的东西后调用 `invalidate()`。拾取本身用 `viewer.pick` / `pickAt` | 高级 |
@@ -344,6 +372,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | 3D Tiles 渐显遮罩节点 | `tiles3d/nodeMaterials` | 只读节点图，逐材质参数走 `materialReference` |
 | 空气透视的 `outputNode` | `atmosphere/AtmosphereNodes`（`aerialPerspectiveOutputNode`） | 只读节点图，读的是上面的大气 uniform（渲染前按 viewer 重写） |
 | 楼层 AO 的 `colorNode` | `indoor/FloorOcclusion` | 只读节点图；贴图、范围、强度是材质属性，楼层坐标是逐对象 uniform（取自网格的 `userData`），都不跨 viewer |
+| 局部场景的裁剪遮罩节点、瓦片裁剪基础材质 `GlobeTileClipped`、3D Tiles 的遮罩组合节点 | `local/regionMask`、`globe/TileMaterial`、`tiles3d/nodeMaterials` | 区域参数按渲染器存（`setRegionGpuState`，WeakMap），节点在每次渲染 / 每次绘制时读当前渲染器的状态，没开局部场景的 viewer 遮罩恒为真；不需要渲染前重写。地球瓦片只有跨区域边界时才用裁剪材质，别的 viewer 的瓦片不受影响 |
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
 | 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |

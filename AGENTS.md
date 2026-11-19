@@ -15,6 +15,7 @@
 | 开场动画、云层、基础导航控制（核心 API 与 UI 分离、URL 参数） | [docs/agents/intro-and-navigation.md](docs/agents/intro-and-navigation.md) |
 | 显存盘点、硬件档位与配置建议、3D Tiles 显存 / 缓存预算（新增占显存的功能前先看） | [docs/agents/gpu-memory.md](docs/agents/gpu-memory.md) |
 | 可借鉴与复用路线图（分阶段落地计划，开始新功能前先看） | [docs/agents/roadmap.md](docs/agents/roadmap.md) |
+| 局部场景 / 沙盘模式（区域裁剪地形与 3D Tiles、侧壁、展台背景、相机活动范围） | [docs/agents/local-scene.md](docs/agents/local-scene.md) |
 | 改造记录与计划（时间线、Hub 任务对应、待办清单；每个任务合并后更新） | [docs/agents/progress-log.md](docs/agents/progress-log.md) |
 | ThingJS 示例分析与能力对照（本地资料，不入库） | `temp/thingjs/thingjs-reference.md` |
 | ThingJS 运行时源码分析、可借鉴的实现与落地清单（改层级、拾取、事件、样式前先看；本地资料，不入库） | `temp/thingjs/thingjs-runtime-analysis.md` |
@@ -42,7 +43,7 @@
 
 - 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
 
-- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
+- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
 
 ## 2. 目录与职责
@@ -69,6 +70,8 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ markers/     MarkerManager（HTML 顶牌：投影、裁剪、避让、遮挡）、occlusion（遮挡代理池与规则，纯逻辑）、cards（顶牌样式模板）、
 │               points（点位解析 / 规则，纯函数）、clusterTree（层级聚合树，纯函数 + Worker）、
 │               PointLayer（点位图层）
+├─ local/       局部场景（沙盘）：region（区域数学与棱柱，纯函数）、regionMask（共享裁剪遮罩，按渲染器取区域）、
+│               RegionWalls（侧壁）、RegionDimEffect（区域外压暗）、LocalScene（调度，viewer.localScene）
 ├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果；静止超采样的抖动样本与历史缓冲）、EffectMarks（描边 / 发光对象登记）、
 │               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、
 │               Supersampling（viewer.supersampling）、ColorGrading（viewer.colorGrading + 对比度 / 饱和度效果）、
@@ -85,7 +88,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / localRegion；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -179,6 +182,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出 `indoor.modelBytesTarget` 时卸载（indoor-bim.md §5.4）。要在显示前用到模型（取景、包围体）先 `await building.modelsLoaded(entity)`；不要假设 `add()` 之后房间、设备上已经有模型网格。
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
   - 楼层环境光遮蔽（`indoor.ambientOcclusion`，默认开）在楼层第一次显示时烘焙一次，之后只是接收材质里共享的 `colorNode` 采样一张贴图（indoor-bim.md §5.6）。新的楼层网格按角色设 `mesh.userData.aoRole`（`'floor'` / `'occluder'`）；不要给接收 AO 的材质另设 `colorNode`（会被跳过）。
+- **局部场景**（M4.9）：`viewer.localScene.enter({ region })` 只显示一块区域（园区到城区，直径 ≤ 100 km），区域外不画不加载，边缘土层侧壁、展台背景，相机由 `controller.bounds` 管着。地球场景的子模式，与建筑层级独立。裁剪是共享的 `maskNode`（`regionMaskNode`），区域参数按渲染器存；地球瓦片只在跨边界时换裁剪材质（`GlobeTileClipped`），3D Tiles 用 `RegionMaskPlugin` 屏蔽区域外瓦片。新增需要"按区域裁剪"的东西时复用 `regionMaskNode` / `hasRegionMask`，拾取材质要同步带上。见 [local-scene.md](docs/agents/local-scene.md)。
 - **后期与描边**（M3.1 / M3.2）：每帧都经 `viewer.postProcessing`：场景画进它自己的 HDR 目标（与渲染器自带的格式相同，场景材质不重编），再按阶段跑启用的效果，最后一个全屏 pass 色调映射输出；没有效果时等价于 `renderer.render`。帧外渲染（截图、层级截帧）也走它（`renderOutsideFrame`）。选中 / 悬停 / 告警是描边与发光（`entity.effects`、`indoor.selectOutline`、`viewer.effects`），不改材质，合批设备只描自己的实例。静止超采样（`renderSample`）在场景 pass 和效果自己的 pass 期间平移相机（`setViewOffset`），所以效果的遮罩跟着场景一起抖动；效果里不要缓存跨帧的投影矩阵。调色（`viewer.colorGrading`）是 display 阶段的 `grading` 效果，排在描边之前。新效果实现 `PostEffect`，需要法线等附件用 `attachments` 声明（全局节点），**不要给场景材质设 `material.mrtNode`**。说明见 [api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
 - **顶牌 Marker**：HTML 元素锚定在世界坐标上，每帧用 float64 投影；做地平线、距离、视口裁剪，并按优先级避让；支持数据驱动的显示模式（always / level / hover / click）。`occlusion: 'hide' | 'fade'` 让锚点被建筑、地形挡住时隐藏或淡出（遮挡查询代理，markers.md §5.2.1）；不参与避让的重要顶牌只淡出。
 - **点位 PointLayer**：`viewer.addPoints({ data | url, style, rules, cluster })`。
@@ -267,11 +271,13 @@ docs/agents/    子系统规范（本文档的展开）
 - **材质的 `mrtNode` 会顶掉所有渲染目标里的输出**（2026-11-17，P3.1）：r187 的 `NodeMaterial` 在渲染到渲染目标时，渲染器没设 MRT 就直接用 `material.mrtNode` 当输出，拾取缓冲、渲染器自带的 HDR 目标都算渲染目标。three 官方选择性泛光示例那种"给材质挂 `mrtNode`"的写法在本仓库会弄坏拾取和画面。逐对象的后期效果走 `post/EffectMarks` 的遮罩重绘，逐材质的附件用 `PostEffect.attachments` 的全局节点。
 - **`setViewOffset` 会改 `camera.aspect`**（2026-11-18，P3.3）：three 的 `PerspectiveCamera.setViewOffset(fullWidth, fullHeight, …)` 把 `aspect` 设成 `fullWidth / fullHeight`，`clearViewOffset()` 不还原。按画布像素传入时它和容器的宽高比差在最后几位，恢复后的投影矩阵就和原来不一样：静止判定每帧比较相机矩阵，会认为画面一直在变，超采样永远开始不了（或无限重来）。抖动时先存下 `aspect`，`fullWidth` 用 `aspect × 高`，恢复时先写回 `aspect` 再 `clearViewOffset()`（`PostPipeline.renderSample`）。
 - **渲染目标纹理不要经 `materialReference` 长期挂在材质上**（2026-11-19，M3.4）：楼层 AO 起初把烘焙用的渲染目标纹理作为材质属性采样，实测 WebGPU、WebGL 两个后端都上下颠倒（直接 `texture(rt.texture)` 的后期 pass 没有这个问题），在 WebGPU 上手动翻转后又完全采不到；three 对渲染目标纹理的 y 翻转按纹理节点处理，对 `materialReference` 创建的节点不可靠。烘焙一次就长期使用的结果，用 `readRenderTargetPixelsAsync` 读回成 `DataTexture`，行序自己定（WebGPU 读回从画面顶行开始，WebGL 从底行，见 `FloorOcclusion.occlusionRows`）。
+- **粗网格的面片中部在椭球面以下**（2026-11-19，P3.5 空气透视）：远处的 3D Tiles（全球视角下的 Google 3D Tiles）是几百个平面拼成的，面片中部比椭球面低几十公里。逐像素的空气透视原来沿视线积分到片元，不做地面求交，地下的样本密度是 exp(深度 / 标高)（Mie 在 73 km 深处约 e^60），每块瓦片都成了带彩色圆环的暗斑。现在积分到椭球面下 `AERIAL_GROUND_DEPTH_KM`（0.5 km）为止。逐像素按位置积分大气的效果都要做地面求交，不要假设片元在地面以上；地球瓦片是逐顶点、顶点在地面上，所以以前没暴露。
 - **统计要取场景 pass 的**：后期管线和描边遮罩也会增加 `renderer.info` 的绘制数。拾取缓冲的签名和 `stats` 用 `scene.onAfterRender` 时记下的数，否则悬停改变描边就会让拾取缓冲失效。
+- **MSAA 下按像素 discard 会漏出侧视的竖直面**（2026-11-18，局部场景）：片元丢弃对整个像素生效，像素横跨裁剪边界时，它覆盖的、其实在边界外的采样点也会画出来。朝向相机的面只差半个像素看不出，但被侧视成一条线的竖直面（瓦片裙边穿过边界），一个像素沿面能跨几十米，在侧壁上显出白色竖向点线。把侧壁外移、改 centroid 插值都没用；现在的遮罩只保留"到边界的距离 > 像素在区域坐标里覆盖范围的一半（`fwidth`）"的片元。新增按位置 discard 的遮罩时同样处理。
+- **约束相机时沿直线拉回会让相机下沉**（2026-11-18，局部场景）：把相机朝地面上的中心点、或沿某点切平面拉回，每帧都会低一点，持续往外拖时一路滑到地面；绕地心平移到别的纬度，椭球半径不同，高度也会变。约束和受约束的平移都要保持椭球高（`holdInBounds`）。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
-- **粗网格的面片中部在椭球面以下**（2026-11-19，P3.5 空气透视）：远处的 3D Tiles（全球视角下的 Google 3D Tiles）是几百个平面拼成的，面片中部比椭球面低几十公里。逐像素的空气透视原来沿视线积分到片元，不做地面求交，地下的样本密度是 exp(深度 / 标高)（Mie 在 73 km 深处约 e^60），每块瓦片都成了带彩色圆环的暗斑。现在积分到椭球面下 `AERIAL_GROUND_DEPTH_KM`（0.5 km）为止。逐像素按位置积分大气的效果都要做地面求交，不要假设片元在地面以上；地球瓦片是逐顶点、顶点在地面上，所以以前没暴露。
 ## 8. 从 three-geo-global 迁移（2026-11-11）
 
 源仓库 three-geo-global 的 `main`（提交 `be3bbbd`）整体搬到本仓库，并按 [roadmap.md](docs/agents/roadmap.md) §10 改造成 SDK。功能和优化结果没有删减；变化的是工程结构和对宿主页面的要求。
