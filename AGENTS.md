@@ -271,6 +271,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 
+- **粗网格的面片中部在椭球面以下**（2026-11-19，P3.5 空气透视）：远处的 3D Tiles（全球视角下的 Google 3D Tiles）是几百个平面拼成的，面片中部比椭球面低几十公里。逐像素的空气透视原来沿视线积分到片元，不做地面求交，地下的样本密度是 exp(深度 / 标高)（Mie 在 73 km 深处约 e^60），每块瓦片都成了带彩色圆环的暗斑。现在积分到椭球面下 `AERIAL_GROUND_DEPTH_KM`（0.5 km）为止。逐像素按位置积分大气的效果都要做地面求交，不要假设片元在地面以上；地球瓦片是逐顶点、顶点在地面上，所以以前没暴露。
 ## 8. 从 three-geo-global 迁移（2026-11-11）
 
 源仓库 three-geo-global 的 `main`（提交 `be3bbbd`）整体搬到本仓库，并按 [roadmap.md](docs/agents/roadmap.md) §10 改造成 SDK。功能和优化结果没有删减；变化的是工程结构和对宿主页面的要求。

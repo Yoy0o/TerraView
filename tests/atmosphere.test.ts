@@ -8,9 +8,12 @@ import { describe, expect, it } from 'vitest';
 import { AtmosphereLighting } from '../src/atmosphere/AtmosphereLighting';
 import * as nodes from '../src/atmosphere/AtmosphereNodes';
 import {
+  AERIAL_GROUND_DEPTH_KM,
   chapman,
   GROUND_RADIUS_KM,
+  groundTestConstant,
   MIE_SCALE_HEIGHT,
+  raySphere,
   RAYLEIGH_SCALE_HEIGHT,
   shBasis,
   shIrradiance,
@@ -146,6 +149,39 @@ describe('atmosphere model (CPU)', () => {
 
   it('ECEF to atmosphere space scales z by a/b', () => {
     expect(toAtmosphereKm(1000, 2000, 3000)).toEqual([1, 2, 3 * Z_SCALE]);
+  });
+
+  it('the aerial perspective ground test constant is |ro|² − (R − depth)², exact in float32 near the ground', () => {
+    for (const h of [0.05, 0.3, 2, 80, 9000]) {
+      const direct = (R + h) ** 2 - (R - AERIAL_GROUND_DEPTH_KM) ** 2;
+      expect(groundTestConstant(h, AERIAL_GROUND_DEPTH_KM)).toBeCloseTo(direct, 4);
+      // The factored form survives float32 (the shader); the expanded difference does not.
+      const f32 = Math.fround(Math.fround(h + AERIAL_GROUND_DEPTH_KM) * Math.fround(h - AERIAL_GROUND_DEPTH_KM + 2 * R));
+      expect(Math.abs(f32 - direct) / direct).toBeLessThan(1e-6);
+    }
+    expect(groundTestConstant(0.3)).toBeCloseTo(0.3 * (0.3 + 2 * R), 6);
+  });
+
+  it('haze towards a point deep below the ellipsoid stops at the ground instead of blowing up', () => {
+    // The middle of a flat facet of far-away 3D Tiles, 73 km below the ellipsoid, seen from 9000 km.
+    const ro: Vec3 = [R + 9000, 0, 0];
+    const deep: Vec3 = [(R - 73) * Math.cos(20 * DEG), (R - 73) * Math.sin(20 * DEG), 0];
+    const toDeep: Vec3 = [deep[0] - ro[0], deep[1] - ro[1], deep[2] - ro[2]];
+    const dist = Math.hypot(...toDeep);
+    const rd: Vec3 = [toDeep[0] / dist, toDeep[1] / dist, toDeep[2] / dist];
+    const sun = sunAt(60);
+    const steps = 6; // as the shader's AERIAL_STEPS
+    // The surface point on the same ray: what the facet stands in for.
+    const surface = skyRadiance(ro, rd, sun, { steps, maxDistance: raySphere(ro, rd, R)[0] });
+    const aerial = skyRadiance(ro, rd, sun, { steps, maxDistance: dist, groundDepth: AERIAL_GROUND_DEPTH_KM });
+    // Within a few percent: the ray ends half a kilometer lower, in the densest air (6 % here).
+    for (let c = 0; c < 3; c++) {
+      expect(Math.abs(aerial.transmittance[c] - surface.transmittance[c])).toBeLessThan(0.02);
+      expect(Math.abs(aerial.radiance[c] - surface.radiance[c]) / surface.radiance[c]).toBeLessThan(0.08);
+    }
+    // Marching on into the "air" under the ground (the bug): the facet goes black.
+    const underground = skyRadiance(ro, rd, sun, { steps, maxDistance: dist, groundDepth: 200 });
+    expect(Math.max(...underground.transmittance)).toBeLessThan(1e-3);
   });
 });
 

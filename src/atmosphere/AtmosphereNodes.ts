@@ -42,7 +42,7 @@ import {
   vec4,
 } from 'three/tsl';
 import * as model from './atmosphereModel';
-import { GROUND_RADIUS_KM, MIE_EXTINCTION, MIE_G, MIE_SCALE_HEIGHT, MIE_SCATTERING, OZONE_CENTER, OZONE_HALF_WIDTH, RAYLEIGH_SCALE_HEIGHT, TOP_RADIUS_KM, Z_SCALE } from './atmosphereModel';
+import { AERIAL_GROUND_DEPTH_KM, GROUND_RADIUS_KM, MIE_EXTINCTION, MIE_G, MIE_SCALE_HEIGHT, MIE_SCATTERING, OZONE_CENTER, OZONE_HALF_WIDTH, RAYLEIGH_SCALE_HEIGHT, TOP_RADIUS_KM, Z_SCALE } from './atmosphereModel';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type TSLNode = any;
@@ -280,6 +280,11 @@ let aerialOutput: TSLNode = null;
  * view position is exact (float64 model-view matrices), so only the camera's
  * rotation turns it into a world direction; nothing touches ECEF positions
  * in float32. Off when the atmosphere is off, and skipped up close.
+ *
+ * The ray stops `AERIAL_GROUND_DEPTH_KM` below the ellipsoid: unlike globe
+ * tile vertices, a fragment of a coarse mesh can lie far below it (the middle
+ * of a flat facet of far-away 3D Tiles), and marching into that "air" makes
+ * the haze blow up (see `AERIAL_GROUND_DEPTH_KM`).
  */
 export function aerialPerspectiveOutputNode(): TSLNode {
   if (aerialOutput) return aerialOutput;
@@ -291,7 +296,10 @@ export function aerialPerspectiveOutputNode(): TSLNode {
       const dKm = vec3(d.x, d.y, d.z.mul(Z_SCALE)).mul(0.001);
       const dist = length(dKm);
       If(dist.greaterThan(AERIAL_MIN_KM), () => {
-        const s = integrateScattering(u.cameraPositionKm, dKm.div(dist), dist, u.sunDirection, AERIAL_STEPS, null);
+        // groundTestConstant(h, depth) = (h + depth)·(h − depth + 2R), from the float64 altitude.
+        const h = u.cameraAltitudeKm;
+        const groundC = h.add(AERIAL_GROUND_DEPTH_KM).mul(h.add(2 * GROUND_RADIUS_KM - AERIAL_GROUND_DEPTH_KM));
+        const s = integrateScattering(u.cameraPositionKm, dKm.div(dist), dist, u.sunDirection, AERIAL_STEPS, groundC);
         color.assign(vec4(color.rgb.mul(s.transmittance).add(s.inscatter.mul(u.groundHaze)), color.a));
       });
     });
