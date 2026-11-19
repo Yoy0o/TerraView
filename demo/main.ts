@@ -5,6 +5,7 @@ import { ControlPanel, createImagery } from './ui/ControlPanel';
 import { h } from './ui/dom';
 import { FeaturePopup } from './ui/FeaturePopup';
 import { LevelBar } from './ui/IndoorPanel';
+import { parseRegionLook, parseRegionParam } from './ui/LocalScenePanel';
 import { NavigationBar } from './ui/NavigationBar';
 import { loadSettings } from './ui/settings';
 import { StatusBar } from './ui/StatusBar';
@@ -136,9 +137,12 @@ async function main(): Promise<void> {
   });
   window.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape' || isTyping(e)) return;
-    // Esc first closes the property popup, then steps up one indoor level.
+    // Esc first closes the property popup, then steps up one indoor level, cancels drawing an
+    // area, and last leaves the local scene.
     if (popup.isOpen) popup.close();
     else if (viewer.indoor.current) void viewer.indoor.back();
+    else if (panel.localPanel.drawing) panel.localPanel.cancelDraw();
+    else if (viewer.localScene.active) void viewer.localScene.exit();
   });
 
   // ?geojson=<url> loads a GeoJSON layer on startup (repeatable).
@@ -158,6 +162,12 @@ async function main(): Promise<void> {
       if (sphere.radius < 2e6 && !location.hash) void viewer.flyToSphere(sphere);
     });
   }
+
+  // ?region=circle:lon,lat,km | rect:w,s,e,n | poly:lon,lat;... shows only that area (local scene);
+  // ?regionLook=sandbox|float|dim picks its look.
+  const region = parseRegionParam(params.get('region'));
+  if (region) panel.localPanel.enter(region, parseRegionLook(params.get('regionLook')));
+  else if (params.has('region')) panel.notify('?region 参数格式不对：circle:经度,纬度,半径km / rect:西,南,东,北 / poly:经度,纬度;…', 'error');
 
   // Handy for debugging from the console.
   (window as unknown as { viewer: GeoViewer }).viewer = viewer;

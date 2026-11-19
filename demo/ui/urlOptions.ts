@@ -108,8 +108,8 @@ export function parseCullingParams(params: URLSearchParams): CullingParams {
 
 /**
  * Startup URL parameters whose own camera flight would cut the opening spin
- * short (a building, 3D Tiles, vector or point data framed on load).
+ * short (a building, 3D Tiles, vector or point data framed on load, a local scene).
  */
 export function hasStartupFlight(params: URLSearchParams): boolean {
-  return ['demo', 'building', 'tileset', 'geojson', 'points'].some((k) => params.has(k));
+  return ['demo', 'building', 'tileset', 'geojson', 'points', 'region'].some((k) => params.has(k));
 }
