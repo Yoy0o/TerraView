@@ -213,6 +213,20 @@ viewer.indoor.culling.stats;           // { candidates, culled }：上一次评�
 - **登记**：`effects` / `highlight` 变化经建筑根上的 `onEffects`（内部）通知 `IndoorManager`，它维护 `markedEntities`，viewer 每帧只遍历这些实体；移除建筑时清掉。
 - **不要**为了高亮去改 `setStyle({ emissive })` 或网格材质；要换选中的样子，改 `indoor.selectOutline` 或 `viewer.effects.defineOutline('select', …)`。
 
+### 5.6 楼层环境光遮蔽（M3.4）
+
+楼层地面沿墙根、柜体和桌子周围柔和变暗，墙面底部随高度淡出（`indoor/FloorOcclusion.ts`，API 见 [api.md](../api.md) §1.10）。默认开，`viewer.indoor.ambientOcclusion.enabled = false` 关闭。
+
+- **烘焙**（每层一次，GPU）：楼层显示着、还没有烘焙或内容变了时，`IndoorManager.update` 每次开始一层：
+  1. 把楼层上立着的东西（墙、柱、门、窗、合批设备的实例、楼层模型）按楼层本地坐标放进一个临时场景，正交相机从 `height`（默认 1.8 m）高处朝下看，画一张覆盖楼层范围的遮挡图（纹素约 8 cm，长边不超过 `maxResolution`）。相机在 `height` 处切开了墙这类封闭体，从上面看进去是它们朝内的面，所以规则是**"背面，或高于地面 5 cm 的正面"算遮挡物**；楼板、房间地面（朝上的正面，贴着地面）不算。楼板底面在地面 1.5 cm 以下，被远平面切掉。
+  2. 两次可分离滤波：接触项是高斯加权的**最大值**（σ = 半径的一半，至多 5 个纹素）：只看到最近遮挡物的距离，所以 14 cm 的薄墙和柜子一样能把墙根压暗；柔和项是高斯**平均**（σ = 半径）：周围立着的东西越多越暗，墙角、桌下最明显。遮挡 = min(1, 0.6 × 接触 + 0.8 × 柔和)。
+  3. 结果读回 CPU（`readRenderTargetPixelsAsync`，一两帧后到达），存成单通道 `DataTexture`：第 0 行是楼层 -y 边，两个后端都一样。不直接把渲染目标挂到材质上：经 `materialReference` 采样渲染目标纹理时，实测两个后端的上下方向都和预期相反、手动翻转也不可靠（AGENTS.md §7）。
+- **接收**：所有接收网格共用一个 `colorNode`（漫反射颜色 × (1 − 强度 × 遮挡 × 权重)），贴图、范围、强度是材质属性（`materialReference`），网格到楼层本地坐标的变换是逐对象 uniform（`mesh.userData.floorAoMatrix`），所以只编译一次着色器。权重：朝上、离地 10 cm 以内的面取满，35 cm 以上为 0（桌面、窗台不暗）；竖直的面在法线前方 15 cm 处取样，随高度在 `radius` 内淡出；朝下的面为 0。
+- **哪些网格**（`mesh.userData.aoRole`）：`'floor'` 只接收（楼板、房间地面、`kind: slab` 构件），`'occluder'` 只投射（窗；设备一律只投射），没写的两者都是（墙、柱、门、楼层模型的网格）。只有节点材质且没有自己 `colorNode` 的材质能接收；楼层、外壳和不能合批的设备的 glTF 材质在加载时转成节点材质（渲染器本来在第一次绘制时做同样的转换），所以楼层模型的地面和墙也会接收。
+- **什么时候重新烘焙**：`Building.contentVersion(floor)` 变了：楼层模型加载或卸载、楼层上的设备模型到达、楼层内实体的 `visible` 或 `refreshTransform()`（楼层、建筑自身的显隐是层级切换，不算）。改动稳定 250 ms 后才重新烘焙（拖动设备时不会每帧重烘），烘焙期间沿用旧贴图。改 `radius` / `height` / `texelSize` / `maxResolution` 后显示着的楼层立即重新烘焙；改 `intensity` 只改材质参数。隐藏的楼层保留贴图，移除建筑时释放。
+- **代价**（2026-11-19，RTX 4060 笔记本，示例办公楼，每层 796 × 346 纹素）：每层主线程 3–4 ms（WebGPU）/ 5–7 ms（WebGL），读回在 10–170 ms 后到达（第一层含着色器编译）；5 层贴图共 1.4 MB，计入 `viewer.memory.buildings`。每帧只是接收材质多一次贴图采样。
+- **对楼层模型的要求**：地面朝上、在楼层标高处；墙、柜体做成封闭体（单面片的墙从上面看是一条线，投不出遮挡）；楼板底面至少在地面 2 cm 以下（更薄的地面底面会被当成遮挡物，整层变暗）。见 [建筑数据制作手册](../building-data-manual.md) §7.1。
+
 ## 6. 层级控制
 
 ### 6.1 切换流程
@@ -323,9 +337,11 @@ resume(); // 或 viewer.interaction.resume() 撤销全部
 - 实时数据（如 IoT 状态）：更新 `entity.properties`，调用 `setStyle()` 改颜色；顶牌内容改变后调用 `marker.invalidateSize()`。
 - 大规模设备（成千上万个）：设备已按楼层合批（§5.2），1 万个设备约 40 次绘制。新增设备类的构建要走 `InstanceBatcher.add`（给出几何键、基础材质键和 `BaseLook`），不要给设备单独建网格；需要逐实例的新外观参数时扩展 `bimStyle` 与 `resolveLook`，不要克隆材质。
 - 层级效果写在层级控制里，不要在别处直接改楼层的 `group.visible`；同级半透明用 `levelOpacity`，不要占用 `setStyle` 的 `opacity`（那是用户样式）。
+- 新增楼层上的网格（新构件种类、新的程序几何）：想清楚它在楼层 AO 里的角色（§5.6），贴着地面的面设 `mesh.userData.aoRole = 'floor'`，透明或不该变暗的设 `'occluder'`；材质用 `Building.ts` 的 `material()`（节点材质，带空气透视）。改了楼层上的内容又不经过 `visible` / `refreshTransform()` / 模型加载时，调 `building.floorContentChanged(entity)`（内部）让 AO 重新烘焙。
 
 ## 9. 路线图
 
+- 楼层环境光遮蔽已完成（§5.6，M3.4）。以后可做：透明物体（玻璃隔断）按透明度投射、按房间分区烘焙超大楼层、楼层模型的单面片墙（需要按法线朝向补厚度）。
 - IFC 直读（web-ifc）；楼层模型使用 3D Tiles 或 glTF LOD。楼层模型按需加载、按预算卸载已完成（§5.4）。
 - 剖切面 / 剖切盒（ThingJS"剖切"）、室内导航（路网 + A*）、热力图和点位聚合。
 - 顶牌的遮挡判断（深度采样）。设备实例化渲染已完成（§5.2）。

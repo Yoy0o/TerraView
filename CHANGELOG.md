@@ -4,6 +4,35 @@
 
 ## [未发布]
 
+### 楼层环境光遮蔽、光照跟随大气（2026-11-19，路线图 §0.2 P3.5：M3.4、M3.5）
+
+楼层地面沿墙根、设备周围柔和变暗；打开真实光照时，建筑和 3D Tiles 的阳光颜色、天光跟着大气走，远处和地球一样有空气透视。说明见 [docs/api.md](docs/api.md) §1.10、[indoor-bim.md](docs/agents/indoor-bim.md) §5.6。
+
+**新增**
+
+- 楼层环境光遮蔽（默认开）：楼层第一次显示时在 GPU 上烘焙一次（俯视画出地面上立着的东西，再做两种可分离滤波），之后只是材质里多采样一张单通道贴图，不增加每帧的 pass。墙根、柜体、桌子周围的地面变暗，墙面底部随高度淡出；楼层模型、设备、墙改动后自动重新烘焙。`viewer.indoor.ambientOcclusion`（`FloorOcclusion`：`enabled`、`configure({ intensity, radius, height, texelSize, maxResolution })`、`options`、只读 `bakedFloors` / `bytes`、`bakedFor(floor)`），`GeoViewerOptions.ambientOcclusion`，类型 `FloorOcclusionOptions`、`BakedOcclusion`、`OcclusionGrid`，默认值 `FLOOR_OCCLUSION_DEFAULTS`。贴图分辨率上限按显存档位给（`viewer.gpu.indoor.aoMaxResolution`：512 / 1024 / 1024 / 2048）。
+- `viewer.snapshot()`（高级）：当前的后端、帧统计、显存、加载状态、视点、地球、3D Tiles、室内（含 AO 和剔除）、后期效果和灯光，可以直接 `JSON.stringify` 附到问题报告里（路线图 M5.1 的 JSON 导出部分）。类型 `ViewerSnapshot`。
+- `Tiles3DLayer` 新事件 `moved`（设了 `heightOffset`）。
+- 演示应用："室内 / BIM"面板的"楼层环境光遮蔽"开关和"墙根阴影强度"滑块；URL 参数 `?ao=0|1`、`?aoIntensity=0..1`。
+
+**变更**
+
+- `viewer.lighting = true` 时，照亮建筑和 3D Tiles 的平行光颜色是大气在视点处（进入建筑时是建筑锚点）的太阳透射率，天光改为天空亮度和被照亮地面的二阶球谐光照探针（`LightProbe`），都由大气模型的 CPU 版算出（与着色器同一套常数和公式，浏览器实测两者相差不到 7×10⁻⁵）。正午接近白色，黄昏时朝阳的墙是橙色、背阴面是暗的蓝灰色，与地面一致；夜里保留少量补光，室内仍看得清。原来是白光乘一个昼夜系数加固定颜色的半球光。不开光照（默认的地图模式）时不变。
+- 建筑（程序生成的和 glTF 模型）、设备、3D Tiles 的材质加上了与地球瓦片相同的空气透视（逐像素；100 m 以内跳过，室内没有开销）：城市尺度上远处的倾斜摄影、建筑和周围地面一起变淡。大气关闭时不做。
+- 楼层、外壳和不能合批的设备的 glTF 材质在加载时转换为节点材质（渲染器原本在第一次绘制时做同样的转换）；没有节点版本的材质类型保持不变。
+- `viewer.memory.buildings` 加上楼层 AO 贴图的字节数（每个纹素 1 字节，示例办公楼 5 层共 1.4 MB）。
+
+**修复**
+
+- 设了 3D Tiles 图层的 `heightOffset` 后，`viewer.surfaceHeight` 沿用的是移动前测到的高度（路线图 progress-log C11 的第二处局限）。现在图层移动时清空这些缓存。
+- 加载建筑时控制台的 `THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed` 警告（外壳楼层带合并时对挤出几何调用了 `toNonIndexed`）。
+
+**工程**
+
+- `atmosphere/atmosphereModel.ts`（大气的 CPU 版：Chapman 近似、太阳透射率、单次散射天空、SH 投影；常数从这里给 TSL 版共用）、`atmosphere/AtmosphereLighting.ts`（太阳转过 0.1° 或视点移动 500 m 才重算，一次约 0.3–0.8 ms）、`AtmosphereNodes.aerialPerspectiveOutputNode()`（共享的 `outputNode`）。
+- `indoor/FloorOcclusion.ts`：烘焙器（遮挡掩码：被近平面切开的封闭体露出背面，"背面，或高于地面的正面"算遮挡物；接触项用高斯加权最大值，薄墙也有足够的遮挡；柔和项用高斯平均）、读回成 `DataTexture`（行序自己定，不经过渲染目标的翻转规则）、调度（每次一层，改动稳定 250 ms 后重新烘焙）。网格角色 `mesh.userData.aoRole`：`'floor'`（楼板、房间地面）、`'occluder'`（窗、设备）。`Building.contentVersion(floor)` 记录楼层上的内容版本。
+- 测试：`tests/atmosphere.test.ts`（与暴力积分对照的 Chapman 误差带、透射率与天空的物理性质、SH 约定、重算阈值）、`tests/floorOcclusion.test.ts`（网格、滤波权重、受光规则、读回行序、选项、调度与材质挂载）。
+
 ### GPU 版层级切换过渡（2026-11-18，路线图 §0.2 P3.4）
 
 进出建筑、切换楼层时，上一帧不再是钉在屏幕上的截图，而是按深度跟着相机移动、在原处溶解。说明见 [docs/api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §7.1。

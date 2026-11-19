@@ -163,6 +163,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - 物理单次散射大气（Rayleigh + Mie + 臭氧），视线方向光线步进，太阳方向用 Chapman 函数解析近似，替代嵌套循环
 - 天空作为 `scene.backgroundNode` 逐像素计算；地面空气透视逐顶点计算（便宜且平滑）
 - 两种模式：地图模式（影像原色 + 均匀光晕）与真实光照模式（按日期时间计算太阳位置、昼夜、晨昏、日落色彩、太阳圆盘）
+- 光照跟随大气：真实光照下，建筑和 3D Tiles 的太阳光颜色、天光（球谐光照探针）由同一个大气模型的 CPU 版算出，黄昏时与地面色调一致；建筑、设备、3D Tiles 与地球瓦片有相同的空气透视（[docs/api.md](docs/api.md) §1.10）
 - 随恒星时旋转的星空
 
 **3D Tiles**
@@ -189,6 +190,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - 层级导航：双击进入、右键 / Esc / 面包屑返回、楼层切换条、楼层展开；沿层级路径逐级切换（可取消、可跳级），每一级都发 `beforeEnterLevel` / `enterLevel` / `leaveLevel`；往下钻时缓存视点，返回时飞回；相机取最近的对角视点（按视场归一化距离），文档可写 `viewpoint`
 - 层级控制策略：每一级的显隐、同级半透明聚焦、拾取映射（`filterObject`）和取景都可以按选择器 + 优先级注册替换（`indoor.registerLevelControl`）
 - 实体 API：选择器表达式（`.room && [温度>26]`、`tags:or(alarm, camera)`、`!` 与括号，编译后缓存）、链式查询与批量样式（`EntitySet`）、标签、样式（颜色 / 透明度）、包围体、属性面板
+- 楼层环境光遮蔽：楼层第一次显示时在 GPU 上烘焙一次，墙根、柜体和桌子周围的地面柔和变暗，不增加每帧开销（`viewer.indoor.ambientOcclusion`）
 - 描边与发光：选中、悬停、告警用描边（可透视被遮挡部分、可闪烁）和选择性泛光表示，不改材质，合批设备可单独描边（`entity.effects`、`viewer.effects`）；所有帧经可扩展的后期管线（`viewer.postProcessing`）
 
 **交互、顶牌与相机（参考 ThingJS）**

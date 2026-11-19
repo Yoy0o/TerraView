@@ -185,6 +185,30 @@ viewer.events.on('idle', () => {
 
 自定义效果（高级）：实现 `PostEffect`（`name`、`stage: 'linear' | 'display'`、`order`、`active`、`graphVersion`、`build(input, inputs)`，可选 `attachments`、`prepare(frame)`、`animating`、`gpuBytes`、`dispose`），用 `viewer.postProcessing.add(effect)` 注册。`linear` 效果在色调映射之前（光照类：泛光、AO、调色），`display` 效果在之后（描边、叠加层）；同一阶段按 `order` 从小到大。`attachments` 声明需要场景额外输出的 MRT 附件（如 `{ normal: normalView }`），只在该效果启用时写；节点图只在启用的效果、`graphVersion` 或色调映射变化时重建。静止超采样期间 `prepare(frame)` 拿到的 `frame.camera` 带着该样本的亚像素平移，效果自己的 pass 用它画就会和场景对齐（不要跨帧缓存它的矩阵）；会自己动的效果设 `animating`，画面就不会被当成静止。不要给场景材质设 `material.mrtNode`：带自己 MRT 的材质在任何渲染目标里都会替换输出（拾取缓冲也是）。
 
+### 1.10 光照、空气透视与楼层环境光遮蔽
+
+**光照跟随大气**（路线图 M3.5）：`viewer.lighting = true`（按 `viewer.date` 的真实太阳）时，照亮建筑、设备和 3D Tiles 的灯光来自地球用的同一个大气模型：
+
+| 灯光 | 来源 |
+| --- | --- |
+| 太阳（平行光） | 颜色是视点处（进入建筑时取建筑锚点，否则取相机正下方的地面）的太阳透射率，强度 π：白色朝阳面反射出的颜色就是透射率，和地球瓦片的直射项一致。正午约 (0.94, 0.87, 0.77)，太阳高度 6° 时约 (0.57, 0.28, 0.09)，日落后为 0 |
+| 天光（`LightProbe`，二阶球谐） | 上半球是单次散射的天空亮度，下半球是被太阳和天空照亮的地面（反照率 0.2）。正午朝上的面约得到 (0.07, 0.14, 0.27) × 反照率，竖直的墙因为有地面反光约 (0.16, 0.20, 0.26) |
+| 夜间补光 | 半球光只在夜里保留一点（强度 0.25，白天为 0），室内仍看得清 |
+
+太阳转过 0.1° 或视点移动 500 m 才重算一次（CPU 约 0.3–0.8 ms）。不开光照时（默认的地图模式）仍是相机上方的头灯加固定半球光，与原来相同。
+
+**空气透视**：建筑（程序生成的和楼层、外壳、设备的 glTF）、合批设备、3D Tiles 的材质都带上了与地球瓦片相同的空气透视（大气模型沿视线积分，按 `viewer.atmosphere` 开关），城市尺度上远处的模型和周围地面一起变淡，不再比地面"更清楚"。它是共享的 `outputNode`（逐像素，100 m 以内跳过，所以室内没有开销）。宿主自己加进场景的模型不受影响。
+
+**楼层环境光遮蔽**（路线图 M3.4，`viewer.indoor.ambientOcclusion`，类 `FloorOcclusion`；创建时 `GeoViewerOptions.ambientOcclusion`）：楼层地面沿墙根、柜体和桌子周围柔和变暗，墙面底部随高度淡出。默认开。
+
+| 项 | 说明 |
+| --- | --- |
+| `enabled` | 开关。关掉时所有楼层去掉 AO 并释放贴图 |
+| `configure({ intensity, radius, height, texelSize, maxResolution })` | `intensity` 完全遮挡处变暗多少，0..1（默认 0.6，立即生效，不重新烘焙）；`radius` 变暗的范围，米（默认 0.9）；`height` 离地多高以内的东西算遮挡物，米（默认 1.8）；`texelSize` 烘焙的目标纹素大小，米（默认 0.08）；`maxResolution` 贴图长边的纹素上限（默认按显存档位 512 / 1024 / 1024 / 2048）。只改给出的字段，超出范围的夹到范围内 |
+| `options`、`bakedFloors`、`bytes`、`bakedFor(floor)` | 当前设置、已烘焙的楼层数、贴图字节数（也计入 `viewer.memory.buildings`）、某层的烘焙结果（`BakedOcclusion`：`texture`、`grid`、`bytes`） |
+
+楼层**第一次显示时**烘焙一次（GPU 上画一张俯视遮挡图再做两次可分离滤波，主线程 3–7 ms，结果读回成一张单通道贴图），之后只是材质里多采样一次贴图，不增加每帧的 pass；楼层模型加载 / 卸载、楼层上的设备显隐或移动（`entity.visible`、`refreshTransform()`）之后，改动稳定 250 ms 再重新烘焙。做法、哪些网格接收和投射见 [indoor-bim.md](agents/indoor-bim.md) §5.6。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -213,8 +237,9 @@ viewer.events.on('idle', () => {
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
 | `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
-| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，含建筑模型 `buildings`）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
+| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，`buildings` 含建筑模型和楼层 AO 贴图）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
+| `viewer.snapshot()`、`ViewerSnapshot` | 诊断快照：后端、帧统计、显存、加载状态、视点、地球、3D Tiles、室内（AO、剔除）、后期效果、灯光，纯 JSON 值（路线图 M5.1） | 高级 |
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` / `still` / `samples` | 安静时降帧、静止后停画与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
 | `NavigationControls`（`viewer.navigation`）、`AUTO_ROTATE_DEFAULTS`、`INTRO_DEFAULTS` | 放大缩小、转向、2D/3D、回到初始视角、自动旋转、全屏、截图；[intro-and-navigation.md](agents/intro-and-navigation.md) | 稳定 |
@@ -236,7 +261,7 @@ viewer.events.on('idle', () => {
 
 ### 3.3 3D Tiles
 
-`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`：有瓦片加载完成，或设了 `visible` / `heightOffset`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
+`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`：有瓦片加载完成，或设了 `visible` / `heightOffset`；`moved`：设了 `heightOffset`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
 
 **要素拾取与属性**（`TileFeature`、`FeatureHighlightStyle`，稳定）：
 
@@ -282,6 +307,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | `compileSelector`、`SelectorError`、`matchesSelector`、`closestMatching` | 选择器 | 稳定 |
 | `LevelControl`、`BUILTIN_LEVEL_CONTROLS`、`buildingLevelControl` 等 | 层级的显隐、半透明、取景策略，可替换 | 稳定 |
 | `ContributionCuller`（`viewer.indoor.culling`）、`ContributionCullingOptions`、`DEFAULT_CULLING` | 贡献剔除，默认关闭：`enabled`、`configure`、`options`、`stats`、`invalidate` | 稳定 |
+| `FloorOcclusion`（`viewer.indoor.ambientOcclusion`）、`FloorOcclusionOptions`、`FLOOR_OCCLUSION_DEFAULTS`、`BakedOcclusion`、`OcclusionGrid` | 楼层环境光遮蔽，默认开：`enabled`、`configure`、`options`、`bakedFloors`、`bytes`、`bakedFor`（§1.10）。`Building.contentVersion(floor)`：楼层上内容的版本号，变了就重新烘焙 | 稳定 |
 
 格式、层级事件和选择器语法见 [indoor-bim.md](agents/indoor-bim.md)。
 
@@ -300,7 +326,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（2026-11-18 起由 `LevelTransition` 取代，类型经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
-公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
+公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`skyProbe`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`viewer.indoor.ambientOcclusion` 的 `update`、`pending`、`forget`、`dispose`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`、`floorContentChanged`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
 
 ## 4. 多个 viewer
 
@@ -316,6 +342,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | 大气 uniform（太阳方向、相机位置与高度、光照 / 大气开关） | `atmosphere/AtmosphereNodes` | 每个 viewer 渲染前重写全部值（帧内在 `updateEnvironment` 里；帧外的截图和层级切换截帧也先重写，见下） |
 | 注记的相机 uniform 与节点 | `vector/LabelManager` | 同上，渲染前 `syncCamera` |
 | 3D Tiles 渐显遮罩节点 | `tiles3d/nodeMaterials` | 只读节点图，逐材质参数走 `materialReference` |
+| 空气透视的 `outputNode` | `atmosphere/AtmosphereNodes`（`aerialPerspectiveOutputNode`） | 只读节点图，读的是上面的大气 uniform（渲染前按 viewer 重写） |
+| 楼层 AO 的 `colorNode` | `indoor/FloorOcclusion` | 只读节点图；贴图、范围、强度是材质属性，楼层坐标是逐对象 uniform（取自网格的 `userData`），都不跨 viewer |
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
 | 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |
