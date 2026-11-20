@@ -33,6 +33,27 @@ export const OZONE_ABSORPTION: readonly [number, number, number] = [0.65e-3, 1.8
 export const OZONE_CENTER = 25.0;
 export const OZONE_HALF_WIDTH = 15.0;
 
+/**
+ * Depth below the ellipsoid (km) at which the aerial perspective ray of a surface ends at the
+ * latest. Real ground reaches about -0.4 km (Dead Sea, ellipsoidal); anything deeper is the
+ * chord of a coarse mesh: far-away 3D Tiles (Google's photorealistic tiles at a global view) are
+ * a few hundred flat facets whose middles sag tens of kilometers below the ellipsoid. Marching
+ * to such a point integrates "air" at density exp(depth / scale height) (e^60 for Mie at 73 km),
+ * which turned every facet into a dark disc with rainbow rings. The ray stops on this sphere
+ * instead, where the true surface is.
+ */
+export const AERIAL_GROUND_DEPTH_KM = 0.5;
+
+/**
+ * `|ro|² − (R − depth)²` for a camera `altitudeKm` above the ellipsoid (R = `GROUND_RADIUS_KM`):
+ * the ground test constant of `integrateScattering` for a sphere `depthKm` below the ground.
+ * Factored like the sky shader's `h·(h + 2R)`, so it stays exact in float32 near the ground,
+ * where the expanded difference of two ~4e7 km² squares would not.
+ */
+export function groundTestConstant(altitudeKm: number, depthKm = 0): number {
+  return (altitudeKm + depthKm) * (altitudeKm - depthKm + 2 * GROUND_RADIUS_KM);
+}
+
 export type Vec3 = [number, number, number];
 type ReadonlyVec3 = readonly [number, number, number];
 
@@ -115,20 +136,22 @@ export interface ScatteringOptions {
   sunIntensity?: number;
   /** Farthest distance along the ray, km (default: to the top of the atmosphere or the ground). */
   maxDistance?: number;
+  /** The ray stops this far below the ellipsoid, km (default 0; the aerial perspective uses `AERIAL_GROUND_DEPTH_KM`). */
+  groundDepth?: number;
 }
 
 /**
  * Single-scattered light along `ro + rd·t` (atmosphere-space km, `rd` unit)
  * towards `ro`, and the transmittance of the path: the CPU twin of the TSL
  * `integrateScattering` with the sun-lit sample rule (`uniformLighting` 0).
- * The ray stops at the ground.
+ * The ray stops at the ground (`groundDepth` below the ellipsoid).
  */
 export function skyRadiance(ro: ReadonlyVec3, rd: ReadonlyVec3, sunDir: ReadonlyVec3, options: ScatteringOptions = {}): { radiance: Vec3; transmittance: Vec3 } {
   const steps = options.steps ?? 16;
   const top = raySphere(ro, rd, TOP_RADIUS_KM);
   const tStart = Math.max(top[0], 0);
   let tEnd = Math.min(top[1], options.maxDistance ?? Infinity);
-  const ground = raySphere(ro, rd, GROUND_RADIUS_KM);
+  const ground = raySphere(ro, rd, GROUND_RADIUS_KM - (options.groundDepth ?? 0));
   if (ground[0] <= ground[1] && ground[0] > 0) tEnd = Math.min(tEnd, ground[0]);
   const radiance: Vec3 = [0, 0, 0];
   const odView: Vec3 = [0, 0, 0];

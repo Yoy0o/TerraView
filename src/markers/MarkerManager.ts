@@ -310,6 +310,8 @@ export class MarkerManager {
    * its proxies); null = markers are never treated as occluded.
    */
   occlusion: MarkerOcclusion | null = null;
+  /** @internal Hides markers whose anchor fails it (set by the viewer: outside a local scene). */
+  regionFilter: ((position: Vector3) => boolean) | null = null;
   /**
    * Receives click / dblclick / rightclick on markers with `userData.entity`
    * that have no handler of their own (ThingJS DOM event proxy). The viewer
@@ -450,6 +452,10 @@ export class MarkerManager {
         continue;
       }
       if (o.horizonCulling !== false && !isScaledSpacePointVisible(p.x / WGS84_A, p.y / WGS84_A, p.z / WGS84_B, csx, csy, csz)) {
+        this.cullMarker(m);
+        continue;
+      }
+      if (this.regionFilter && !this.regionFilter(p)) {
         this.cullMarker(m);
         continue;
       }

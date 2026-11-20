@@ -23,6 +23,7 @@ import { h, section, slider, toggle } from './dom';
 import { describeError } from './errors';
 import { autoRotateLabel } from './NavigationBar';
 import { IndoorPanel } from './IndoorPanel';
+import { LocalScenePanel } from './LocalScenePanel';
 import { BOOKMARKS, TILESET_PRESETS, type Bookmark } from './presets';
 import { OverlayPanel } from './OverlayPanel';
 import { PointPanel } from './PointPanel';
@@ -75,6 +76,8 @@ export class ControlPanel {
   readonly vectorPanel: VectorPanel;
   readonly pointPanel: PointPanel;
   readonly indoorPanel: IndoorPanel;
+  /** Local scene (sandbox) of the globe scene, separate from the building levels. */
+  readonly localPanel: LocalScenePanel;
   private readonly layerList = h('div', { class: 'layer-list' });
   private readonly message = h('div', { class: 'panel-message', role: 'status' });
 
@@ -86,6 +89,7 @@ export class ControlPanel {
     this.vectorPanel = new VectorPanel(viewer, (text, kind) => this.notify(text, kind));
     this.pointPanel = new PointPanel(viewer, (text, kind) => this.notify(text, kind));
     this.indoorPanel = new IndoorPanel(viewer, (text, kind) => this.notify(text, kind));
+    this.localPanel = new LocalScenePanel(viewer, (text, kind) => this.notify(text, kind));
     const body = h(
       'div',
       { class: 'panel-body' },
@@ -95,6 +99,7 @@ export class ControlPanel {
       this.pointPanel.root,
       this.indoorPanel.root,
       this.sceneSection(),
+      this.localPanel.root,
       this.tilesSection(),
       this.cameraSection(),
       this.bookmarkSection(),

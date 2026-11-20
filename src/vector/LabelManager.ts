@@ -278,6 +278,8 @@ export class LabelManager {
   readonly group = new Group();
   /** Ground height lookup (meters above the ellipsoid), null when unknown. */
   heightProvider: (lon: number, lat: number) => number | null = () => 0;
+  /** Hides labels whose anchor fails it (set by the viewer: outside a local scene). */
+  regionFilter: ((position: Vector3) => boolean) | null = null;
 
   private readonly pixelRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
   private pages: AtlasPage[] = [];
@@ -472,6 +474,7 @@ export class LabelManager {
       if (!layer?.visible) continue;
       const p = it.ecef;
       if (!isScaledSpacePointVisible(p.x / WGS84_A, p.y / WGS84_A, p.z / WGS84_B, csx, csy, csz)) continue;
+      if (this.regionFilter && !this.regionFilter(p)) continue;
       const dist = Math.max(1, p.distanceTo(_cam));
       const metersPerPx = dist / sse;
       if (it.minZoom > 0 && Math.log2((EARTH_CIRCUMFERENCE * it.cosLat) / (256 * metersPerPx)) < it.minZoom) continue;

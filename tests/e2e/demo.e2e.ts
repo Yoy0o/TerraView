@@ -78,3 +78,56 @@ test('demo: globe, building levels, dispose', async ({ page, baseURL }, info) =>
   expect(w.threeCopies).toEqual([]);
   expect(w.errors).toEqual([]);
 });
+
+test('demo: local scene (sandbox) enter, pick, exit', async ({ page, baseURL }, info) => {
+  const w = await watch(page, baseURL!);
+  const backend = backendOf(info);
+  // ?region enters a local scene of a 2 km circle on startup.
+  await page.goto(`/?imagery=debug&noterrain&intro=0&clouds=0&region=circle:116.39,39.91,2${backend === 'WebGL2' ? '&webgl' : ''}`);
+  const { software } = await probeBackend(page, info);
+  await waitForViewer(page, 'viewer', backend);
+  await page.waitForFunction(
+    () => {
+      const v = (window as unknown as SmokeWindow).viewer!;
+      return v.localScene.active && !v.controller.isFlying;
+    },
+    undefined,
+    { timeout: 60_000 },
+  );
+  await waitForGlobe(page, ['viewer'], { drained: !software });
+  await framesOf(page, 'viewer');
+
+  const inside = await page.evaluate(() => {
+    const v = (window as unknown as SmokeWindow).viewer!;
+    const r = v.localScene.region!;
+    // The region center on screen (client pixels).
+    const center = r.toWorld(v.camera.position.clone().set(0, 0, 0)).project(v.camera);
+    const rect = v.canvas.getBoundingClientRect();
+    const x = rect.left + ((center.x + 1) / 2) * rect.width;
+    const y = rect.top + ((1 - center.y) / 2) * rect.height;
+    return {
+      kind: r.kind,
+      radius: r.radius,
+      centerPick: v.pickAt(x, y).kind,
+      // A corner of the view: studio background around the area.
+      cornerPick: v.pickAt(rect.left + 4, rect.top + 4).kind,
+      outsideGround: v.surfaceHeight(116.6, 39.91).reliable,
+      contains: [v.localScene.contains(116.39, 39.91), v.localScene.contains(116.6, 39.91)],
+      tiles: v.globe.stats.rendered,
+    };
+  });
+  expect(inside).toMatchObject({ kind: 'circle', radius: 2000, centerPick: 'globe', cornerPick: 'none', outsideGround: true, contains: [true, false] });
+  expect(inside.tiles).toBeGreaterThan(0);
+
+  // Leaving brings the whole globe back.
+  await page.evaluate(() => (window as unknown as SmokeWindow).viewer!.localScene.exit({ restoreView: false }));
+  const after = await page.evaluate(() => {
+    const v = (window as unknown as SmokeWindow).viewer!;
+    return { active: v.localScene.active, region: v.localScene.region, bounds: v.controller.bounds };
+  });
+  expect(after).toEqual({ active: false, region: null, bounds: null });
+  await framesOf(page, 'viewer');
+
+  expect(w.blocked, 'requests to other origins').toEqual([]);
+  expect(w.errors).toEqual([]);
+});

@@ -120,6 +120,8 @@
 
 越界或无法解析的值被忽略，不影响启动。例：`?intro=1&introDuration=8&introSpeed=60&clouds=1&cloudCoverage=0.65`。
 
+局部场景（[local-scene.md](local-scene.md) §5.1）：`?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;经度,纬度;…` 启动即进入（同时跳过开场动画），`?regionLook=sandbox|float|dim` 选外观。局部场景中 `navigation.home()` 回到区域总览。
+
 ## 6. 测试
 
 - `tests/intro.test.ts`：速度曲线（闭式总转角、起始速度、单调、末端静止、越界夹紧、非法值回退）、高度倍数；`playIntroSpin` 每帧向西、纬度 / 航向 / 俯仰不变、零 roll、终点与初始视角误差小于 1 mm、近景跳过与强制；控制器 `playAnimation` 完成与被打断、`zoomBy` 距离与姿态、`orbitBy` 航向与枢轴不漂移、抬到俯视不越顶、压低受俯仰范围限制；URL 参数解析。

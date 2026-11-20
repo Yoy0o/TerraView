@@ -21,6 +21,7 @@ import { Ellipsoid, cartographic, type Cartographic } from '../core/Ellipsoid';
 import { TerraViewError } from '../core/errors';
 import { geodeticNormal, geodeticToEcef, isScaledSpacePointVisible, WGS84_A } from '../core/geodesy';
 import { clamp, wrapPi } from '../core/math';
+import { RegionRelation, type ResolvedRegion } from '../local/region';
 import { GlobeTile, SharedTexture, type LoadChannel } from './GlobeTile';
 import { createTileMaterial, EMPTY_OVERLAY, MORPH_ATTRIBUTE, refreshTileMaterials, type TileMaterial } from './TileMaterial';
 import type { TileOverlaySource } from './overlay';
@@ -236,6 +237,8 @@ export class Globe {
   prefetchImagery: boolean;
   /** Stop refining and loading (debug). */
   freeze = false;
+  /** @internal Bumped whenever the local scene region or its mode changes (tiles re-decide their clip state). */
+  regionGen = 0;
   /**
    * Called once per provider when its imagery requests keep failing (after 3 failures), with an
    * `imagery-unreachable` error (`details.provider`, `details.reason`).
@@ -297,6 +300,11 @@ export class Globe {
   private halfFovDiagonal = 0.6;
   /** Horizon fog density for this frame (per meter, 0 = none). */
   private fogDensity = 0;
+
+  // Local scene (docs/agents/local-scene.md §4.1).
+  private region: ResolvedRegion | null = null;
+  /** Tiles outside the region are culled (else all tiles draw, clipped: the enter / exit transition). */
+  private regionCull = false;
 
   // Polar caps.
   private readonly caps: Mesh[] = [];
@@ -406,6 +414,38 @@ export class Globe {
     }
   }
 
+  /**
+   * @internal Local scene region (null: the whole globe). With `cull`, tiles outside it are
+   * neither drawn nor loaded and only tiles crossing its boundary are clipped; without, every
+   * tile is drawn with the clip material (the outside fades through `keepOutside`).
+   */
+  setRegion(region: ResolvedRegion | null, cull: boolean): void {
+    if (region === this.region && cull === this.regionCull) return;
+    this.region = region;
+    this.regionCull = region !== null && cull;
+    this.regionGen++;
+    for (const cap of this.caps) cap.visible = region === null;
+  }
+
+  /** @internal Bumps the clip state of every tile (the region moved, e.g. to the ground height at its center). */
+  regionChanged(): void {
+    this.regionGen++;
+  }
+
+  /** Whether a tile is outside the culling region. */
+  private outsideRegion(tile: GlobeTile): boolean {
+    return this.regionCull && this.region!.relateSphere(tile.boundingSphere.center, tile.boundingSphere.radius) === RegionRelation.OUTSIDE;
+  }
+
+  /** Picks the plain or the clipped material for a tile about to be drawn. */
+  private updateClip(tile: GlobeTile): void {
+    if (tile.regionGen === this.regionGen) return;
+    tile.regionGen = this.regionGen;
+    const r = this.region;
+    const clipped = r !== null && (!this.regionCull || r.relateSphere(tile.boundingSphere.center, tile.boundingSphere.radius) !== RegionRelation.INSIDE);
+    tile.setClipped(clipped);
+  }
+
   // ---------------------------------------------------------------------------
   // Per-frame update
 
@@ -436,6 +476,7 @@ export class Globe {
       f.visible = true;
       // A fill draws its tile's material: keep that tile's picture current although the tile is not drawn itself.
       const t = f.userData.globeTile as GlobeTile;
+      this.updateClip(t);
       if (!t.ownImagery || t.imageryGen !== this.imageryGen) this.resolveImagery(t, false);
       if (this.overlaySource && (t.overlayGen !== this.overlaySource.version || t.overlay !== (t.ownOverlay ?? this.emptyOverlay))) {
         this.resolveOverlay(t);
@@ -448,6 +489,7 @@ export class Globe {
     let held = 0;
     for (const t of this.renderList) {
       if (t.mesh) t.mesh.visible = true;
+      this.updateClip(t);
       // `lastRenderedFrame` still says whether the tile was on screen in the previous frame.
       if (t.lastRenderedFrame !== this.frame - 1) this.showNewTile(t);
       else if (this.updateShownImagery(t)) held++;
@@ -529,9 +571,11 @@ export class Globe {
   private testVisible(tile: GlobeTile): boolean {
     if (!this.frustum.intersectsSphere(tile.boundingSphere)) return false;
     const hp = tile.horizonPoint;
-    if (!this.horizonCulling || !hp) return true;
-    const cs = this.cameraScaled;
-    return isScaledSpacePointVisible(hp.x, hp.y, hp.z, cs.x, cs.y, cs.z);
+    if (this.horizonCulling && hp) {
+      const cs = this.cameraScaled;
+      if (!isScaledSpacePointVisible(hp.x, hp.y, hp.z, cs.x, cs.y, cs.z)) return false;
+    }
+    return !this.outsideRegion(tile);
   }
 
   /** Approximate distance from the camera to the closest point of the tile. */
@@ -618,7 +662,7 @@ export class Globe {
         ready = false;
         child.distance = this.tileDistance(child);
         this.queue('geo', child, B_BLOCKING);
-      } else if (this.preloadSiblings && !kept && this.buildsLocally(child)) {
+      } else if (this.preloadSiblings && !kept && this.buildsLocally(child) && !this.outsideRegion(child)) {
         // Just outside the view: an interpolated mesh costs no download and saves a
         // fallback to this tile (and back) when the child comes into view.
         child.distance = this.tileDistance(child);
@@ -956,6 +1000,7 @@ export class Globe {
         const y = tile.y * 2 + (i >> 1);
         const child = tile.children?.[i];
         if (child && child.imageryGen === this.imageryGen) continue;
+        if (child && this.outsideRegion(child)) continue;
         const key = `${level}/${x}/${y}`;
         if (this.prefetched.has(key)) continue;
         this.prefetched.add(key);
@@ -1552,6 +1597,8 @@ export class Globe {
     tile.boundingSphere.center.set(built.center[0], built.center[1], built.center[2]);
     tile.boundingSphere.radius = built.boundingRadius;
     tile.horizonPoint = built.horizonPoint ? new Vector3(...built.horizonPoint) : null;
+    // New bounds: decide the clip state again.
+    tile.regionGen = -1;
     if (shown) {
       const old = shown;
       this.startMorph(tile, (i, j) => old[j * (N + 1) + i]);
@@ -1753,8 +1800,43 @@ export class Globe {
     return height === null ? null : { height, cellSize };
   }
 
+  /**
+   * @internal Terrain height (WGS84 ellipsoidal, meters) at a position (radians) on the surface
+   * drawn in the last frame: the tile on screen there (or the one whose quadrant fills in for a
+   * child), not the finest loaded one, so things built along the surface (local scene walls)
+   * meet it, with the grid spacing of that tile (meters). Ignores a running morph. Null where
+   * nothing is drawn.
+   */
+  sampleRenderedHeight(longitude: number, latitude: number): { height: number; cellSize: number } | null {
+    const n = this.scheme.tilesAtLevel(MIN_LEVEL);
+    const { x, y } = this.scheme.positionToTile(MIN_LEVEL, longitude, latitude);
+    const v = this.scheme.latitudeToMercatorV(latitude);
+    const u = (longitude + Math.PI) / (2 * Math.PI);
+    const frame = this.frame;
+    let tile: GlobeTile | null = this.roots[y * n + x];
+    while (tile) {
+      const s = selectionIn(tile, frame);
+      if (s === TileSelection.RENDERED) break;
+      if (s !== TileSelection.REFINED || !tile.children) return null;
+      const scale = 2 ** (tile.level + 1);
+      const cx = Math.min(1, Math.max(0, Math.floor(u * scale) - tile.x * 2));
+      const cy = Math.min(1, Math.max(0, Math.floor(v * scale) - tile.y * 2));
+      const child: GlobeTile = tile.children[cy * 2 + cx];
+      // A child drawn as this tile's quadrant (a fill): the surface is this tile's.
+      if (child.filledFrame === frame) break;
+      tile = child;
+    }
+    if (!tile) return null;
+    const cellSize = (2 * Math.PI * WGS84_A * Math.cos(latitude)) / 2 ** tile.level / Math.max(1, this.segments);
+    if (!this.terrain) return { height: 0, cellSize };
+    if (!tile.heights) return null;
+    const scale = 2 ** tile.level;
+    const height = tile.sampleHeight(u * scale - tile.x, v * scale - tile.y);
+    return height === null ? null : { height, cellSize };
+  }
+
   /** @internal Nearest intersection of a world-space ray with the rendered globe surface (use `viewer.pick`). */
-  raycast(ray: Ray): { point: Vector3; distance: number } | null {
+  raycast(ray: Ray, accept?: (point: Vector3) => boolean): { point: Vector3; distance: number } | null {
     let bestDist = Infinity;
     const best = new Vector3();
     // Grid triangles come first in both tile meshes and fills (tileMeshLayout.ts); skirts are skipped.
@@ -1770,7 +1852,7 @@ export class Globe {
         _c.fromBufferAttribute(pos, index.getX(t * 3 + 2));
         if (_localRay.intersectTriangle(_a, _b, _c, false, _hit)) {
           const d = _hit.distanceTo(_localRay.origin);
-          if (d < bestDist) {
+          if (d < bestDist && (!accept || accept(_v.copy(_hit).add(mesh.position)))) {
             bestDist = d;
             best.copy(_hit).add(mesh.position);
           }
@@ -1783,6 +1865,8 @@ export class Globe {
       test(fill, tile.boundingSphere, (tile.segments / 2) ** 2 * 2);
     }
     if (bestDist < Infinity) return { point: best, distance: bestDist };
+    // With a filter (local scene), the ellipsoid outside the region is not a surface either.
+    if (accept) return null;
     const t = this.ellipsoid.intersectRay(ray);
     return t === null ? null : { point: ray.at(t, new Vector3()), distance: t };
   }

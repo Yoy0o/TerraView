@@ -148,6 +148,10 @@ Worker 亲和路由（`terrainAffinity`）把读取同一张地形图的瓦片�
 - 高程查询：地球隐藏时，`viewer.surfaceHeight` 对可见的 3D Tiles 做竖直射线（命中瓦片的 `geometricError` 作为分辨率，≤ 150 m 才算可靠），贴地、防入地、参考地面都用它；压制期间沿用压制前的结果。规则和预算见 [roadmap.md](roadmap.md) ISSUE-1。
 - `errorTarget` 默认 12（Google 真实感 3D Tiles 用 20），实际生效值还要乘档位系数和自适应倍数；运行中改 `layer.errorTarget`。
 
+### 7.0 局部场景的区域裁剪
+
+局部场景（[local-scene.md](local-scene.md)）只加载区域内的东西：地球在 `testVisible` 里剔除包围球在区域外的瓦片（预加载兄弟瓦片、下一级预取同样跳过），跨边界的瓦片换成带遮罩的 `GlobeTileClipped` 材质；3D Tiles 的 `RegionMaskPlugin` 对与区域不相交的瓦片返回 `inView = false`，相交的不干预（`LoadRegionPlugin` 会把它作答的瓦片都当作可见并按固定误差细化，不能用）。进出过渡期间不剔除，区域外照常加载，靠抖动淡出。
+
 ### 7.1 要素拾取与属性（P2.3）
 
 代码：`tiles3d/tileFeatures.ts`（规则，纯函数为主）、`Tiles3DLayer.setHighlight`、`GeoViewer.pickTileFeature` / `highlightTileFeature`、`InteractionEvent.tileFeature()`。测试：`tests/tileFeatures.test.ts`。API 见 [docs/api.md](../api.md) §3.3。

@@ -25,6 +25,21 @@
 - `post/PostPipeline`：OIT 的场景 pass 分流、透明 pass（与场景目标共享多重采样深度）和合成；`post/Transparency.ts`。`AtmosphereNodes.applyAerialPerspective(color)`（空气透视作用于任意颜色）。
 - 测试：`tests/shadows.test.ts`（光源坐标系、量化、强度随太阳高度、包围盒与地面影子的覆盖、纹素对齐与小幅移动不变、楼内收缩、超出距离 / 身后不画、深度范围随太阳高度、阴影矩阵在三种深度约定下的取值、设置范围），`tests/gpuProfile.test.ts` 补档位的阴影和 OIT 设置。
 
+### 局部场景（沙盘模式）（2026-11-18，路线图 M4.9）
+
+只显示地球上的一块区域，边缘一圈土层侧壁，相机围着它活动。规范见 [docs/agents/local-scene.md](docs/agents/local-scene.md)，API 见 [docs/api.md](docs/api.md) §1.12。
+
+**新增**
+
+- `viewer.localScene`（`LocalScene`）：`enter({ region, outside, walls, background, globe, camera, transition })`、`exit({ restoreView })`、`fit`、`set`、`contains`、`active`、`region`、`events`（`enter` / `exit`）。区域为圆、矩形、多边形（度 / 米）或 `{ type: 'tileset', layer }`，园区到城区（直径 ≤ 100 km）。区域外不绘制、不加载（`outside: 'hide'`），或压暗去饱和（`'dim'`）；侧壁（默认）或悬浮地块（`walls: false`）；展台背景、星空或纯色。导出类型 `LocalSceneOptions`、`LocalSceneRegion`、`LocalSceneWallOptions`、`LocalSceneCameraOptions`、`LocalSceneEvents`、`LocalRegion`，类 `ResolvedRegion`，常量 `MAX_REGION_DIAMETER`、`MAX_REGION_VERTICES`、`MIN_REGION_RADIUS`。
+- 高级：`controller.bounds`（`CameraBounds`）：相机活动范围（视线不离开区域、最远距离、落空时的枢轴与参考地面），不开局部场景也能用。
+- 演示应用："局部场景（沙盘）"面板（当前视野、画矩形 / 圆 / 多边形、外观、背景、回到总览、退出），`?region=`、`?regionLook=`，Esc 退出。
+
+**变更**
+
+- 局部场景中：拾取（含 GPU 拾取缓冲）不再命中区域外；`surfaceHeight` 和防入地在区域外返回侧壁底面高度；锚点在区域外的顶牌、注记、建筑隐藏；`navigation.home()` 回到区域总览；双击区域外回到总览（`interaction` 上 `tag: 'local-scene'`）。
+- 地球瓦片材质多了一个共享的裁剪版本（`GlobeTileClipped`），只给跨区域边界的瓦片用；没开局部场景时不变。
+
 ### 楼层环境光遮蔽、光照跟随大气（2026-11-19，路线图 §0.2 P3.5：M3.4、M3.5）
 
 楼层地面沿墙根、设备周围柔和变暗；打开真实光照时，建筑和 3D Tiles 的阳光颜色、天光跟着大气走，远处和地球一样有空气透视。说明见 [docs/api.md](docs/api.md) §1.10、[indoor-bim.md](docs/agents/indoor-bim.md) §5.6。
@@ -45,6 +60,7 @@
 
 **修复**
 
+- 打开 Google 3D Tiles（或其他 3D Tiles）在全球视角下，远处的瓦片上每块都出现带橙色、紫色圆环的深蓝色暗斑（P3.5 引入）。远处的瓦片是粗网格，平面中部比椭球面低几十公里，空气透视原来一直积分到那个点，地下的"空气"密度按指数暴涨。现在视线最多积分到椭球面下 0.5 km（与天空着色器一样做地面求交）。
 - 设了 3D Tiles 图层的 `heightOffset` 后，`viewer.surfaceHeight` 沿用的是移动前测到的高度（路线图 progress-log C11 的第二处局限）。现在图层移动时清空这些缓存。
 - 加载建筑时控制台的 `THREE.BufferGeometry.toNonIndexed(): BufferGeometry is already non-indexed` 警告（外壳楼层带合并时对挤出几何调用了 `toNonIndexed`）。
 

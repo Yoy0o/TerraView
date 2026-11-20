@@ -13,6 +13,7 @@ import {
 import { float, Fn, materialReference, screenCoordinate } from 'three/tsl';
 import { aerialPerspectiveOutputNode, type TSLNode } from '../atmosphere/AtmosphereNodes';
 import { unlitShadowOutputNode } from '../lighting/SunShadows';
+import { registerRegionMaskVariant, regionMaskNode } from '../local/regionMask';
 
 /** Converts plain materials to their node equivalents (`renderer.library.fromMaterial`). */
 export interface NodeMaterialLibrary {
@@ -24,6 +25,55 @@ interface FadeableMaterial extends Material {
   maskNode?: TSLNode | null;
   fadeIn: number;
   fadeOut: number;
+}
+
+/** Tile materials clipped to the local scene region (`setMaterialClipped`). */
+const clippedMaterials = new WeakSet<Material>();
+let fadeAndRegionMask: TSLNode | null = null;
+
+/**
+ * The mask a 3D Tiles material needs: the LOD fade dither, the local scene clip, both, or none.
+ * Shared nodes, so materials of one kind keep sharing pipelines.
+ */
+export function tileMaskNode(fading: boolean, clipped: boolean): TSLNode | null {
+  if (fading && clipped) {
+    if (!fadeAndRegionMask) {
+      fadeAndRegionMask = fadeMaskNode().and(regionMaskNode());
+      registerRegionMaskVariant(fadeAndRegionMask);
+    }
+    return fadeAndRegionMask;
+  }
+  if (fading) return fadeMaskNode();
+  return clipped ? regionMaskNode() : null;
+}
+
+function isFading(m: FadeableMaterial): boolean {
+  const a = m.fadeIn ?? 0;
+  const b = m.fadeOut ?? 0;
+  return !(a === 0 || a === 1) || !(b === 0 || b === 1);
+}
+
+function applyMask(m: FadeableMaterial, fading: boolean): void {
+  const node = tileMaskNode(fading, clippedMaterials.has(m));
+  if ((m.maskNode ?? null) === node) return;
+  m.maskNode = node;
+  m.needsUpdate = true;
+}
+
+/** Clips a 3D Tiles material to the local scene region of the renderer drawing it, or stops clipping. */
+export function setMaterialClipped(material: Material, clipped: boolean): void {
+  const m = material as FadeableMaterial;
+  if (!m.isNodeMaterial || clippedMaterials.has(m) === clipped) return;
+  if (clipped) clippedMaterials.add(m);
+  else clippedMaterials.delete(m);
+  applyMask(m, isFading(m));
+}
+
+/** Clips (or stops clipping) every material under an object. */
+export function setObjectClipped(object: Object3D, clipped: boolean): void {
+  object.traverse((child) => {
+    for (const m of materialsOf(child)) setMaterialClipped(m, clipped);
+  });
 }
 
 function materialsOf(object: Object3D): Material[] {
@@ -89,6 +139,8 @@ export function applyTexturePolicy(material: object, policy: TexturePolicy): voi
  */
 export class NodeMaterialPlugin {
   readonly name = 'NODE_MATERIAL_PLUGIN';
+  /** New tiles are clipped to the local scene region (see `setMaterialClipped`). */
+  clipped = false;
 
   constructor(
     private readonly library: NodeMaterialLibrary,
@@ -109,6 +161,7 @@ export class NodeMaterialPlugin {
         const n = node as Material & { isNodeMaterial?: boolean; outputNode?: TSLNode | null; isMeshBasicNodeMaterial?: boolean };
         if (n.isNodeMaterial && n.outputNode === null) n.outputNode = n.isMeshBasicNodeMaterial ? unlitShadowOutputNode() : aerialPerspectiveOutputNode();
         applyTexturePolicy(node, this.textures);
+        if (this.clipped) setMaterialClipped(node, true);
         return node;
       };
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(convert) : convert(mesh.material);
@@ -177,8 +230,7 @@ export class NodeFadeMaterialManager {
         if (s.fading !== fading) {
           s.fading = fading;
           this.fading += fading ? 1 : -1;
-          m.maskNode = fading ? fadeMaskNode() : null;
-          m.needsUpdate = true;
+          applyMask(m, fading);
         }
       }
     });

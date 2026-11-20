@@ -30,6 +30,7 @@ import {
   type TSLNode,
 } from '../atmosphere/AtmosphereNodes';
 import { sunShadowFactor } from '../lighting/SunShadows';
+import { regionMaskNode } from '../local/regionMask';
 
 /**
  * Globe tile material: an instance of one shared node material (r187
@@ -82,6 +83,12 @@ export const tileDebugUniforms = {
 interface SharedNodes {
   /** The node material every tile material is an instance of; never drawn itself. */
   base: MeshBasicNodeMaterial;
+  /**
+   * Same graph plus the local scene clip mask (`regionMaskNode`), for tiles that cross the
+   * boundary of a local scene region. A separate base keeps early depth testing for all
+   * other tiles: a mask means discard.
+   */
+  clipped: MeshBasicNodeMaterial;
 }
 
 let shared: SharedNodes | null = null;
@@ -143,7 +150,13 @@ export const TILE_GEOMETRY_PROPERTIES = ['morph'] as const;
 
 /** Whether a material is a globe tile material. */
 export function isTileMaterial(m: unknown): m is TileMaterial {
-  return !!shared && (m as NodeMaterialInstance | null)?.nodeMaterial === shared.base;
+  const base = (m as NodeMaterialInstance | null)?.nodeMaterial;
+  return !!shared && (base === shared.base || base === shared.clipped);
+}
+
+/** Whether a tile material clips to the local scene region. */
+export function isClippedTileMaterial(m: TileMaterial): boolean {
+  return !!shared && m.nodeMaterial === shared.clipped;
 }
 
 function sharedNodes(): SharedNodes {
@@ -235,7 +248,12 @@ function sharedNodes(): SharedNodes {
   base.name = 'GlobeTile';
   base.positionNode = positionNode;
   base.colorNode = colorNode;
-  shared = { base };
+  const clipped = new MeshBasicNodeMaterial();
+  clipped.name = 'GlobeTileClipped';
+  clipped.positionNode = positionNode;
+  clipped.colorNode = colorNode;
+  clipped.maskNode = regionMaskNode();
+  shared = { base, clipped };
   return shared;
 }
 
@@ -245,8 +263,9 @@ function sharedNodes(): SharedNodes {
  * cache key once, instead of walking the (large, atmosphere-heavy) graph for
  * every new tile, which made zooming spike the frame time.
  */
-export function createTileMaterial(texture: Texture = placeholder, level = 0): TileMaterial {
-  const material = new NodeMaterialInstance(sharedNodes().base) as TileMaterial;
+export function createTileMaterial(texture: Texture = placeholder, level = 0, clipped = false): TileMaterial {
+  const nodes = sharedNodes();
+  const material = new NodeMaterialInstance(clipped ? nodes.clipped : nodes.base) as TileMaterial;
   material.imageryMap = texture;
   material.imageryTransform = new Vector4(0, 0, 1, 1);
   material.fadeMap = texture;
@@ -260,6 +279,23 @@ export function createTileMaterial(texture: Texture = placeholder, level = 0): T
 }
 
 /**
+ * A copy of a tile material on the plain or the clipped base (an instance cannot change its
+ * node material). Shares the source's textures and transform vectors; dispose the source.
+ */
+export function retargetTileMaterial(source: TileMaterial, clipped: boolean): TileMaterial {
+  const m = createTileMaterial(source.imageryMap, source.tileLevel, clipped);
+  m.imageryTransform = source.imageryTransform;
+  m.fadeMap = source.fadeMap;
+  m.fadeTransform = source.fadeTransform;
+  m.fade = source.fade;
+  m.overlayMap = source.overlayMap;
+  m.overlayTransform = source.overlayTransform;
+  m.morph = source.morph;
+  m.wireframe = source.wireframe;
+  return m;
+}
+
+/**
  * Rebuilds every tile material after a pipeline-level change such as
  * `wireframe`. `needsUpdate` on an instance does nothing: instances share
  * the version of their node material.
@@ -267,7 +303,9 @@ export function createTileMaterial(texture: Texture = placeholder, level = 0): T
  * @advanced
  */
 export function refreshTileMaterials(): void {
-  if (shared) shared.base.needsUpdate = true;
+  if (!shared) return;
+  shared.base.needsUpdate = true;
+  shared.clipped.needsUpdate = true;
 }
 
 export type { TSLNode };
