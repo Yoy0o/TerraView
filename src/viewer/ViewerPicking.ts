@@ -1,6 +1,7 @@
 /**
  * Picking of a viewer: what lies under a pixel or along a view ray (buildings, 3D Tiles, the
- * globe; GPU pick buffer first, CPU rays otherwise), 3D Tiles features and GeoJSON features
+ * globe; GPU pick buffer first, CPU rays otherwise; Gaussian splats always with a ray in front
+ * of that surface), 3D Tiles features and GeoJSON features
  * under the cursor, and the surface camera gestures grab (with the reference ground when no
  * globe is drawn).
  */
@@ -11,6 +12,7 @@ import { DEG2RAD } from '../core/math';
 import type { Globe } from '../globe/Globe';
 import type { IndoorManager } from '../indoor/IndoorManager';
 import type { LocalScene } from '../local/LocalScene';
+import type { SplatLayer } from '../splats/SplatLayer';
 import { resolveTileFeature, type TileFeature, type Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
 import type { GeoJsonLayer } from '../vector/GeoJsonLayer';
 import { lonLatToMerc } from '../vector/geometry';
@@ -34,6 +36,7 @@ export interface PickingHost {
   readonly localScene: LocalScene;
   readonly pickBuffer: PickBuffer<Tiles3DLayer> | null;
   readonly tilesets: readonly Tiles3DLayer[];
+  readonly splatLayers: readonly SplatLayer[];
   readonly vectorLayers: readonly GeoJsonLayer[];
   readonly vectors: VectorService;
   readonly labels: LabelManager;
@@ -53,8 +56,28 @@ export class ViewerPicking {
 
   constructor(private readonly viewer: PickingHost) {}
 
-  /** Closest surface hit (buildings, 3D Tiles or globe) at normalized device coordinates. */
+  /**
+   * Closest surface hit (buildings, 3D Tiles, Gaussian splats or globe) at normalized device
+   * coordinates. `buffer: true` answers from the GPU pick buffer while it is fresh; splat
+   * layers are not in that buffer and are always tested with a ray (`SplatLayer.raycast`).
+   */
   pick(ndc: Vector2, options: { buffer?: boolean } = {}): SurfacePick | null {
+    const surface = this.pickSurface(ndc, options);
+    if (this.viewer.splatLayers.length === 0) return surface;
+    // Splats in front of that surface (they write no depth, so neither the buffer nor the meshes know them).
+    const ray = this.viewRay(ndc);
+    const ls = this.viewer.localScene;
+    let best = surface;
+    for (const layer of this.viewer.splatLayers) {
+      const hit = layer.raycast(ray, { maxDistance: best?.distance });
+      if (!hit || (ls.hidesOutside && !ls.showsWorld(hit.point))) continue;
+      best = { point: hit.point, source: 'splats', distance: hit.distance, splats: layer, splatIndex: hit.index, via: 'ray' };
+    }
+    return best;
+  }
+
+  /** Closest hit on what the pick buffer knows: buildings, 3D Tiles and the globe. */
+  private pickSurface(ndc: Vector2, options: { buffer?: boolean }): SurfacePick | null {
     if (options.buffer) {
       const g = this.pickFromBuffer(ndc);
       if (g !== undefined) return g;
@@ -127,6 +150,7 @@ export class ViewerPicking {
       kind: hit ? hit.source : 'none',
       entity: hit?.entity ?? null,
       tileset: hit?.tileset ?? null,
+      splats: hit?.splats ?? null,
       point: hit?.point ?? null,
       cartographic: hit ? this.viewer.ellipsoid.cartesianToCartographic(hit.point) : null,
       clientX,

@@ -48,11 +48,13 @@ const ALLOWED = {
   tiles3d: ['core', 'atmosphere', 'lighting', 'region'],
   vector: ['core', 'globe'],
   markers: ['core'],
+  // Gaussian splat layers: decoding (Worker), placement, drawing and picking.
+  splats: ['core'],
   indoor: ['core', 'atmosphere', 'lighting', 'post', 'markers'],
   // Local scene: region walls, dimming, camera bounds over the globe and 3D Tiles.
   local: ['core', 'region', 'post', 'globe', 'tiles3d'],
   // The viewer assembles everything.
-  viewer: ['core', 'atmosphere', 'region', 'lighting', 'post', 'clouds', 'globe', 'tiles3d', 'vector', 'markers', 'indoor', 'local'],
+  viewer: ['core', 'atmosphere', 'region', 'lighting', 'post', 'clouds', 'globe', 'tiles3d', 'vector', 'markers', 'splats', 'indoor', 'local'],
 };
 
 /**

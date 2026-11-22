@@ -16,6 +16,7 @@ import type { LevelTransition } from '../post/LevelTransition';
 import type { PostPipeline } from '../post/PostPipeline';
 import type { Supersampling } from '../post/Supersampling';
 import type { Transparency } from '../post/Transparency';
+import type { SplatLayer } from '../splats/SplatLayer';
 import type { Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
 import type { GeoJsonLayer } from '../vector/GeoJsonLayer';
 import type { LoadState } from './loadState';
@@ -32,6 +33,7 @@ export interface MemorySource {
   readonly tilesets: readonly Tiles3DLayer[];
   readonly indoor: IndoorManager;
   readonly shadows: SunShadows;
+  readonly splatLayers: readonly SplatLayer[];
 }
 
 /** The viewer members a snapshot reads. */
@@ -77,7 +79,9 @@ export function memoryReport(v: MemorySource): MemoryReport {
   }
   const buildings = v.indoor.modelBytes + v.indoor.ambientOcclusion.bytes;
   const shadows = v.shadows.bytes;
-  return { framebuffers, globe, tilesGpu, buildings, shadows, gpuTotal: framebuffers + globe + tilesGpu + buildings + shadows, tilesCache, tilesCacheMax };
+  let splats = 0;
+  for (const layer of v.splatLayers) splats += layer.gpuBytes;
+  return { framebuffers, globe, tilesGpu, buildings, shadows, splats, gpuTotal: framebuffers + globe + tilesGpu + buildings + shadows + splats, tilesCache, tilesCacheMax };
 }
 
 /** Diagnostics of the viewer as of the last frame (`viewer.snapshot()`). */
@@ -103,6 +107,7 @@ export function viewerSnapshot(v: SnapshotSource): ViewerSnapshot {
     globe: { ...v.globe.stats, shown: v.showGlobe },
     tilesets: v.tilesets.map((l) => ({ id: l.id, name: l.name, visible: l.visible, active: l.active, pending: l.pending, errorScale: l.errorScale, memory: { ...l.memory } })),
     layers: { vector: v.vectorLayers.length, points: v.pointLayers.length, markers: { ...v.markers.stats } },
+    splats: v.splatLayers.map((l) => ({ id: l.id, name: l.name, ready: l.ready, visible: l.visible, active: l.active, gpuBytes: l.gpuBytes, stats: l.stats && { ...l.stats } })),
     indoor: {
       buildings: indoor.buildings.length,
       current: indoor.current ? { id: indoor.current.id, type: indoor.current.type } : null,

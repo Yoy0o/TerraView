@@ -19,6 +19,7 @@ import type { SunShadowOptions } from '../lighting/SunShadows';
 import type { ColorGradingOptions } from '../post/postMath';
 import type { PostStage } from '../post/PostPipeline';
 import type { SupersamplingOptions } from '../post/Supersampling';
+import type { SplatLayer, SplatLayerStats } from '../splats/SplatLayer';
 import type { TransparencyOptions } from '../post/Transparency';
 import type { Tiles3DLayer, TilesMemoryStats } from '../tiles3d/Tiles3DLayer';
 import type { GeoJsonLayer } from '../vector/GeoJsonLayer';
@@ -165,6 +166,8 @@ export interface MemoryReport {
   buildings: number;
   /** Sun shadow map (`shadows.bytes`; allocated the first time shadows are drawn). */
   shadows: number;
+  /** Gaussian splat layers: splat data, spherical harmonics and sort buffers (`SplatLayer.gpuBytes`). */
+  splats: number;
   /** Sum of the above: the viewer's video memory, without generated building geometry, labels and the browser's own share. */
   gpuTotal: number;
   /** Decoded 3D Tiles content in the tile cache (mostly system memory; includes what is on the GPU) and its limit. */
@@ -190,6 +193,8 @@ export interface ViewerSnapshot {
   globe: GlobeStats & { shown: boolean };
   tilesets: { id: number; name: string; visible: boolean; active: boolean; pending: number; errorScale: number; memory: TilesMemoryStats }[];
   layers: { vector: number; points: number; markers: MarkerStats };
+  /** Gaussian splat layers: whether each is loaded, shown and drawn right now, splats drawn, file facts, video memory. */
+  splats: { id: number; name: string; ready: boolean; visible: boolean; active: boolean; gpuBytes: number; stats: SplatLayerStats | null }[];
   indoor: {
     buildings: number;
     /** Entered level (id and type), null on the globe. */
@@ -239,6 +244,8 @@ export interface ViewerEvents extends Record<string, unknown> {
   'tilesets-changed': Tiles3DLayer[];
   'vectors-changed': GeoJsonLayer[];
   'points-changed': PointLayer[];
+  /** A Gaussian splat layer was added, became ready, failed or was removed. */
+  'splats-changed': SplatLayer[];
   /** A point marker of a point layer was clicked. */
   'point-click': { point: PointRecord; layer: PointLayer; event: MouseEvent };
   /** Something failed to load (one event per failure the SDK reports, see `ViewerError`). */
@@ -254,7 +261,7 @@ export interface ViewerEvents extends Record<string, unknown> {
 }
 
 /** Where a `ViewerError` comes from. */
-export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 'points';
+export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 'points' | 'splats';
 
 /**
  * A load failure, on `viewer.events` 'error'. One place to listen for what otherwise arrives
@@ -264,12 +271,14 @@ export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 
  * - `terrain`: terrain tiles keep failing (`terrain-unreachable`, once per terrain source).
  * - `tileset`: a 3D Tiles root tileset failed to load (`tileset-load-failed`); `layer` is set.
  * - `geojson`, `points`: a layer's data could not be loaded or parsed; `layer` is set.
+ * - `splats`: a Gaussian splat file could not be loaded or decoded (`splat-load-failed`,
+ *   `splat-invalid`, `splat-format-unsupported`); `layer` is set.
  */
 export interface ViewerError {
   source: ViewerErrorSource;
   /** A `TerraViewError` with a `code` when the SDK raised it, else the original error (network, parsing). */
   error: Error;
-  layer?: Tiles3DLayer | GeoJsonLayer | PointLayer;
+  layer?: Tiles3DLayer | GeoJsonLayer | PointLayer | SplatLayer;
 }
 
 export interface FeaturePick {
@@ -281,10 +290,13 @@ export interface FeaturePick {
 
 export interface SurfacePick {
   point: Vector3;
-  source: 'globe' | 'tiles' | 'entity';
+  source: 'globe' | 'tiles' | 'entity' | 'splats';
   distance: number;
   entity?: BimEntity;
   tileset?: Tiles3DLayer;
+  /** The Gaussian splat layer hit and the index of the splat (`source: 'splats'`; always a CPU ray). */
+  splats?: SplatLayer;
+  splatIndex?: number;
   /** World unit normal facing the camera (GPU pick buffer only; flat per triangle). */
   normal?: Vector3;
   /** How the pick was answered: the GPU pick buffer or a CPU ray. */

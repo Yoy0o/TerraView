@@ -33,6 +33,8 @@ const BUDGETS = [
   { file: 'assets/vector.worker', raw: 32, gzip: 10 },
   { file: 'assets/clusterTree.worker', raw: 12, gzip: 5 },
   { file: 'assets/cloudNoise.worker', raw: 10, gzip: 4 },
+  // Gaussian splat decoders (2026-11-22: 30.4 / 9.6).
+  { file: 'assets/splat.worker', raw: 34, gzip: 11 },
 ];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');

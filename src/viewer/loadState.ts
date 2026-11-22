@@ -10,7 +10,7 @@ export interface LoadState {
   globe: number;
   /** 3D Tiles waiting for, or in, download and parsing, over the tilesets being drawn (`Tiles3DLayer.pending`). */
   tilesets: number;
-  /** GeoJSON and point layers still loading their data. */
+  /** GeoJSON, point and Gaussian splat layers still loading their data. */
   layers: number;
   /** `globe + tilesets + layers`. */
   pending: number;

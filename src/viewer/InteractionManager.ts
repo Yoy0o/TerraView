@@ -8,6 +8,7 @@ import type { Vector3 } from 'three';
 import type { Cartographic } from '../core/Ellipsoid';
 import { selectorPredicate, type BimEntity, type EntitySelector } from '../indoor/BimEntity';
 import type { Marker } from '../markers/MarkerManager';
+import type { SplatLayer } from '../splats/SplatLayer';
 import type { TileFeature } from '../tiles3d/Tiles3DLayer';
 import type { Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
 
@@ -15,10 +16,15 @@ const noTileFeature = (): TileFeature | null => null;
 
 /** What lies under a screen point (closest along the view ray). */
 export interface PickInfo {
-  kind: 'entity' | 'tiles' | 'globe' | 'none';
+  kind: 'entity' | 'tiles' | 'splats' | 'globe' | 'none';
   /** Building / floor / room / thing hit, when `kind` is 'entity'. */
   entity: BimEntity | null;
   tileset: Tiles3DLayer | null;
+  /**
+   * The Gaussian splat layer hit, when `kind` is 'splats' (null or absent otherwise).
+   * Optional for hosts building picks themselves; events always have it.
+   */
+  splats?: SplatLayer | null;
   /** World (ECEF) position. */
   point: Vector3 | null;
   /** Radians / meters. */
@@ -40,6 +46,8 @@ export type InteractionType = 'click' | 'dblclick' | 'rightclick' | 'mousemove' 
 
 export interface InteractionEvent extends PickInfo {
   type: InteractionType;
+  /** The Gaussian splat layer under the pointer, or null. */
+  splats: SplatLayer | null;
   /**
    * The 3D Tiles feature under the pointer, or null (see `PickInfo.tileFeature`). Costs a
    * CPU ray on the first call per pick: call it in the listeners that need it.
@@ -406,6 +414,7 @@ export class InteractionManager {
       object,
       button,
       originalEvent: original,
+      splats: pick.splats ?? null,
       tileFeature: pick.tileFeature ?? noTileFeature,
       preventDefault: () => {
         prevented = true;

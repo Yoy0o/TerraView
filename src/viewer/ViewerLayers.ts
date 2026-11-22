@@ -1,10 +1,10 @@
 /**
- * Layers of a viewer and the ground they stand on: 3D Tiles, GeoJSON and point layers (add,
- * remove, highlights), glTF loading with the shared decoders, the ground height every "stand on
+ * Layers of a viewer and the ground they stand on: 3D Tiles, GeoJSON, point and Gaussian splat
+ * layers (add, remove, highlights), glTF loading with the shared decoders, the ground height every "stand on
  * the ground" query uses (`viewer.surfaceHeight`: terrain with the globe, vertical rays onto
  * 3D Tiles without it) and the ground the camera may not pass (collision).
  */
-import { Raycaster, Vector3, type Object3D, type PerspectiveCamera, type Scene } from 'three';
+import { Raycaster, Vector3, type Object3D, type PerspectiveCamera, type Scene, type Sphere } from 'three';
 import type { WebGPURenderer } from 'three/webgpu';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -20,6 +20,7 @@ import type { IndoorManager } from '../indoor/IndoorManager';
 import type { LocalScene } from '../local/LocalScene';
 import type { MarkerManager } from '../markers/MarkerManager';
 import { PointLayer, type PointLayerOptions } from '../markers/PointLayer';
+import { SplatLayer, type SplatLayerOptions } from '../splats/SplatLayer';
 import type { NodeMaterialLibrary } from '../tiles3d/nodeMaterials';
 import { Tiles3DLayer, type LoaderKit, type TileFeature, type Tiles3DLayerOptions } from '../tiles3d/Tiles3DLayer';
 import type { FeatureHighlightStyle } from '../tiles3d/tileFeatures';
@@ -28,7 +29,7 @@ import type { LabelManager } from '../vector/LabelManager';
 import type { FeatureHit } from '../vector/types';
 import type { VectorService } from '../vector/VectorService';
 import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
-import type { ViewerEvents } from './viewerTypes';
+import type { RendererInfo, SphereFlightOptions, ViewerEvents, ViewPosition } from './viewerTypes';
 import { enteredBuilding, type ViewerState } from './viewerState';
 
 /** What the layers read of their viewer; the layer arrays are the viewer's own (`viewer.tilesets` ...). */
@@ -38,6 +39,7 @@ export interface LayersHost {
   readonly scene: Scene;
   readonly camera: PerspectiveCamera;
   readonly ellipsoid: Ellipsoid;
+  readonly info: RendererInfo;
   readonly gpu: GpuProfile;
   readonly messages: ViewerMessages;
   readonly events: EventEmitter<ViewerEvents>;
@@ -50,11 +52,14 @@ export interface LayersHost {
   readonly tilesets: Tiles3DLayer[];
   readonly vectorLayers: GeoJsonLayer[];
   readonly pointLayers: PointLayer[];
+  readonly splatLayers: SplatLayer[];
   /** `GeoViewerOptions.decoderPath` / `transcoderPath` ('' for the copies shipped with three.js). */
   readonly decoderPath: string;
   readonly transcoderPath: string;
   requestRender(): void;
   flyToBBox(bbox: [number, number, number, number], duration?: number): Promise<void>;
+  flyToSphere(sphere: Sphere, heading?: number, pitch?: number, duration?: number, options?: SphereFlightOptions): Promise<void>;
+  getView(): Required<ViewPosition>;
 }
 
 /** Vertical surface rays start this high above the ellipsoid (meters; above any building or photogrammetry)… */
@@ -249,6 +254,55 @@ export class ViewerLayers {
     this.viewer.pointLayers.splice(i, 1);
     layer.dispose();
     this.viewer.events.emit('points-changed', this.viewer.pointLayers);
+  }
+
+  /** `viewer.addSplats`. */
+  addSplats(options: SplatLayerOptions): SplatLayer {
+    const viewer = this.viewer;
+    const layer = new SplatLayer(options, {
+      ellipsoid: viewer.ellipsoid,
+      quality: viewer.gpu.splats,
+      webgpu: viewer.info.backend === 'WebGPU',
+      groundHeight: (lon, lat) => {
+        const s = this.surface.query(lon, lat);
+        return s.reliable ? s.height : null;
+      },
+      flyToSphere: (sphere, heading, pitch, duration) => viewer.flyToSphere(sphere, heading ?? viewer.getView().heading, pitch ?? -25, duration, { rangeScale: 1.1, minRange: 0.5 }),
+    });
+    layer.suppressed = this.tilesetsSuppressed && !layer.showIndoors;
+    layer.events.on('ready', () => viewer.events.emit('splats-changed', viewer.splatLayers));
+    layer.events.on('error', ({ error }) => {
+      viewer.events.emit('splats-changed', viewer.splatLayers);
+      viewer.events.emit('error', { source: 'splats', error, layer });
+    });
+    // Loaded, `visible`, `opacity`, `brightness`, `crop` or the placement set.
+    layer.events.on('change', () => viewer.requestRender());
+    viewer.scene.add(layer.group);
+    viewer.splatLayers.push(layer);
+    viewer.events.emit('splats-changed', viewer.splatLayers);
+    return layer;
+  }
+
+  removeSplats(layer: SplatLayer): void {
+    const i = this.viewer.splatLayers.indexOf(layer);
+    if (i < 0) return;
+    this.viewer.splatLayers.splice(i, 1);
+    layer.dispose();
+    this.viewer.events.emit('splats-changed', this.viewer.splatLayers);
+  }
+
+  /**
+   * Per frame: splat layers follow the ground, fade in and are hidden while too small on screen;
+   * inside a building they go with the 3D Tiles (unless `showIndoors`), and outside a local
+   * scene that hides its surroundings with everything else there.
+   */
+  updateSplats(dt: number, viewportHeight: number): void {
+    const ls = this.viewer.localScene;
+    for (const layer of this.viewer.splatLayers) {
+      const outside = ls.hidesOutside && layer.ready && !ls.showsWorld(layer.boundingSphere.center, 0);
+      layer.suppressed = outside || (this.tilesetsSuppressed && !layer.showIndoors);
+      if (layer.update(dt, this.viewer.camera, viewportHeight) || layer.animating) this.viewer.requestRender();
+    }
   }
 
   /** Highlights a picked feature (null clears). */

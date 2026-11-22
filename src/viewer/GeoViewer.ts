@@ -6,7 +6,7 @@
  *   ViewerEnvironment  sun, atmosphere and star uniforms, lights, shadow fit, cloud frame state
  *   FrameLoop          per-frame update and draw, idle pacing, renders outside the loop, stats
  *   ViewerPicking      picks under the cursor, along view rays and for camera gestures
- *   ViewerLayers       3D Tiles / GeoJSON / point layers, glTF loading, ground heights
+ *   ViewerLayers       3D Tiles / GeoJSON / point / Gaussian splat layers, glTF loading, ground heights
  *   diagnostics        memory estimate, snapshot, GPU detection
  *   viewerState        the state they share; viewerTypes: the public types
  */
@@ -55,6 +55,7 @@ import { PostPipeline } from '../post/PostPipeline';
 import { Supersampling } from '../post/Supersampling';
 import { Transparency } from '../post/Transparency';
 import { ViewerEffects } from '../post/ViewerEffects';
+import type { SplatLayer, SplatLayerOptions } from '../splats/SplatLayer';
 import type { TileFeature, Tiles3DLayer, Tiles3DLayerOptions } from '../tiles3d/Tiles3DLayer';
 import type { FeatureHighlightStyle } from '../tiles3d/tileFeatures';
 import type { GeoJsonLayer, GeoJsonLayerOptions } from '../vector/GeoJsonLayer';
@@ -160,6 +161,8 @@ export class GeoViewer {
   readonly markerOcclusion: OcclusionProxies;
   /** Data-driven point marker layers (点位), drawn through `markers`. */
   readonly pointLayers: PointLayer[] = [];
+  /** 3D Gaussian splatting scenes placed on the globe (`addSplats`). */
+  readonly splatLayers: SplatLayer[] = [];
   /** Pointer events resolved to scene objects (click / dblclick / hover with selectors). */
   readonly interaction: InteractionManager;
   /** Buildings, floors, rooms and equipment; indoor level navigation. */
@@ -487,11 +490,15 @@ export class GeoViewer {
       tilesets: this.tilesets,
       vectorLayers: this.vectorLayers,
       pointLayers: this.pointLayers,
+      splatLayers: this.splatLayers,
       decoderPath: options.decoderPath ?? '',
       transcoderPath: options.transcoderPath ?? '',
       requestRender: () => this.requestRender(),
       wake: () => this.wake(),
       flyToBBox: (bbox: [number, number, number, number], duration?: number) => this.flyToBBox(bbox, duration),
+      flyToSphere: (sphere: Sphere, heading?: number, pitch?: number, duration?: number, options?: SphereFlightOptions) =>
+        this.flyToSphere(sphere, heading, pitch, duration, options),
+      getView: () => this.getView(),
       updateBuildingsInRegion: () => this.updateBuildingsInRegion(),
     };
     this.layers = new ViewerLayers(parts);
@@ -502,7 +509,7 @@ export class GeoViewer {
     this.controller.events.on('change', () => this.requestRender());
     // A gesture starting changes nothing yet (a click without a drag must not discard a supersampled view).
     this.controller.events.on('interactionstart', () => this.wake());
-    for (const type of ['tilesets-changed', 'vectors-changed', 'points-changed'] as const) this.events.on(type, () => this.requestRender());
+    for (const type of ['tilesets-changed', 'vectors-changed', 'points-changed', 'splats-changed'] as const) this.events.on(type, () => this.requestRender());
     // Labels sit above the canvas: their clicks reach the interaction listeners as clicks on the entity.
     this.markers.eventProxy = (type, marker, event) => {
       const entity = marker.options.userData?.entity;
@@ -727,7 +734,11 @@ export class GeoViewer {
   // ---------------------------------------------------------------------------
   // Picking
 
-  /** Closest surface hit (buildings, 3D Tiles or globe) at normalized device coordinates. */
+  /**
+   * Closest surface hit (buildings, 3D Tiles, Gaussian splats or globe) at normalized device
+   * coordinates. `buffer: true` answers from the GPU pick buffer while it is fresh; splat
+   * layers are not in that buffer and are always tested with a ray (`SplatLayer.raycast`).
+   */
   pick(ndc: Vector2, options: { buffer?: boolean } = {}): SurfacePick | null {
     return this.picking.pick(ndc, options);
   }
@@ -900,6 +911,23 @@ export class GeoViewer {
     this.layers.removePoints(layer);
   }
 
+  // ---------------------------------------------------------------------------
+  // Gaussian splats
+
+  /**
+   * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe.
+   * The file loads in a Worker; listen to the layer's `ready` / `error` events (or the viewer's
+   * 'error'), then `layer.flyTo()`. Throws an `option-invalid` `TerraViewError` when `position`
+   * or the source (`url` / `data`) is missing. See docs/api.md §1.13 and docs/agents/splats.md.
+   */
+  addSplats(options: SplatLayerOptions): SplatLayer {
+    return this.layers.addSplats(options);
+  }
+
+  removeSplats(layer: SplatLayer): void {
+    this.layers.removeSplats(layer);
+  }
+
   /** Flies to fit a [west, south, east, north] box in degrees (top-down view). */
   flyToBBox(bbox: [number, number, number, number], duration?: number): Promise<void> {
     const [w, s, e, n] = bbox;
@@ -1032,6 +1060,7 @@ export class GeoViewer {
     for (const layer of [...this.tilesets]) this.removeTileset(layer);
     for (const layer of [...this.vectorLayers]) this.removeGeoJson(layer);
     for (const layer of [...this.pointLayers]) this.removePoints(layer);
+    for (const layer of [...this.splatLayers]) this.removeSplats(layer);
     this.localScene.dispose();
     this.regionWalls.dispose();
     this.indoor.dispose();

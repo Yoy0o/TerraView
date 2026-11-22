@@ -29,6 +29,7 @@ import type { EffectMarks } from '../post/EffectMarks';
 import type { LevelTransition } from '../post/LevelTransition';
 import type { PostPipeline } from '../post/PostPipeline';
 import type { Supersampling } from '../post/Supersampling';
+import type { SplatLayer } from '../splats/SplatLayer';
 import type { Tiles3DLayer, TilesViewState } from '../tiles3d/Tiles3DLayer';
 import type { GeoJsonLayer } from '../vector/GeoJsonLayer';
 import type { LabelManager } from '../vector/LabelManager';
@@ -79,6 +80,7 @@ export interface FrameHost {
   readonly tilesets: readonly Tiles3DLayer[];
   readonly vectorLayers: readonly GeoJsonLayer[];
   readonly pointLayers: readonly PointLayer[];
+  readonly splatLayers: readonly SplatLayer[];
   readonly surface: SurfaceHeightQuery;
   readonly environment: ViewerEnvironment;
   readonly layers: ViewerLayers;
@@ -287,6 +289,7 @@ export class FrameLoop {
       this.viewer.shadows.invalidate();
       this.viewer.requestRender();
     }
+    this.viewer.layers.updateSplats(dt, this.viewer.container.clientHeight);
     const building = enteredBuilding(this.viewer.indoor);
     const bare = this.viewer.state.indoorBackdrop && building !== null && !this.viewer.state.showGlobe && !this.viewer.tilesets.some((l) => l.active);
     if (this.viewer.backdrop.update(bare ? building : null, dt)) this.viewer.requestRender();
@@ -332,6 +335,7 @@ export class FrameLoop {
     let layers = 0;
     for (const layer of this.viewer.vectorLayers) if (!layer.ready && layer.error === null) layers++;
     for (const layer of this.viewer.pointLayers) if (!layer.ready && layer.error === null) layers++;
+    for (const layer of this.viewer.splatLayers) if (!layer.ready && layer.error === null) layers++;
     const state = summarizeLoad({
       globe: this.viewer.state.showGlobe ? this.viewer.globe.stats : null,
       imageryUnreachable: this.viewer.globe.imageryError !== null,

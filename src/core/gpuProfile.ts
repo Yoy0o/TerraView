@@ -1,7 +1,7 @@
 /**
  * GPU tiers and the budgets that follow from them: frame buffer cost (pixel
  * ratio, MSAA), globe tile cache, the 3D Tiles memory and level-of-detail
- * settings, and the building model budget. Pure data and functions (no
+ * settings, the building model budget and the Gaussian splat budget. Pure data and functions (no
  * three.js, no DOM), unit tested.
  *
  * Browsers do not tell a page how much video memory there is. The tier is
@@ -114,6 +114,18 @@ export interface CloudQuality {
   weatherSize: number;
 }
 
+/** Gaussian splat settings of a tier (applied by `SplatLayer`; a layer's own options take precedence). */
+export interface SplatQuality {
+  /**
+   * Most splats a layer keeps (60 bytes of video memory each, 88 with degree-1 spherical
+   * harmonics, and every one is sorted and drawn each time the view turns). Capped at
+   * 600 000 on the WebGL backend, which sorts on the CPU.
+   */
+  maxSplats: number;
+  /** Highest spherical harmonics degree kept (0 = one color per splat; degree 3 adds 68 bytes a splat). */
+  maxShDegree: number;
+}
+
 /** Everything a tier decides. Explicit viewer / layer options take precedence over these. */
 export interface GpuProfile {
   tier: GpuTier;
@@ -135,6 +147,7 @@ export interface GpuProfile {
   };
   tiles: TilesQuality;
   indoor: IndoorQuality;
+  splats: SplatQuality;
   /** Sun shadows of buildings (`viewer.shadows`): on by default, and texels along a side of the shadow map (4 bytes each). */
   shadows: { enabled: boolean; mapSize: number };
   /**
@@ -168,6 +181,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 12,
     },
     indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000, aoMaxResolution: 512 },
+    splats: { maxSplats: 500_000, maxShDegree: 0 },
     shadows: { enabled: false, mapSize: 1024 },
     orderIndependentTransparency: false,
     clouds: { volumetric: false, historyPixels: 160_000, steps: 48, lightSteps: 4, shadowMapSize: 256, weatherSize: 512 },
@@ -193,6 +207,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 20,
     },
     indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
+    splats: { maxSplats: 1_500_000, maxShDegree: 1 },
     shadows: { enabled: true, mapSize: 2048 },
     orderIndependentTransparency: false,
     clouds: { volumetric: true, historyPixels: 300_000, steps: 64, lightSteps: 5, shadowMapSize: 512, weatherSize: 1024 },
@@ -218,6 +233,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 25,
     },
     indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
+    splats: { maxSplats: 3_000_000, maxShDegree: 2 },
     shadows: { enabled: true, mapSize: 2048 },
     orderIndependentTransparency: false,
     clouds: { volumetric: true, historyPixels: 520_000, steps: 96, lightSteps: 6, shadowMapSize: 512, weatherSize: 1024 },
@@ -243,6 +259,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
       downloadJobs: 30,
     },
     indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000, aoMaxResolution: 2048 },
+    splats: { maxSplats: 6_000_000, maxShDegree: 3 },
     shadows: { enabled: true, mapSize: 4096 },
     orderIndependentTransparency: true,
     clouds: { volumetric: true, historyPixels: 1_000_000, steps: 128, lightSteps: 6, shadowMapSize: 1024, weatherSize: 1024 },
@@ -252,7 +269,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
 /** The settings of a tier (a fresh copy, safe to modify). @advanced */
 export function gpuProfile(tier: GpuTier): GpuProfile {
   const p = PROFILES[tier];
-  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor }, shadows: { ...p.shadows }, clouds: { ...p.clouds } };
+  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor }, splats: { ...p.splats }, shadows: { ...p.shadows }, clouds: { ...p.clouds } };
 }
 
 /** `low` / `medium` / `high` / `ultra` (any case, surrounding spaces ignored), else undefined. @advanced */

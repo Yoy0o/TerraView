@@ -21,6 +21,7 @@
  *   local       local scene (one area on its own, sandbox walls)
  *   globe       imagery providers and presets, terrain sources, raster overlays
  *   tiles3d     OGC 3D Tiles layers
+ *   splats      3D Gaussian splatting layers
  *   vector      GeoJSON layers and their styles
  *   markers     HTML markers, point layers, clustering
  *   indoor      building documents, entities, selectors, level controls
@@ -94,6 +95,13 @@ export { Tiles3DLayer } from './tiles3d/Tiles3DLayer';
 export type { Tiles3DLayerEvents, Tiles3DLayerOptions, TilesetSource, TilesMemoryStats } from './tiles3d/Tiles3DLayer';
 export type { TileFeature } from './tiles3d/Tiles3DLayer';
 export type { FeatureHighlightStyle } from './tiles3d/tileFeatures';
+
+// ---------------------------------------------------------------- Gaussian splats
+export { SplatLayer } from './splats/SplatLayer';
+export type { SplatHit, SplatLayerEvents, SplatLayerOptions, SplatLayerStats, SplatPlacement } from './splats/SplatLayer';
+export type { SplatBounds, SplatCrop, SplatShDegree } from './splats/splatData';
+export type { SplatFormat } from './splats/splatFormats';
+export type { SplatPivot, SplatUpAxis } from './splats/splatPlacement';
 
 // ---------------------------------------------------------------- vector
 export { GeoJsonLayer } from './vector/GeoJsonLayer';
@@ -202,7 +210,7 @@ export { EventEmitter } from './core/EventEmitter';
 export { WGS84_A, WGS84_B, geodeticNormal, geodeticToEcef } from './core/geodesy';
 export { sunDirectionECEF } from './core/SunPosition';
 export { GPU_TIERS, classifyGpu, gpuProfile, parseGpuTier } from './core/gpuProfile';
-export type { CloudQuality, GpuHints, GpuProfile, GpuTier, IndoorQuality, TilesQuality } from './core/gpuProfile';
+export type { CloudQuality, GpuHints, GpuProfile, GpuTier, IndoorQuality, SplatQuality, TilesQuality } from './core/gpuProfile';
 export { DEG2RAD, RAD2DEG, clamp, formatDegrees, formatDistance } from './core/math';
 export { DEFAULT_LOCALE, MESSAGES, localize, resolveMessages } from './core/i18n';
 export type { LocaleId, LocalizedText, ViewerMessageOverrides, ViewerMessages } from './core/i18n';
