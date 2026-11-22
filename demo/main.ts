@@ -9,7 +9,8 @@ import { parseRegionLook, parseRegionParam } from './ui/LocalScenePanel';
 import { NavigationBar } from './ui/NavigationBar';
 import { loadSettings } from './ui/settings';
 import { StatusBar } from './ui/StatusBar';
-import { hasStartupFlight, parseCloudParams, parseCullingParams, parseFlag, parseIntroParams, parseNumber } from './ui/urlOptions';
+import { SPLAT_DEMO_SITE } from './data/demoSplats';
+import { hasStartupFlight, parseCloudParams, parseCullingParams, parseFlag, parseIntroParams, parseNumber, parseSplatParams } from './ui/urlOptions';
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 112, latitude: 26, height: 1.75e7, heading: 0, pitch: -90 };
 
@@ -142,7 +143,10 @@ async function main(): Promise<void> {
     // *.points.json (or .points.geojson) become point marker layers, other GeoJSON draped vectors.
     const points = files.filter((f) => /\.points\.(geo)?json$/i.test(f.name));
     if (points.length) void panel.pointPanel.loadFiles(points);
-    const rest = files.filter((f) => !buildings.includes(f) && !points.includes(f));
+    // .ply / .splat / .spz are Gaussian splat scenes, put under the view center.
+    const splats = files.filter((f) => /\.(ply|splat|spz)$/i.test(f.name));
+    if (splats.length) void panel.splatPanel.loadFiles(splats);
+    const rest = files.filter((f) => !buildings.includes(f) && !points.includes(f) && !splats.includes(f));
     if (rest.length) void panel.vectorPanel.loadFiles(rest);
   });
   window.addEventListener('keydown', (e) => {
@@ -173,6 +177,11 @@ async function main(): Promise<void> {
     });
   }
 
+  // ?splats=<url> loads a Gaussian splat scene; ?splatsAt=lon,lat[,height] places it (else at the demo site),
+  // ?splatsScale / ?splatsHeading / ?splatsUp / ?splatsMax set its size, heading, axis convention and budget.
+  const splats = parseSplatParams(params);
+  if (splats) panel.splatPanel.load({ ...splats, position: splats.position ?? SPLAT_DEMO_SITE }, !location.hash);
+
   // ?region=circle:lon,lat,km | rect:w,s,e,n | poly:lon,lat;... shows only that area (local scene);
   // ?regionLook=sandbox|float|dim picks its look.
   const region = parseRegionParam(params.get('region'));
@@ -188,9 +197,9 @@ function isTyping(e: KeyboardEvent): boolean {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
 }
 
-/** Drag GeoJSON (or *.building.json) files anywhere onto the page to load them. */
+/** Drag GeoJSON, *.building.json, *.points.json or Gaussian splat files anywhere onto the page to load them. */
 function enableFileDrop(app: HTMLElement, onFiles: (files: File[]) => void): void {
-  const overlay = h('div', { class: 'drop-overlay', hidden: true }, h('div', {}, '释放以加载 GeoJSON / points.json / building.json 文件'));
+  const overlay = h('div', { class: 'drop-overlay', hidden: true }, h('div', {}, '释放以加载 GeoJSON / points.json / building.json / 高斯泼溅（.ply .splat .spz）文件'));
   app.append(overlay);
   let depth = 0;
   const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');

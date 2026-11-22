@@ -3,12 +3,13 @@
  *
  *   node tests/e2e/server.mjs <dir> <port>
  *
- * Serves a build folder (dist-demo/, or the host project kept by `check:package --keep-host`) and
- * two generated 256 px tiles that the tests hand out instead of the real tile services, so the
- * smoke tests run offline and see the same pixels every time:
+ * Serves a build folder (dist-demo/, or the host project kept by `check:package --keep-host`),
+ * two generated 256 px tiles that the tests hand out instead of the real tile services, and a
+ * generated Gaussian splat file, so the smoke tests run offline and see the same pixels every time:
  *
  *   /__tiles/imagery.png   grid pattern (basemap imagery)
  *   /__tiles/terrain.png   Terrarium-encoded flat ground at 100 m
+ *   /__splats/ball.splat   3000 Gaussian splats on a sphere of radius 1 (`.splat` rows)
  *
  * Node only, no dependencies.
  */
@@ -78,6 +79,28 @@ const TILES = {
   '/__tiles/terrain.png': png(256, () => [128, 100, 0]),
 };
 
+// ------------------------------------------------------------------ Gaussian splats
+
+/** A `.splat` file: `count` opaque splats spread evenly over a unit sphere, colored by position. */
+function splatBall(count) {
+  const out = Buffer.alloc(count * 32);
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < count; i++) {
+    const y = 1 - (2 * (i + 0.5)) / count;
+    const r = Math.sqrt(1 - y * y);
+    const x = Math.cos(golden * i) * r;
+    const z = Math.sin(golden * i) * r;
+    const o = i * 32;
+    [x, y, z, 0.06, 0.06, 0.06].forEach((v, k) => out.writeFloatLE(v, o + k * 4));
+    out.set([128 + 100 * x, 128 + 100 * y, 128 + 100 * z, 255], o + 24);
+    // Rotation as w, x, y, z bytes: identity.
+    out.set([255, 128, 128, 128], o + 28);
+  }
+  return out;
+}
+
+const SPLATS = { '/__splats/ball.splat': splatBall(3000) };
+
 // ------------------------------------------------------------------ server
 
 createServer(async (req, res) => {
@@ -86,6 +109,8 @@ createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   const tile = TILES[url.pathname];
   if (tile) return res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }).end(tile);
+  const splats = SPLATS[url.pathname];
+  if (splats) return res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': splats.length }).end(splats);
 
   const path = decodeURIComponent(url.pathname);
   const file = normalize(join(root, path.endsWith('/') ? `${path}index.html` : path));
