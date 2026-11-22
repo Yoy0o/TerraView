@@ -14,6 +14,10 @@
  *   ?cullThreshold=0..1   share of the viewport below which they are culled (0.005 = 0.5 %)
  *   ?cullHysteresis=0..1  ?cullInterval=<frames>   ?cullSelector=<entity selector, e.g. .thing>
  *
+ *   ?splats=<url>         a Gaussian splat file (.ply / .splat / .spz) to load at startup
+ *   ?splatsAt=lon,lat[,h] where it stands (degrees; meters above the ellipsoid, on the ground when omitted)
+ *   ?splatsScale=<m per unit>   ?splatsHeading=<deg>   ?splatsUp=-y|+y|+z   ?splatsMax=<splats>
+ *
  * Read in main.ts: ?gpu=low|medium|high|ultra sets the GPU tier (memory budgets and default quality,
  * docs/agents/gpu-memory.md) instead of the one guessed from the adapter; ?idleFps=<0, 10–60> sets
  * the frame rate once the view is quiet (0 = every frame; docs/api.md §1.8); ?ss=0|1 turns still
@@ -23,7 +27,7 @@
  * sun shadows off / on and ?oit=0|1 order-independent transparency (docs/api.md §1.11; defaults
  * from the GPU tier).
  */
-import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
+import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions, type SplatLayerOptions, type SplatUpAxis } from 'terra-view';
 
 /** '1' / 'true' / 'on' / '' (bare flag) → true, '0' / 'false' / 'off' → false, absent or other → undefined. */
 export function parseFlag(params: URLSearchParams, name: string): boolean | undefined {
@@ -113,5 +117,31 @@ export function parseCullingParams(params: URLSearchParams): CullingParams {
  * short (a building, 3D Tiles, vector or point data framed on load, a local scene).
  */
 export function hasStartupFlight(params: URLSearchParams): boolean {
-  return ['demo', 'building', 'tileset', 'geojson', 'points', 'region'].some((k) => params.has(k));
+  return ['demo', 'building', 'tileset', 'geojson', 'points', 'region', 'splats'].some((k) => params.has(k));
+}
+
+/**
+ * `?splats=<url>` and its companions as layer options, without the position when `?splatsAt`
+ * is absent or malformed (the demo then puts the scene at its demo site). Null without `?splats`.
+ */
+export function parseSplatParams(params: URLSearchParams): (Omit<SplatLayerOptions, 'position'> & { position?: SplatLayerOptions['position'] }) | null {
+  const url = params.get('splats')?.trim();
+  if (!url) return null;
+  const options: Omit<SplatLayerOptions, 'position'> & { position?: SplatLayerOptions['position'] } = { url };
+  const at = (params.get('splatsAt') ?? '').split(',').map((v) => (v.trim() === '' ? NaN : Number(v)));
+  if (at.length >= 2 && Number.isFinite(at[0]) && Number.isFinite(at[1]) && Math.abs(at[0]) <= 180 && Math.abs(at[1]) <= 90) {
+    options.position = { longitude: at[0], latitude: at[1] };
+    if (at.length >= 3 && Number.isFinite(at[2])) options.position.height = at[2];
+  }
+  const scale = parseNumber(params, 'splatsScale', 1e-6, 1e6);
+  if (scale !== undefined) options.scale = scale;
+  const heading = parseNumber(params, 'splatsHeading', -360, 360);
+  if (heading !== undefined) options.heading = heading;
+  // A "+" in a query string decodes to a space: accept "+y", " y" and "y".
+  const up = (params.get('splatsUp') ?? '').trim().toLowerCase();
+  const axis: Record<string, SplatUpAxis> = { '-y': '-y', '+y': '+y', y: '+y', '+z': '+z', z: '+z' };
+  if (axis[up]) options.upAxis = axis[up];
+  const max = parseNumber(params, 'splatsMax', 1, 1e8);
+  if (max !== undefined) options.maxSplats = max;
+  return options;
 }

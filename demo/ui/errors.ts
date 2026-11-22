@@ -17,6 +17,9 @@ const ZH: Record<TerraViewErrorCode, (e: TerraViewError) => string> = {
   'points-empty': (e) => (e.message === 'no point features' ? '没有点要素' : `没有点要素（${e.message}）`),
   'geojson-invalid': () => '不是有效的 GeoJSON',
   'option-invalid': (e) => `创建参数 ${e.details.option} 无效（需要 ${e.details.expected}）`,
+  'splat-load-failed': (e) => `高斯泼溅文件加载失败（${e.details.reason}）`,
+  'splat-invalid': (e) => `不是有效的高斯泼溅文件（${e.details.reason}）`,
+  'splat-format-unsupported': (e) => `不支持的高斯泼溅格式（${e.details.format}）`,
 };
 
 /** What to show for an error: the Chinese text for SDK errors, the message for anything else. */

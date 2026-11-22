@@ -27,6 +27,7 @@ import { LocalScenePanel } from './LocalScenePanel';
 import { BOOKMARKS, TILESET_PRESETS, type Bookmark } from './presets';
 import { OverlayPanel } from './OverlayPanel';
 import { PointPanel } from './PointPanel';
+import { SplatPanel } from './SplatPanel';
 import { saveSettings, type Settings, type TerrainChoice } from './settings';
 import { VectorPanel } from './VectorPanel';
 
@@ -75,6 +76,7 @@ export class ControlPanel {
   readonly root: HTMLElement;
   readonly vectorPanel: VectorPanel;
   readonly pointPanel: PointPanel;
+  readonly splatPanel: SplatPanel;
   readonly indoorPanel: IndoorPanel;
   /** Local scene (sandbox) of the globe scene, separate from the building levels. */
   readonly localPanel: LocalScenePanel;
@@ -88,6 +90,7 @@ export class ControlPanel {
     const collapse = h('button', { class: 'panel-toggle', title: '收起 / 展开面板', 'aria-label': '收起或展开面板' }, '☰');
     this.vectorPanel = new VectorPanel(viewer, (text, kind) => this.notify(text, kind));
     this.pointPanel = new PointPanel(viewer, (text, kind) => this.notify(text, kind));
+    this.splatPanel = new SplatPanel(viewer, (text, kind) => this.notify(text, kind));
     this.indoorPanel = new IndoorPanel(viewer, (text, kind) => this.notify(text, kind));
     this.localPanel = new LocalScenePanel(viewer, (text, kind) => this.notify(text, kind));
     const body = h(
@@ -101,6 +104,7 @@ export class ControlPanel {
       this.sceneSection(),
       this.localPanel.root,
       this.tilesSection(),
+      this.splatPanel.root,
       this.cameraSection(),
       this.bookmarkSection(),
       this.debugSection(),
