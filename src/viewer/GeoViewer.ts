@@ -42,6 +42,7 @@ import { IndoorManager } from '../indoor/IndoorManager';
 import { MarkerManager, type MarkerStats } from '../markers/MarkerManager';
 import { PointLayer, type PointLayerOptions } from '../markers/PointLayer';
 import type { PointRecord } from '../markers/points';
+import { SplatLayer, type SplatLayerOptions, type SplatLayerStats } from '../splats/SplatLayer';
 import { Tiles3DLayer, type LoaderKit, type Tiles3DLayerOptions, type TilesMemoryStats, type TilesViewState } from '../tiles3d/Tiles3DLayer';
 import type { NodeMaterialLibrary } from '../tiles3d/nodeMaterials';
 import { resolveTileFeature, type FeatureHighlightStyle, type TileFeature } from '../tiles3d/tileFeatures';
@@ -220,6 +221,8 @@ export interface MemoryReport {
   buildings: number;
   /** Sun shadow map (`shadows.bytes`; allocated the first time shadows are drawn). */
   shadows: number;
+  /** Gaussian splat layers: splat data, spherical harmonics and sort buffers (`SplatLayer.gpuBytes`). */
+  splats: number;
   /** Sum of the above: the viewer's video memory, without generated building geometry, labels and the browser's own share. */
   gpuTotal: number;
   /** Decoded 3D Tiles content in the tile cache (mostly system memory; includes what is on the GPU) and its limit. */
@@ -245,6 +248,8 @@ export interface ViewerSnapshot {
   globe: GlobeStats & { shown: boolean };
   tilesets: { id: number; name: string; visible: boolean; active: boolean; pending: number; errorScale: number; memory: TilesMemoryStats }[];
   layers: { vector: number; points: number; markers: MarkerStats };
+  /** Gaussian splat layers: whether each is loaded, shown and drawn right now, splats drawn, file facts, video memory. */
+  splats: { id: number; name: string; ready: boolean; visible: boolean; active: boolean; gpuBytes: number; stats: SplatLayerStats | null }[];
   indoor: {
     buildings: number;
     /** Entered level (id and type), null on the globe. */
@@ -294,6 +299,8 @@ export interface ViewerEvents extends Record<string, unknown> {
   'tilesets-changed': Tiles3DLayer[];
   'vectors-changed': GeoJsonLayer[];
   'points-changed': PointLayer[];
+  /** A Gaussian splat layer was added, became ready, failed or was removed. */
+  'splats-changed': SplatLayer[];
   /** A point marker of a point layer was clicked. */
   'point-click': { point: PointRecord; layer: PointLayer; event: MouseEvent };
   /** Something failed to load (one event per failure the SDK reports, see `ViewerError`). */
@@ -309,7 +316,7 @@ export interface ViewerEvents extends Record<string, unknown> {
 }
 
 /** Where a `ViewerError` comes from. */
-export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 'points';
+export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 'points' | 'splats';
 
 /**
  * A load failure, on `viewer.events` 'error'. One place to listen for what otherwise arrives
@@ -319,12 +326,14 @@ export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 
  * - `terrain`: terrain tiles keep failing (`terrain-unreachable`, once per terrain source).
  * - `tileset`: a 3D Tiles root tileset failed to load (`tileset-load-failed`); `layer` is set.
  * - `geojson`, `points`: a layer's data could not be loaded or parsed; `layer` is set.
+ * - `splats`: a Gaussian splat file could not be loaded or decoded (`splat-load-failed`,
+ *   `splat-invalid`, `splat-format-unsupported`); `layer` is set.
  */
 export interface ViewerError {
   source: ViewerErrorSource;
   /** A `TerraViewError` with a `code` when the SDK raised it, else the original error (network, parsing). */
   error: Error;
-  layer?: Tiles3DLayer | GeoJsonLayer | PointLayer;
+  layer?: Tiles3DLayer | GeoJsonLayer | PointLayer | SplatLayer;
 }
 
 export interface FeaturePick {
@@ -336,10 +345,13 @@ export interface FeaturePick {
 
 export interface SurfacePick {
   point: Vector3;
-  source: 'globe' | 'tiles' | 'entity';
+  source: 'globe' | 'tiles' | 'entity' | 'splats';
   distance: number;
   entity?: BimEntity;
   tileset?: Tiles3DLayer;
+  /** The Gaussian splat layer hit and the index of the splat (`source: 'splats'`; always a CPU ray). */
+  splats?: SplatLayer;
+  splatIndex?: number;
   /** World unit normal facing the camera (GPU pick buffer only; flat per triangle). */
   normal?: Vector3;
   /** How the pick was answered: the GPU pick buffer or a CPU ray. */
@@ -430,6 +442,8 @@ export class GeoViewer {
   readonly markerOcclusion: OcclusionProxies;
   /** Data-driven point marker layers (点位), drawn through `markers`. */
   readonly pointLayers: PointLayer[] = [];
+  /** 3D Gaussian splatting scenes placed on the globe (`addSplats`). */
+  readonly splatLayers: SplatLayer[] = [];
   /** Pointer events resolved to scene objects (click / dblclick / hover with selectors). */
   readonly interaction: InteractionManager;
   /** Buildings, floors, rooms and equipment; indoor level navigation. */
@@ -788,7 +802,7 @@ export class GeoViewer {
     this.controller.events.on('change', () => this.requestRender());
     // A gesture starting changes nothing yet (a click without a drag must not discard a supersampled view).
     this.controller.events.on('interactionstart', () => this.wake());
-    for (const type of ['tilesets-changed', 'vectors-changed', 'points-changed'] as const) this.events.on(type, () => this.requestRender());
+    for (const type of ['tilesets-changed', 'vectors-changed', 'points-changed', 'splats-changed'] as const) this.events.on(type, () => this.requestRender());
     // Labels sit above the canvas: their clicks reach the interaction listeners as clicks on the entity.
     this.markers.eventProxy = (type, marker, event) => {
       const entity = marker.options.userData?.entity;
@@ -877,7 +891,9 @@ export class GeoViewer {
     }
     const buildings = this.indoor.modelBytes + this.indoor.ambientOcclusion.bytes;
     const shadows = this.shadows.bytes;
-    return { framebuffers, globe, tilesGpu, buildings, shadows, gpuTotal: framebuffers + globe + tilesGpu + buildings + shadows, tilesCache, tilesCacheMax };
+    let splats = 0;
+    for (const layer of this.splatLayers) splats += layer.gpuBytes;
+    return { framebuffers, globe, tilesGpu, buildings, shadows, splats, gpuTotal: framebuffers + globe + tilesGpu + buildings + shadows + splats, tilesCache, tilesCacheMax };
   }
 
   /**
@@ -906,6 +922,7 @@ export class GeoViewer {
       globe: { ...this.globe.stats, shown: this._showGlobe },
       tilesets: this.tilesets.map((l) => ({ id: l.id, name: l.name, visible: l.visible, active: l.active, pending: l.pending, errorScale: l.errorScale, memory: { ...l.memory } })),
       layers: { vector: this.vectorLayers.length, points: this.pointLayers.length, markers: { ...this.markers.stats } },
+      splats: this.splatLayers.map((l) => ({ id: l.id, name: l.name, ready: l.ready, visible: l.visible, active: l.active, gpuBytes: l.gpuBytes, stats: l.stats && { ...l.stats } })),
       indoor: {
         buildings: indoor.buildings.length,
         current: indoor.current ? { id: indoor.current.id, type: indoor.current.type } : null,
@@ -1036,8 +1053,28 @@ export class GeoViewer {
   // ---------------------------------------------------------------------------
   // Picking
 
-  /** Closest surface hit (buildings, 3D Tiles or globe) at normalized device coordinates. */
+  /**
+   * Closest surface hit (buildings, 3D Tiles, Gaussian splats or globe) at normalized device
+   * coordinates. `buffer: true` answers from the GPU pick buffer while it is fresh; splat
+   * layers are not in that buffer and are always tested with a ray (`SplatLayer.raycast`).
+   */
   pick(ndc: Vector2, options: { buffer?: boolean } = {}): SurfacePick | null {
+    const surface = this.pickSurface(ndc, options);
+    if (this.splatLayers.length === 0) return surface;
+    // Splats in front of that surface (they write no depth, so neither the buffer nor the meshes know them).
+    const ray = this.viewRay(ndc);
+    const ls = this.localScene;
+    let best = surface;
+    for (const layer of this.splatLayers) {
+      const hit = layer.raycast(ray, { maxDistance: best?.distance });
+      if (!hit || (ls.hidesOutside && !ls.showsWorld(hit.point))) continue;
+      best = { point: hit.point, source: 'splats', distance: hit.distance, splats: layer, splatIndex: hit.index, via: 'ray' };
+    }
+    return best;
+  }
+
+  /** Closest hit on what the pick buffer knows: buildings, 3D Tiles and the globe. */
+  private pickSurface(ndc: Vector2, options: { buffer?: boolean }): SurfacePick | null {
     if (options.buffer) {
       const g = this.pickFromBuffer(ndc);
       if (g !== undefined) return g;
@@ -1110,6 +1147,7 @@ export class GeoViewer {
       kind: hit ? hit.source : 'none',
       entity: hit?.entity ?? null,
       tileset: hit?.tileset ?? null,
+      splats: hit?.splats ?? null,
       point: hit?.point ?? null,
       cartographic: hit ? this.ellipsoid.cartesianToCartographic(hit.point) : null,
       clientX,
@@ -1443,6 +1481,63 @@ export class GeoViewer {
     this.surface.clearHeld();
     layer.dispose();
     this.events.emit('tilesets-changed', this.tilesets);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gaussian splats
+
+  /**
+   * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe.
+   * The file loads in a Worker; listen to the layer's `ready` / `error` events (or the viewer's
+   * 'error'), then `layer.flyTo()`. Throws an `option-invalid` `TerraViewError` when `position`
+   * or the source (`url` / `data`) is missing. See docs/api.md §1.13 and docs/agents/splats.md.
+   */
+  addSplats(options: SplatLayerOptions): SplatLayer {
+    const layer = new SplatLayer(options, {
+      ellipsoid: this.ellipsoid,
+      quality: this.gpu.splats,
+      webgpu: this.info.backend === 'WebGPU',
+      groundHeight: (lon, lat) => {
+        const s = this.surface.query(lon, lat);
+        return s.reliable ? s.height : null;
+      },
+      flyToSphere: (sphere, heading, pitch, duration) => this.flyToSphere(sphere, heading ?? this.getView().heading, pitch ?? -25, duration, { rangeScale: 1.1, minRange: 0.5 }),
+    });
+    layer.suppressed = this.tilesetsSuppressed && !layer.showIndoors;
+    layer.events.on('ready', () => this.events.emit('splats-changed', this.splatLayers));
+    layer.events.on('error', ({ error }) => {
+      this.events.emit('splats-changed', this.splatLayers);
+      this.events.emit('error', { source: 'splats', error, layer });
+    });
+    // Loaded, `visible`, `opacity`, `brightness`, `crop` or the placement set.
+    layer.events.on('change', () => this.requestRender());
+    this.scene.add(layer.group);
+    this.splatLayers.push(layer);
+    this.events.emit('splats-changed', this.splatLayers);
+    return layer;
+  }
+
+  removeSplats(layer: SplatLayer): void {
+    const i = this.splatLayers.indexOf(layer);
+    if (i < 0) return;
+    this.splatLayers.splice(i, 1);
+    layer.dispose();
+    this.events.emit('splats-changed', this.splatLayers);
+  }
+
+  /**
+   * Per frame: layers follow the ground, fade in and are hidden while too small on screen;
+   * inside a building they go with the 3D Tiles (unless `showIndoors`), and outside a local
+   * scene that hides its surroundings with everything else there.
+   */
+  private updateSplats(dt: number): void {
+    const ls = this.localScene;
+    const height = this.container.clientHeight;
+    for (const layer of this.splatLayers) {
+      const outside = ls.hidesOutside && layer.ready && !ls.showsWorld(layer.boundingSphere.center, 0);
+      layer.suppressed = outside || (this.tilesetsSuppressed && !layer.showIndoors);
+      if (layer.update(dt, this.camera, height) || layer.animating) this.requestRender();
+    }
   }
 
   /** Restarts the window in which suppressed 3D Tiles keep loading for buildings without ground. */
@@ -1793,6 +1888,7 @@ export class GeoViewer {
       this.shadows.invalidate();
       this.requestRender();
     }
+    this.updateSplats(dt);
     const building = this.currentBuilding();
     const bare = this.indoorBackdrop && building !== null && !this._showGlobe && !this.tilesets.some((l) => l.active);
     if (this.backdrop.update(bare ? building : null, dt)) this.requestRender();
@@ -1833,6 +1929,7 @@ export class GeoViewer {
     let layers = 0;
     for (const layer of this.vectorLayers) if (!layer.ready && layer.error === null) layers++;
     for (const layer of this.pointLayers) if (!layer.ready && layer.error === null) layers++;
+    for (const layer of this.splatLayers) if (!layer.ready && layer.error === null) layers++;
     const state = summarizeLoad({
       globe: this._showGlobe ? this.globe.stats : null,
       imageryUnreachable: this.globe.imageryError !== null,
@@ -2079,6 +2176,7 @@ export class GeoViewer {
     for (const layer of [...this.tilesets]) this.removeTileset(layer);
     for (const layer of [...this.vectorLayers]) this.removeGeoJson(layer);
     for (const layer of [...this.pointLayers]) this.removePoints(layer);
+    for (const layer of [...this.splatLayers]) this.removeSplats(layer);
     this.localScene.dispose();
     this.regionWalls.dispose();
     this.indoor.dispose();

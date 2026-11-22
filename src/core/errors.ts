@@ -20,6 +20,9 @@
  * - `points-empty`: none (`message` repeats the first parse warning when there is one)
  * - `geojson-invalid`: none
  * - `option-invalid`: `option` (name in `GeoViewerOptions`), `expected` (what it must be)
+ * - `splat-load-failed`: `url`, `reason` (a Gaussian splat file could not be downloaded)
+ * - `splat-invalid`: `format`, `reason` (the file is damaged, or not a Gaussian splat file)
+ * - `splat-format-unsupported`: `format` (a format or variant the SDK does not decode)
  */
 export type TerraViewErrorCode =
   | 'imagery-unreachable'
@@ -32,7 +35,10 @@ export type TerraViewErrorCode =
   | 'building-already-loaded'
   | 'points-empty'
   | 'geojson-invalid'
-  | 'option-invalid';
+  | 'option-invalid'
+  | 'splat-load-failed'
+  | 'splat-invalid'
+  | 'splat-format-unsupported';
 
 export type TerraViewErrorDetails = Readonly<Record<string, string | number>>;
 
