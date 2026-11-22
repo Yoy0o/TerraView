@@ -96,11 +96,14 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | `building-already-loaded` | 同一 id 的建筑重复加载 | `id` |
 | `points-empty` | 点位数据里没有可用的点（`message` 带第一条解析告警） | 无 |
 | `geojson-invalid` | GeoJSON 无法识别（`addGeoJson`） | 无 |
-| `option-invalid` | `GeoViewer.create` 的必填项缺失或类型不对（`container` 要是元素，`imagery` 要是影像源）；在创建渲染器之前检查 | `option`、`expected` |
+| `option-invalid` | `GeoViewer.create` 的必填项缺失或类型不对（`container` 要是元素，`imagery` 要是影像源）；在创建渲染器之前检查。`localScene.enter` 的区域不合法、`addSplats` 缺 `position` 或缺 `url` / `data` 时也同步抛出 | `option`、`expected` |
+| `splat-load-failed` | 高斯泼溅文件下载失败（网络错误、HTTP 状态；图层的 `error` 事件、`layer.error`；`viewer.events` 的 `error`，`source: 'splats'`） | `url`、`reason` |
+| `splat-invalid` | 文件损坏，或不是高斯泼溅文件（如普通点云的 PLY、被截断的文件、没有可画的泼溅） | `format`、`reason` |
+| `splat-format-unsupported` | 认不出的格式，或不支持的变体（压缩 PLY、ASCII PLY、SPZ 5 以上） | `format` |
 
-图层异步加载失败时，`Tiles3DLayer`、`GeoJsonLayer`、`PointLayer` 的 `error` 事件带上错误（`{ message, error }`），可以照样按 `code` 处理。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
+图层异步加载失败时，`Tiles3DLayer`、`GeoJsonLayer`、`PointLayer`、`SplatLayer` 的 `error` 事件带上错误（`{ message, error }`），可以照样按 `code` 处理。网络错误（`HTTP 404` 等）和第三方库的错误照原样抛出，不包装（高斯泼溅图层例外：它在 Worker 里下载，失败统一包成 `splat-load-failed`）。演示应用把 code 译成中文的写法见 `demo/ui/errors.ts`。
 
-**统一监听**：`viewer.events.on('error', ({ source, error, layer }) => …)` 收到上面所有加载失败（`ViewerError`）：`source` 是 `imagery` / `terrain` / `tileset` / `geojson` / `points`，图层的失败带 `layer`。图层自己的 `error` 事件照常触发，两处选一处处理即可。
+**统一监听**：`viewer.events.on('error', ({ source, error, layer }) => …)` 收到上面所有加载失败（`ViewerError`）：`source` 是 `imagery` / `terrain` / `tileset` / `geojson` / `points` / `splats`，图层的失败带 `layer`。图层自己的 `error` 事件照常触发，两处选一处处理即可。
 
 ### 1.7 加载状态
 
@@ -110,7 +113,7 @@ GeoViewer.create({ container, imagery, messages: { entityProperties: { area: '�
 | --- | --- |
 | `globe` | 地球瓦片正在请求和排队的数量（地形、影像、叠加层）；地球隐藏时为 0 |
 | `tilesets` | 正在绘制的 3D Tiles 图层里排队、下载、解析中的瓦片数（`Tiles3DLayer.pending`，根 tileset 加载中算 1） |
-| `layers` | 还在加载数据的 GeoJSON、点位图层数 |
+| `layers` | 还在加载数据的 GeoJSON、点位、高斯泼溅图层数 |
 | `pending` | 以上三项之和 |
 | `idle` | 没有待加载的内容，并且屏幕上的地球瓦片都显示着自己的影像（不是放大的祖先影像）。影像源已报告不可达时，不再等它 |
 
@@ -265,6 +268,57 @@ await viewer.localScene.exit(); // 默认飞回进入前的视点
 
 局部场景中：拾取（含拾取缓冲）、`surfaceHeight`、防入地在区域外分别落空、返回侧壁底面高度；锚点在区域外的顶牌、注记、建筑隐藏；双击区域外回到总览（`interaction` 上 `tag: 'local-scene'`），`navigation.home()` 回到总览；云层隐藏。相机的活动范围是通用的 `controller.bounds`（`CameraBounds`，高级），不开局部场景也能用。
 
+### 1.13 高斯泼溅（3DGS）
+
+`viewer.addSplats(options)` 把一个 3D 高斯泼溅场景（`.ply`、`.splat`、`.spz`）放到地球上：文件在 Worker 里下载和解码，按显存档位的预算取舍，锚定在给定的经纬度，用 three.js 自带的 `GaussianSplat` 绘制（WebGPU 计算着色器排序，WebGL 后端在 CPU 上排序）。规范、数据格式和分期见 [splats.md](agents/splats.md)。
+
+```ts
+const layer = viewer.addSplats({
+  url: 'https://example.com/scene.spz',
+  position: { longitude: 116.39, latitude: 39.91 }, // 不给 height：站在地面上
+  heading: 30, // 度，自北顺时针
+  scale: 1, // 每个文件单位多少米
+});
+layer.events.on('ready', () => layer.flyTo());
+
+viewer.interaction.on('click', (e) => {
+  if (e.kind === 'splats') console.log(e.splats.name, e.cartographic);
+});
+```
+
+| 选项（`SplatLayerOptions`） | 说明 |
+| --- | --- |
+| `url` / `data` / `format` / `name` | （`url`、`data` 二选一必填，都没有时 `addSplats` 同步抛 `option-invalid`）文件地址，或文件的字节（`ArrayBuffer`，交给 Worker 后在主线程失效）；`format`（`'ply' \| 'splat' \| 'spz'`）只在内容和名字都判断不出时需要；`headers`、`credentials` 用于下载 |
+| `position`、`heightReference` | 必填。经纬度（度）和高度（米）。`'ground'`：高度从地面算（`viewer.surfaceHeight`，随地形 / 3D Tiles 加载跟随）；`'ellipsoid'`：椭球高。默认：不给 `position.height` 时贴地，给了按椭球高 |
+| `heading`、`pitch`、`roll`、`scale` | 度；heading 自北顺时针，pitch 绕东轴（正值抬起北侧），roll 绕北轴（正值抬起西侧）；`scale` 是每个文件单位的米数（训练结果没有真实尺度） |
+| `upAxis` | 文件里哪边朝上：`'-y'`（默认，3DGS / COLMAP：Y 朝下、Z 朝前）、`'+y'`（glTF、多数 SPZ 4）、`'+z'`。文件里没有记录，方向不对时换一个 |
+| `pivot` | 放在 `position` 上的点：`'bottom'`（默认，场景底面中点）、`'center'`、`'origin'`（文件原点）或文件坐标 `[x, y, z]`。"场景"不含离群的泼溅（每轴两头各去掉 `boundsTrim`，默认 1%） |
+| `opacity`、`brightness` | 0–1；亮度在线性光下相乘（默认 1） |
+| `maxSplats`、`maxShDegree` | 最多保留的泼溅数和球谐阶数（0–3）；默认按档位 `viewer.gpu.splats`：50 万 / 0 阶（`low`）、150 万 / 1 阶、300 万 / 2 阶、600 万 / 3 阶（`ultra`），WebGL 后端不超过 60 万。超出的按"不透明度 × 尺寸"从小到大舍去 |
+| `crop` | 只显示盒子或球内的泼溅（`SplatCrop`），坐标是图层本地坐标：X 东、Y 北、Z 上（未转 heading）、文件单位、原点在枢轴 |
+| `minScreenSize`、`fadeDuration` | 场景在屏幕上的半径小于它（像素，默认 3）时不画，到两倍时淡入；加载后的淡入毫秒数（默认 400） |
+| `showIndoors`、`pickable` | 进入建筑后是否仍显示（默认否，随 3D Tiles 一起隐藏）；是否参与拾取（默认是） |
+
+| `SplatLayer` | 说明 |
+| --- | --- |
+| `ready`、`error`、`progress`、`stats` | 状态；`stats`（`SplatLayerStats`）：格式、文件里的泼溅数与球谐阶数、加载和绘制的数量、文件大小、解码耗时 |
+| `events` | `ready`（`{ sphere, stats }`）、`error`（`{ message, error }`）、`progress`（`{ loaded, total }` 字节）、`change`（画面会变）、`moved`（位置变了） |
+| `placement`、`setPlacement(部分字段)`、`ellipsoidHeight`、`upAxis` | 读、改摆放（`SplatPlacement`：经纬度、高度及其基准、三个角、缩放）；枢轴的椭球高；轴向（可改） |
+| `visible`、`opacity`、`brightness`、`crop`、`minScreenSize`、`pickable` | 显示设置。改 `crop` 会在 CPU 上过滤并重新上传（每百万泼溅几十毫秒）：在控件松开时设 |
+| `boundingSphere`、`localBounds`、`localToWorld(p)` | 场景在世界坐标里的包围球（不含离群泼溅）；本地坐标里的盒子（裁剪的起点）；本地坐标 → ECEF |
+| `flyTo({ heading, pitch, duration })` | 飞到能看全场景的位置（默认当前航向、俯仰 −25°） |
+| `raycast(ray, { minOpacity, maxDistance })` | 世界坐标射线上的第一个"表面"（`SplatHit`）：沿射线累积的不透明度达到 `minOpacity`（默认 0.5）处，稀薄的漂浮物会被穿过 |
+| `active`、`gpuBytes` | 此刻是否在画；显存估算（每个泼溅 60 字节，球谐另加） |
+
+要点：
+
+- **拾取与事件**：`viewer.pick` / `pickAt` 的结果里 `source` / `kind` 可以是 `'splats'`（`SurfacePick.splats`、`splatIndex`，`PickInfo.splats`、`event.splats`）。泼溅不在 GPU 拾取缓冲里，每次拾取对图层发一条 CPU 射线（BVH，约 0.01–0.1 ms）。相机的滚轮缩放、右键环绕同样能落在泼溅上。
+- **遮挡**：泼溅不写深度。它被地形、3D Tiles、建筑正确遮挡，但自己不挡顶牌（`occlusion`）和后画的透明物体。
+- **颜色**：按 sRGB 转成线性后和场景一起色调映射、调色，与倾斜摄影的照片纹理同样对待；不受光照和阴影影响。
+- **局部场景**：区域外的图层整层隐藏（按场景中心判断），不裁切。
+- `viewer.splatLayers` 是图层列表，`viewer.removeSplats(layer)` 移除并释放显存；`viewer.events` 的 `splats-changed` 在增、删、加载完成或失败时触发。`viewer.memory.splats` 是各图层显存之和。
+- SPZ 4 的 Zstandard 解压用 three.js 自带的 `three/addons/libs/zstddec.module.js`（在主线程，按需加载），其余解码都在 Worker 里。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -283,7 +337,7 @@ await viewer.localScene.exit(); // 默认飞回进入前的视点
 
 | 导出 | 用途 | 级别 |
 | --- | --- | --- |
-| `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；3D Tiles 要素 `pickTileFeature`、`highlightTileFeature` / `highlightedTileFeature`（§3.3）；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
+| `GeoViewer` | 总入口。`GeoViewer.create(options)` 创建；`setView` / `getView` / `flyTo` / `flyToTarget` / `flyToBBox` / `flyToSphere` / `flyToEntity` / `resetNorth`；`startAutoOrbit` / `stopAutoOrbit` / `playIntro`；`addTileset` / `addGeoJson` / `addPoints` / `addSplats` 及对应的 `remove*`，列表 `tilesets` / `vectorLayers` / `pointLayers` / `splatLayers`；`pick` / `pickAt` / `pickCartographic` / `pickFeature`、`highlightFeature` / `highlightedFeature`；3D Tiles 要素 `pickTileFeature`、`highlightTileFeature` / `highlightedTileFeature`（§3.3）；`surfaceHeight`；`loadModel`；`captureFrame`；开关 `atmosphere` / `lighting` / `showStars` / `showGlobe` / `indoorBackdrop`，时间 `date` / `timeMultiplier`；`ellipsoid`；`dispose` | 稳定 |
 | `viewer.renderer`、`viewer.scene`、`viewer.camera` | three.js 的渲染器、场景、相机（定位 DOM、投影坐标、加自己的对象）。不要直接改相机位姿（§2） | 高级 |
 | `ViewerEffects`（`viewer.effects`）、`ObjectEffects`、`OutlineStyle`、`BUILTIN_OUTLINES` | 三维对象的描边与发光、描边样式、宽度与光晕（§1.9） | 稳定 |
 | `ColorGrading`（`viewer.colorGrading`）、`ColorGradingOptions`、`COLOR_GRADING_PRESETS` | 曝光、对比度、饱和度（§1.9） | 稳定 |
@@ -295,9 +349,9 @@ await viewer.localScene.exit(); // 默认飞回进入前的视点
 | `GeoViewerOptions`、`ViewPosition`、`TargetView`、`SphereFlightOptions`、`SurfacePick`、`FeaturePick` | 创建参数、视点与拾取结果类型 | 稳定 |
 | `viewer.events`（`ViewerEvents`） | 帧统计、图层增删、点位单击，加载失败 `error`（`ViewerError`、`ViewerErrorSource`，§1.6）、加载进度 `load-progress` 与 `idle`（§1.7） | 稳定 |
 | `viewer.loadState`（`LoadState`） | 还有什么在加载（§1.7） | 稳定 |
-| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，`buildings` 含建筑模型和楼层 AO 贴图，`shadows` 是阴影图）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
+| `viewer.info`（`RendererInfo`）、`viewer.stats`（`FrameStats`；绘制数和三角形数只算场景 pass，不含后期和拾取）、`viewer.memory`（`MemoryReport`，`buildings` 含建筑模型和楼层 AO 贴图，`shadows` 是阴影图，`splats` 是高斯泼溅图层）、`viewer.gpu`（`GpuProfile`）、`viewer.locale`、`viewer.messages` | 后端与适配器、帧耗时、显存估算、档位预算、语言与文案 | 稳定 |
 | `viewer.canvas` | 渲染用的 canvas | 稳定 |
-| `viewer.snapshot()`、`ViewerSnapshot` | 诊断快照：后端、帧统计、显存、加载状态、视点、地球、3D Tiles、室内（AO、剔除）、后期效果与透明混合、灯光、阴影，纯 JSON 值（路线图 M5.1） | 高级 |
+| `viewer.snapshot()`、`ViewerSnapshot` | 诊断快照：后端、帧统计、显存、加载状态、视点、地球、3D Tiles、高斯泼溅、室内（AO、剔除）、后期效果与透明混合、灯光、阴影，纯 JSON 值（路线图 M5.1） | 高级 |
 | `viewer.idleFrameRate`、`viewer.requestRender()`、`stats.throttled` / `still` / `samples` | 安静时降帧、静止后停画与唤醒（§1.8） | 稳定 |
 | `GlobeCameraController`（`viewer.controller`） | 手势开关（`enablePan` / `enableRotate` / `enableTilt` / `enableZoom` / `enableKeyboard`）、`zoomBy` / `orbitBy`、`playAnimation`、环绕巡航；[camera-controller.md](agents/camera-controller.md) | 稳定 |
 | `LocalScene`（`viewer.localScene`）、`LocalSceneOptions`、`LocalSceneRegion`、`LocalSceneWallOptions`、`LocalSceneCameraOptions`、`LocalSceneEvents`、`LocalRegion`、`ResolvedRegion`、`MAX_REGION_DIAMETER` / `MAX_REGION_VERTICES` / `MIN_REGION_RADIUS` | 局部场景（沙盘）：只显示一块区域、侧壁、展台背景、相机范围（§1.12） | 稳定 |
@@ -344,11 +398,15 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 3D Tiles 接收建筑的日照阴影（§1.11）：有光照的瓦片材质经太阳光削弱直射，无光照的（倾斜摄影）在阴影里整体变暗；瓦片本身不投影。
 
-### 3.4 矢量
+### 3.4 高斯泼溅
+
+`SplatLayer`（`viewer.addSplats(options)` 的返回值）、`SplatLayerOptions`、`SplatLayerEvents`、`SplatLayerStats`、`SplatPlacement`、`SplatHit`、`SplatCrop`、`SplatBounds`、`SplatFormat`（`'ply' | 'splat' | 'spz'`）、`SplatUpAxis`、`SplatPivot`、`SplatShDegree`；档位预算 `SplatQuality`（`viewer.gpu.splats`）。用法见 §1.13，规范见 [splats.md](agents/splats.md)。级别：稳定（`layer.group` 是高级）。
+
+### 3.5 矢量
 
 `GeoJsonLayer`（`viewer.addGeoJson`）、`GeoJsonLayerOptions`、`VectorStyle`、`LabelStyle`、`DEFAULT_VECTOR_STYLE`、`DEFAULT_LABEL_STYLE`、`FeatureHit`、`LayerSummary`；`lonLatToMerc` / `mercToLonLat`。级别：稳定。
 
-### 3.5 顶牌与点位
+### 3.6 顶牌与点位
 
 | 导出 | 用途 | 级别 |
 | --- | --- | --- |
@@ -359,7 +417,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 格式与规则见 [markers.md](agents/markers.md)。
 
-### 3.6 室内 / BIM
+### 3.7 室内 / BIM
 
 | 导出 | 用途 | 级别 |
 | --- | --- | --- |
@@ -373,7 +431,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 格式、层级事件和选择器语法见 [indoor-bim.md](agents/indoor-bim.md)。
 
-### 3.7 大气与 core
+### 3.8 大气与 core
 
 | 导出 | 级别 |
 | --- | --- |
@@ -384,7 +442,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | `gpuProfile`、`classifyGpu`、`parseGpuTier`、`GPU_TIERS`、`GpuHints` | 高级 |
 | 语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError` | 稳定 |
 
-### 3.8 内部（不再导出）
+### 3.9 内部（不再导出）
 
 2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（2026-11-18 起由 `LevelTransition` 取代，类型经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
@@ -411,6 +469,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
 | 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |
+| Zstandard 解码器（SPZ 4 的高斯泼溅文件） | `splats/SplatLayer` | 无状态的 WebAssembly 模块，首次用到时从 three.js 的 addon 加载，所有图层共用 |
+| 泼溅射线查询的暂存数组 | `splats/splatIndex` | 一次查询内同步用完，不跨调用保留结果 |
 | EGM96 网格 | `core/Geoid` | 只读数据，首次使用时解码；只在瓦片 Worker 里用（每个 Worker 一份） |
 
 实测（2026-11-12，Chrome，演示应用的 WebGPU viewer 旁边再建 viewer）：一个 WebGL viewer 与演示应用的 WebGPU viewer 同时加载同一栋建筑（共用样式池的材质），然后销毁；再轮流以 WebGPU / WebGL 创建 6 个 viewer，各加建筑和 300 个聚合点位、渲染后销毁。全程控制台无错误，演示应用的建筑照常渲染（材质没有被别的 viewer 的销毁释放），最后只剩一个 canvas。另外，反复创建、销毁 40 次的泄漏测试见路线图 §10.5：Worker、canvas、`tv-*` 节点、窗口 / 文档监听、rAF 都回到基线。

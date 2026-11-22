@@ -72,6 +72,39 @@ limitations under the License.
 
 quantized-mesh 地形的解码（`src/globe/terrain/quantizedMesh.ts`）按公开的格式规范（https://github.com/CesiumGS/quantized-mesh ）自行实现，没有改写 CesiumJS 的代码。
 
+## three.js
+
+- 来源：https://github.com/mrdoob/three.js ，r187（0.187.0）
+- 用到的部分：`examples/jsm/loaders/SPZLoader.js`、`SPLATLoader.js`、`GaussianSplatPLYLoader.js` 和 `examples/jsm/utils/GaussianSplatUtils.js` 里的文件布局与数据约定（SPZ 的头部与各属性流、定点位置、尺度与颜色的量化、"最小三分量"四元数；PLY 的球谐系数排列；`.splat` 的行布局；交给 `GaussianSplat` 的协方差和球谐打包格式）。three 的加载器要 import three 并在主线程解析，这里按同样的格式在 Worker 里重新实现，不含 three 的代码
+- 移植位置：`src/splats/splatFormats.ts`、`src/splats/splatData.ts`
+- 许可：MIT
+
+（three 本身仍是 peer 依赖，不打进产物；渲染用的 `GaussianSplat`、SPZ 4 用的 Zstandard 解码器 `zstddec` 都从宿主安装的 three 里加载。）
+
+```
+The MIT License
+
+Copyright © 2010-2026 three.js authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 ## EGM96 大地水准面数据（经 egm96-universal）
 
 - 数据：美国国家地理空间情报局（NGA）发布的 EGM96 模型。美国政府作品，通常视为公有领域

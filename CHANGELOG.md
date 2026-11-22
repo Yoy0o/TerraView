@@ -4,6 +4,36 @@
 
 ## [未发布]
 
+### 高斯泼溅（3DGS）图层（2026-11-22，路线图 M4.8）
+
+把实拍训练出来的 3D 高斯泼溅场景放到地球上，与影像、地形、3D Tiles、建筑同屏显示，可以拾取、取景、摆放和裁剪。规范见 [docs/agents/splats.md](docs/agents/splats.md)，API 见 [docs/api.md](docs/api.md) §1.13。
+
+**新增**
+
+- `viewer.addSplats(options)` / `removeSplats(layer)`、`viewer.splatLayers`、事件 `splats-changed`；`SplatLayer`：`ready` / `error` / `progress` / `stats`、`placement` / `setPlacement`（经纬度、离地或椭球高、heading / pitch / roll、缩放）、`upAxis`、`visible`、`opacity`、`brightness`、`crop`（盒 / 球）、`localBounds` / `localToWorld`、`minScreenSize`、`pickable`、`boundingSphere`、`flyTo`、`raycast`、`gpuBytes`、`events`（`ready` / `error` / `progress` / `change` / `moved`）。导出类型 `SplatLayerOptions`、`SplatLayerEvents`、`SplatLayerStats`、`SplatPlacement`、`SplatHit`、`SplatCrop`、`SplatBounds`、`SplatFormat`、`SplatUpAxis`、`SplatPivot`、`SplatShDegree`、`SplatQuality`。
+- 格式：`.ply`（INRIA 训练输出，0–3 阶球谐）、`.splat`、`.spz`（1–3 版 gzip，4 版 Zstandard），在 Worker 里下载和解码；按内容和文件名自动判断。
+- 预算：`viewer.gpu.splats`（`maxSplats` / `maxShDegree`：50 万 / 0、150 万 / 1、300 万 / 2、600 万 / 3；WebGL 后端不超过 60 万），超出的按"不透明度 × 尺寸"舍去；`viewer.memory.splats`（计入 `gpuTotal`）、`viewer.snapshot().splats`。
+- 拾取与事件：`SurfacePick.source` 和 `PickInfo.kind` 新增 `'splats'`（`SurfacePick.splats` / `splatIndex`，`PickInfo.splats`，`InteractionEvent.splats`）；相机的滚轮缩放、右键环绕能落在泼溅表面上。命中取沿射线累积不透明度达到 0.5 处，稀薄的漂浮物会被穿过。
+- 加载状态与错误：未加载完的图层计入 `loadState.layers`；`ViewerErrorSource` 新增 `'splats'`；错误码 `splat-load-failed`、`splat-invalid`、`splat-format-unsupported`。
+- 演示应用："高斯泼溅（3DGS）"面板（three.js 示例库的三个开放场景，CC BY 4.0；URL 与文件加载；显隐、轴向、点选位置、朝向、缩放、离地、不透明度、裁剪、取景、移除），拖入 `.ply` / `.splat` / `.spz`，URL 参数 `?splats=` `?splatsAt=` `?splatsScale=` `?splatsHeading=` `?splatsUp=` `?splatsMax=`。
+
+**变更**
+
+- `viewer.pick` 在拾取缓冲或射线求出表面之后，再对每个泼溅图层发一条射线（没有泼溅图层时不变）。
+- 进入建筑时，泼溅图层默认随 3D Tiles 一起隐藏（`showIndoors: true` 保留）；局部场景隐藏区域外时，中心在区域外的图层隐藏。
+- `MemoryReport` 多了 `splats` 字段；`GpuProfile` 多了 `splats`。
+- docs/api.md §3 的小节重新编号（新增 §3.4 高斯泼溅，原 §3.4–§3.8 顺延）。
+
+**工程**
+
+- `src/splats/`：`splatData.ts`（数据布局、协方差、不含离群点的核心包围盒、预算、裁剪、显存估算）、`splatFormats.ts`（三种格式的解码，无 three 依赖）、`splatIndex.ts`（BVH 与沿射线累积不透明度的查询，提前终止是精确的）、`splatPlacement.ts`（轴向、枢轴、模型矩阵、屏幕尺寸与视锥测试）、`splat.worker.ts`（每次加载一个 Worker，返回后关闭）、`SplatLayer.ts`。
+- 渲染用 three r187 自带的 `GaussianSplat`（addon，external）：只包一层 `colorNode`（sRGB → 线性、不透明度、亮度）；排序的深度范围取核心包围球（离群泼溅不再把计数排序的桶摊薄），视锥剔除和"屏幕上太小不画"由图层自己做；它没有 `dispose()`，图层遍历私有字段释放存储缓冲和计算管线（WebGL 后端每个存储缓冲还有一张纹理），实测两个后端移除后回到基线。
+- SPZ 4 的 Zstandard 流由 Worker 发回主线程，用宿主 three 的 `three/addons/libs/zstddec.module.js` 解压：Worker 和包里都没有第三方二进制。
+- 测试：`tests/splats.test.ts`（30 项：解码、预算、边界、裁剪、定位数学、拾取与暴力遍历的一致性、URL 参数）；`tests/e2e/demo.e2e.ts` 新增"高斯泼溅"用例（加载、拾取、真实单击、裁剪、移动、坏文件、移除后显存和 Worker 归零），`tests/e2e/server.mjs` 生成测试用的 `.splat`。
+- `THIRD_PARTY_NOTICES.md` 增加 three.js（文件格式的实现参照其加载器，MIT）。
+- 没有在真实 GPU 上量帧率（开发环境是软件渲染）；手测清单见 splats.md §10。
+
+
 ### 日照阴影、透明顺序无关混合（2026-11-19，路线图 §0.2 P3.6：M3.9）
 
 打开真实光照时，建筑和设备在自身、地面、3D Tiles 上投下随时间变化的阴影；玻璃幕墙和半透明房间可以改用与绘制顺序无关的混合。说明见 [docs/api.md](docs/api.md) §1.11。

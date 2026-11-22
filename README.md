@@ -1,6 +1,6 @@
 # TerraView
 
-基于 three.js 的 **WebGPU 优先** 三维地球 SDK：WGS84 椭球、四叉树影像瓦片、全球地形、物理大气、OGC 3D Tiles、GeoJSON 矢量与注记、HTML 顶牌与点位，以及从地球无缝进入建筑 / 楼层 / 房间的**室内 BIM 浏览**（顶牌、事件、层级导航，参考 ThingJS）。
+基于 three.js 的 **WebGPU 优先** 三维地球 SDK：WGS84 椭球、四叉树影像瓦片、全球地形、物理大气、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌与点位，以及从地球无缝进入建筑 / 楼层 / 房间的**室内 BIM 浏览**（顶牌、事件、层级导航，参考 ThingJS）。
 对标 CesiumJS / Google Earth 的核心浏览体验。
 
 以 npm 包 `terra-view` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
@@ -118,6 +118,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 | `?imagery=osm` | 指定底图：`esri-imagery` `osm` `carto-voyager` `carto-dark` `esri-topo` `tianditu-img` `blue-marble` `debug` |
 | `?noterrain` | 启动时关闭地形（地形源在面板里切换，含 Mapbox / MapTiler / Cesium World Terrain / quantized-mesh） |
 | `?tileset=<url>` | 启动后加载一个 3D Tiles（tileset.json） |
+| `?splats=<url>` | 启动后加载一个高斯泼溅场景（`.ply` / `.splat` / `.spz`）；`?splatsAt=经度,纬度[,椭球高]` 指定位置（不给时放在示例场地），`?splatsScale=<每单位米数>`、`?splatsHeading=<度>`、`?splatsUp=-y\|+y\|+z`（文件里哪边朝上）、`?splatsMax=<泼溅数上限>` |
 | `?geojson=<url>` | 启动后加载 GeoJSON（可重复多次） |
 | `?points=<url>` | 启动后加载点位标注：GeoJSON 点要素或带 lon / lat 字段的记录数组（可重复多次） |
 | `?demo` | 加载程序生成的示例办公楼（5 层，房间 / 设备 / 传感器 / 机房告警）并进入 |
@@ -173,6 +174,12 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - 按显存档位（`low` / `medium` / `high` / `ultra`，按适配器自动识别或 `?gpu=` 指定）给预算：隐藏瓦片在显存目标内保留、回头看不再重新上传，斜视时远处放宽误差，缓存满时整体降精度而不是局部停止加载（[gpu-memory.md](docs/agents/gpu-memory.md)）；进入建筑时自动压制 3D Tiles
 - **要素拾取与属性**：`EXT_mesh_features` / `EXT_structural_metadata`（要素编号属性、属性表）和 b3dm / i3dm 批量表，`event.tileFeature()` 取得指针下要素的编号和属性，`viewer.highlightTileFeature()` 高亮（不改瓦片材质）；要素编号纹理暂不支持
 - 图层管理：显隐、飞到图层、高度偏移、一键贴地（针对以椭球面为基准的样例数据）
+
+**高斯泼溅（3DGS）**
+- `viewer.addSplats`：`.ply`（INRIA 训练输出）、`.splat`、`.spz`（1–4 版）在 Worker 里解码，按显存档位的预算保留最重要的泼溅；用 three.js 自带的 `GaussianSplat` 绘制（WebGPU 计算着色器排序，WebGL 回退）
+- 地理锚定：经纬度、贴地或椭球高、heading / pitch / roll、缩放、轴向约定、枢轴，随时可改；远到只剩几个像素时不画
+- 交互：点击 / 悬停事件（`e.kind === 'splats'`）、滚轮缩放到光标和右键环绕落在泼溅表面上（BVH 拾取，每条射线不到 0.1 ms）、盒 / 球裁剪、飞到场景
+- 演示面板带三个开放场景（three.js 示例库，CC BY 4.0），也可以拖入自己的文件（[docs/agents/splats.md](docs/agents/splats.md)）
 
 **GeoJSON 矢量与注记**
 - 支持 Point / MultiPoint / LineString / MultiLineString / Polygon / MultiPolygon / GeometryCollection，来源可以是 URL、本地文件（拖拽）或对象
@@ -237,6 +244,7 @@ src/
 ├─ globe/       四叉树（Globe / GlobeTile）、分块方案、Worker、影像源、地形源、瓦片材质
 ├─ atmosphere/  散射节点（天空 / 空气透视）、星空
 ├─ tiles3d/     3D Tiles 图层封装、节点材质与 WebGPU 渐显
+├─ splats/      高斯泼溅图层：文件解码（Worker）、预算、地理锚定、拾取
 ├─ vector/      GeoJSON 图层、矢量 Worker、注记管理、几何算法
 ├─ indoor/      BIM 文档格式、实体与选择器、建筑构建、层级导航
 ├─ markers/     HTML 顶牌管理、样式模板、点位图层（解析 / 规则 / 聚合）
@@ -274,6 +282,7 @@ tests/          vitest 单元测试
 - 山区的粗层级插值误差较大，因此临时（插值）地形最多跨 3 级（换成精确网格时有几何渐变）
 - 地形法线在瓦片边界用单侧差分，开启光照时可能看到细微接缝
 - 3D Tiles 的影像叠加（ImageOverlayPlugin）依赖 `onBeforeCompile`，在 WebGPU 下不可用；点云（pnts）在 WebGPU 下为 1 像素点
+- 高斯泼溅：单文件整体加载（按显存档位 50 万–600 万个泼溅，超出的舍去），没有分块流式；不写深度，所以不挡顶牌、与半透明物体的前后关系可能不对；压缩 PLY、`.ksplat`、SOG、glTF / 3D Tiles 内嵌泼溅还不支持；真实 GPU 上的帧率尚未实测（[splats.md](docs/agents/splats.md) §9–§11）
 - 室内：尚不支持 IFC 直读、剖切与室内导航
 - 隐藏地球（如加载 Google 3D Tiles）时，贴地和相机防入地改用 3D Tiles 竖直射线得到的高程（`viewer.surfaceHeight`）；锚点正好落在倾斜摄影的屋顶、树冠上时会贴到它上面，这种位置仍需在数据里写明高度（[ISSUE-1](docs/agents/roadmap.md)，见[建筑数据制作手册](docs/building-data-manual.md) §3.3）
 - 矢量按瓦片栅格化贴地：线宽是屏幕像素级的，但瓦片切换的过渡期内线条会短暂变虚；暂不支持面拉伸（3D 建筑）、沿线排布的注记和图标符号

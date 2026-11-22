@@ -52,6 +52,7 @@
 | P2.2 楼层模型按需加载（M3.8） | 2026-11-17 | 楼层第一次显示时才加载整层模型和设备模型；隐藏楼层的模型超出预算（按档位 64–512 MB）时按最近显示先后卸载；`viewer.memory.buildings`；顺带修复移除建筑不释放纹理 | §0.2 P2.2、[indoor-bim.md](indoor-bim.md) §5.4 |
 | P3.1 后期管线骨架（M3.1） | 2026-11-17 | 每帧经 `PostPipeline`：场景画进自己的 HDR 目标 → linear 效果 → 色调映射 → display 效果；效果按阶段与 `order` 排序、按需声明 MRT 附件、节点图只在配置变化时重建；无效果时与 `renderer.render` 等价 | §0.2 P3.1、[api.md](../api.md) §1.9 |
 | M4.9 局部场景（沙盘） | 2026-11-18 | `viewer.localScene`：区域（圆 / 矩形 / 多边形 / 图层投影，≤ 100 km）外不画不加载；共享裁剪遮罩按渲染器取区域，地球只给跨边界瓦片挂遮罩，3D Tiles 屏蔽区域外瓦片；土层侧壁按实际绘制的瓦片取高；展台背景、区域外压暗；相机 `bounds`（视线不离开区域、保持高度）；演示面板绘制交互、`?region=` | [local-scene.md](local-scene.md) |
+| M4.8 高斯泼溅（第一期） | 2026-11-22 | `viewer.addSplats`：`.ply` / `.splat` / `.spz` 在 Worker 里解码，按档位预算取舍，地理锚定（贴地、heading / pitch / roll、缩放、轴向、枢轴），three 自带的 `GaussianSplat` 绘制（线性光输出、核心包围球定排序范围、太小不画），CPU 拾取（BVH + 沿射线累积不透明度）接入 `pick` / `interaction` / 相机手势，裁剪，显存与加载状态 | §3 M4.8、[splats.md](splats.md)、[api.md](../api.md) §1.13 |
 | P3.2 描边与发光（M3.2） | 2026-11-17 | `entity.effects` / `viewer.effects`；遮罩重绘被标记网格（不改材质，可描单个合批实例），与场景深度比较做透视；描边在色调映射后合成，发光用 `BloomNode`；选中 / 悬停从自发光改为描边 | §0.2 P3.2、[indoor-bim.md](indoor-bim.md) §5.5 |
 | P2.3 3D Tiles 要素拾取（C8） | 2026-11-17 | `EXT_mesh_features` 属性 / 隐式编号、b3dm / i3dm 批量编号；属性表与批量表；`event.tileFeature()` 懒解析（CPU 射线）；叠加网格高亮，不改瓦片材质；不读要素编号纹理 | §0.2 P2.3、[tile-loading.md](tile-loading.md) §7.1 |
 | P3.3 静止超采样与调色（M3.3 后半） | 2026-11-18 | 安静 1 s 后 16 / 32 个 Halton 抖动样本在显示空间平均，画完停画；输入只唤醒、不作废静止画面；曝光、对比度、饱和度 | §0.2 P3.3、[api.md](../api.md) §1.8、§1.9 |
@@ -72,7 +73,7 @@
 | M1.4 GPU 版截帧过渡 | 完成（2026-11-18，P3.4） | DOM 淡出换成后期管线里的按深度重投影溶解，见 §0.2"P3.4 落地" |
 | M2.2 改查拾取缓冲深度 | 可选优化，暂缓 | 见 §3 M2.2 |
 | M3.7 画质与性能 | 未开始 | M3.9 ✅ 2026-11-19（P3.6：日照阴影、OIT）；M3.4、M3.5 ✅ 2026-11-19（P3.5）。M3.1、M3.2 ✅ 2026-11-17（P3.1、P3.2）；M3.3 ✅ 2026-11-18（P3.3：静止超采样、超采样后停画、调色）。M3.3 的按需渲染、M3.8 楼层按需加载提前到 §0.2 P2，其余在 P3。按需渲染先以空闲降帧落地（P2.1a ✅ 2026-11-13），完全停帧随 P3.3 以"超采样画完后停画"落地；M3.8 ✅ 2026-11-17（P2.2） |
-| M4.1–M4.8 孪生数据与空间分析 | 未开始 | §0.2 P4，按需求排期 |
+| M4.1–M4.8 孪生数据与空间分析 | M4.8 的高斯泼溅第一期完成（2026-11-22），其余未开始 | §0.2 P4，按需求排期；高斯泼溅的后续分期见 [splats.md](splats.md) §11 |
 | M5.1–M5.3 工程与工具 | M5.1 部分完成，其余未开始 | 持续项。M5.1 的 JSON 导出以 `viewer.snapshot()` 落地（2026-11-19），基于 three `Inspector` 的面板没有做 |
 
 ### 0.2 TerraView 阶段计划（2026-11-12 调整）
@@ -106,7 +107,7 @@
 | P1.3 | 打包工具兼容余项（S6） | ✅ 2026-11-12。**EGM96 评估 ✅ 2026-11-12**：瓦片 Worker 197 KiB（gzip 102）里网格占 170 KiB（gzip 93），去掉后 Worker 只剩 27 KiB。结论：Worker 里保持内嵌（Worker 只下载一次并缓存；AWS Terrarium、Mapbox、MapTiler 等海拔类地形都要用它，改按需加载只对无地形或只用 quantized-mesh 的宿主有利，还要让首块地形多等一次请求）。另发现**主入口里也有一份网格**（170 KiB，只因 `src/index.ts` 导出了 `geoidUndulation`，演示应用和宿主都没用）：Vite 生产构建的宿主会摇树去掉（实测宿主产物里只有 Worker 那份），但开发服务器和不经打包的 CDN 用法会多下载这一份；改成按需加载的异步 API 或不再导出，归入 P1.1 决定。**Webpack 实测 ✅**：Webpack 5 宿主实测（2026-11-12，webpack 5.112、webpack-cli 6、style-loader / css-loader，装入打好的 tarball，生产构建，Chrome WebGPU）：用 three.js r187 示例里的 `ferrari.glb`（`KHR_draco_mesh_compression`）和 `facecap.glb`（`KHR_texture_basisu` + `EXT_meshopt_compression`）经 `viewer.loadModel()` 加载，Draco 解出 51 个网格、33.8 万顶点，KTX2 转码成 GPU 压缩纹理（BC7，1024²，11 级 mip），meshopt 正常；没有设 `decoderPath` / `transcoderPath`，解码器文件由 webpack 按 three 的 `new URL(..., import.meta.url)` 作为资源输出，请求全部 200，控制台无任何消息（测试工程和模型只在临时目录，不入库） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
 | P1.4 | 多实例余项（S5） | ✅ 2026-11-12：逐项核对模块级共享状态（结论表在 [api.md](../api.md) §4）。发现并修复一个问题：大气和注记的相机 uniform 是共享的，`captureFrame()` 和层级切换截帧在帧外渲染时没有重写，同页两个 viewer 时会画出另一个 viewer 的相机和大气；现在走 `renderOutsideFrame()`。浏览器实测：WebGL viewer 与演示应用的 WebGPU viewer 共用同一栋建筑的材质后销毁，再轮流以两种后端创建、销毁 6 个 viewer，无错误，演示应用的建筑照常渲染 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
 | P1.5 | 浏览器冒烟测试进 CI | ✅ 2026-11-12。新增开发依赖 `@playwright/test` 1.65.0（约 19 MB，本机不下载浏览器，用已装的 Chrome；CI 用 Playwright 的 Chromium）。`playwright.config.ts` + `tests/e2e/`：**演示应用**（`?imagery=debug&noterrain&intro=0&clouds=0&demo`：瓦片就绪、建筑 → 楼层 → 房间 → 逐级返回地球并核对 13 个层级事件的顺序、房间顶牌、销毁后画布移除且 Worker 归零）；**打包宿主**（`check:package --keep-host .smoke/host` 保留的 host-fixture 构建：两个 viewer、影像和地形由本地替身瓦片应答、顶牌留在容器内、销毁左边后右边继续出帧、容器类名和 `tabindex` 还原、全部销毁后 Worker 归零、只有一份 three）。每个目标 WebGL / WebGPU 各一遍，无 WebGPU 适配器时自动跳过；页面错误、控制台错误、请求外部域名都算失败。实测：本机 Chrome 4 项全过（约 40 秒）；`SMOKE_NO_GPU=1` 模拟无 GPU，WebGL 两项过（宿主约 1.5 分钟）、WebGPU 两项跳过。CI 新增 `smoke` job。2026-11-13 修正：远端首跑宿主测试超时（软件渲染下等加载队列排空，2 核 runner 150 s 不够）；软件渲染改为只等屏幕就绪（有 GPU 仍要求排空），WebGL / WebGPU 都走 SwiftShader（CI 上 WebGPU 不再跳过），不重试，打包检查与冒烟合并为 CI 的 `package` job；本机软件模式 4 项全过（1.7 分钟）。合并后的 CI 远端首跑待推送后确认。原计划：**有条件时用真实浏览器 MCP**（如 Claude in Chrome，驱动本机真实 Chrome）做冒烟；**Playwright 兜底**（CI 和没有浏览器 MCP 时用，同意新增为开发依赖）。现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零 | CI 上有浏览器 job |
-| P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变 | 超过预算时 CI 失败 |
+| P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变。2026-11-22：高斯泼溅图层让入口从 745 增到 780 KiB（gzip 229 → 239，预算 800 / 270 未动），新增 `splat.worker`（30.4 / 9.6 KiB，预算 34 / 11）；入口离预算只剩约 2.5%，下一个进入口的功能要么调高预算、要么先做子入口 | 超过预算时 CI 失败 |
 | P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间。2026-11-17：**暂时搁置**，先完成 P2，之后再推进） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
 
 **P1.1 公共 API 分级**（2026-11-12 草案，2026-11-13 修正并确认；依据：`src/index.ts` 227 个导出、`GeoViewer` / `Globe` 的公开成员，以及演示应用和宿主工程实际用到的 56 个导出）
@@ -762,6 +763,13 @@ IoT 数据管线（M4.5，E4）优先，它解锁场强图（M4.1）和高频数
 
 - 全景：房间可以挂全景图；全景之间建立链接（t3d `PanoGraph`），提供淡入、拉伸两种切换。
 - 高斯泼溅：用 three 内置的 `GaussianSplat`，锚点方式与 3D Tiles 相同。
+  - 状态（2026-11-22，第一期完成）：`viewer.addSplats` 单文件图层，规范与分期见 [splats.md](splats.md)。与原设想不同的地方：
+    - 加载器没有用 three 的（主线程解析、import three），在 Worker 里按同样的格式重新实现（`.ply` / `.splat` / `.spz`）；SPZ 4 的 Zstandard 仍用 three 的 `zstddec`，在主线程解压。
+    - 锚点不是"与 3D Tiles 相同"（3D Tiles 的位置在数据里）：泼溅文件没有坐标参考，位置、朝向、尺度、轴向都由宿主给，默认贴地。
+    - `GaussianSplat` 不写深度，进不了拾取缓冲：拾取走 CPU（BVH + 沿射线累积不透明度）。先做的均匀网格在真实数据上退化成暴力遍历（泼溅尺寸跨几个数量级），换成 BVH。
+    - 它的计数排序按包围球均分 4096 个桶，离群泼溅会把桶摊薄：图层把包围球设成去掉离群点的核心范围，自己做视锥剔除。
+    - 它没有 `dispose()`：存储缓冲要逐个释放，WebGL 后端每个还带一张纹理。
+  - 后续：与室内层级绑定和对齐工具（二期）、3D Tiles 内嵌泼溅与更多格式（三期）、深度预通道与测量（四期），见 splats.md §11。
 - 粒子：用 TSL 计算节点实现，配置格式参考 t3d-particle 的 JSON schema，以后可以做编辑器。
 - 夜景假室内：建筑外立面用室内映射（图集网格、进深、随机亮灯），配合昼夜光照。
 - 天气：雨、雪、高度雾（three 已有 `exponentialHeightFogFactor`）。
