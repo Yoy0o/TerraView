@@ -17,6 +17,7 @@
 | 可借鉴与复用路线图（分阶段落地计划，开始新功能前先看） | [docs/agents/roadmap.md](docs/agents/roadmap.md) |
 | 局部场景 / 沙盘模式（区域裁剪地形与 3D Tiles、侧壁、展台背景、相机活动范围） | [docs/agents/local-scene.md](docs/agents/local-scene.md) |
 | 体积云（近地积云、天气跟随云壳、低分辨率交错追踪与时域重投影、云影） | [docs/agents/volumetric-clouds.md](docs/agents/volumetric-clouds.md) |
+| 高斯泼溅 / 3DGS 图层（文件格式、预算、地理锚定、绘制、拾取、裁剪、分期） | [docs/agents/splats.md](docs/agents/splats.md) |
 | 改造记录与计划（时间线、Hub 任务对应、待办清单；每个任务合并后更新） | [docs/agents/progress-log.md](docs/agents/progress-log.md) |
 | ThingJS 示例分析与能力对照（本地资料，不入库） | `temp/thingjs/thingjs-reference.md` |
 | ThingJS 运行时源码分析、可借鉴的实现与落地清单（改层级、拾取、事件、样式前先看；本地资料，不入库） | `temp/thingjs/thingjs-runtime-analysis.md` |
@@ -25,7 +26,7 @@
 
 ## 1. 项目速览
 
-基于 three.js 的 WebGPU 优先三维地球 SDK（npm 包 `terra-view`，目前私有、未发布）：WGS84 椭球、四叉树影像与地形、物理大气、OGC 3D Tiles、GeoJSON 矢量与注记、HTML 顶牌、统一拾取事件，以及从地球无缝进入建筑、楼层、房间的室内 / BIM 浏览。宿主应用提供一个容器元素，通过 `GeoViewer` 使用全部能力。
+基于 three.js 的 WebGPU 优先三维地球 SDK（npm 包 `terra-view`，目前私有、未发布）：WGS84 椭球、四叉树影像与地形、物理大气、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌、统一拾取事件，以及从地球无缝进入建筑、楼层、房间的室内 / BIM 浏览。宿主应用提供一个容器元素，通过 `GeoViewer` 使用全部能力。
 
 - 技术栈：three r187（0.187.0，`WebGPURenderer` + TSL）、3d-tiles-renderer 0.5.4、TypeScript 5.9（strict）、Vite 8、Vitest 5。依赖版本是锁定的，不要随意升级；升级要先征得同意，并同时更新 `package-lock.json`（本仓库用 npm 安装）。`three` 和 `3d-tiles-renderer` 是 peer 依赖（开发时也装在 devDependencies 里），不打进产物。
 - 命令：
@@ -45,7 +46,7 @@
 
 - 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
 
-- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
+- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），高斯泼溅 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`（见 splats.md §8），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
 
 ## 2. 目录与职责
@@ -55,7 +56,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ index.ts     包入口：公共 API 只从这里导出（§3.10）
 ├─ style.css    SDK 样式，发布为 `terra-view/style.css`，类名前缀 `tv-`
 ├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、i18n（显示文案与语言）、errors（TerraViewError）、
-│               gpuProfile（显存档位、预算表、帧缓冲估算，纯函数）、tsl（TSL 节点类型）、cameraBounds（相机活动范围的约定类型）
+│               gpuProfile（显存档位、预算表（含高斯泼溅的泼溅数与球谐阶数）、帧缓冲估算，纯函数）、tsl（TSL 节点类型）、cameraBounds（相机活动范围的约定类型）
 ├─ globe/       四叉树地球：Globe（配置、每帧更新、瓦片选择、缓存淘汰、高程与射线查询）、
 │               TileLoader（请求调度：分通道优先级队列与并发、取消、下一级预取、每帧上传预算、失败上报）、
 │               TileContent（内容应用：影像揭示与交叉淡入、地形渐变）、PolarCaps（两极补洞）、GlobeTile（状态）、
@@ -72,6 +73,9 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 │               cloudShadows（体积云的云影接收节点，乘进 sunShadowFactor）
 ├─ tiles3d/     3D Tiles 图层（含档位预算）；nodeMaterials（节点材质转换 + WebGPU 渐显 + 纹理过滤策略）；
 │               lodPolicy（远处放宽、缓存满时自适应降精度，纯函数）；tileFeatures（要素编号与属性、高亮叠加网格）
+├─ splats/      高斯泼溅（3DGS）：splatData（数据布局、核心包围盒、预算、裁剪、显存估算，纯函数）、splatFormats（.ply / .splat / .spz 解码，Worker 可用）、
+│               splatIndex（拾取用的 BVH 与沿射线累积不透明度的查询，纯函数）、splatPlacement（轴向、枢轴、模型矩阵，纯函数）、
+│               splat.worker（每次加载一个，下载 + 解码 + 预算 + BVH）、SplatLayer（图层：锚定、three 的 GaussianSplat、显示选项、拾取、释放）
 ├─ vector/      GeoJSON 图层、矢量 Worker、注记（LabelManager）
 ├─ indoor/      BIM / 室内：schema（文档格式）、selector（选择器编译，纯函数）、BimEntity（实体、样式、标签）、
 │               EntitySet（查询结果与批量操作）、Building（构建与定位）、InstanceBatch（设备合批，InstancedMesh）、
@@ -102,10 +106,10 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 demo/           演示应用，不进包；只通过 `terra-view` 入口使用 SDK
 ├─ main.ts      启动、URL 参数、hash 同步、Esc 返回、文件拖放
 ├─ style.css    演示界面的样式（面板、状态栏等）
-├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
+├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / SplatPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
-└─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+└─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）、demoSplats（开放的高斯泼溅场景：地址与署名，数据不入库）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -117,7 +121,7 @@ docs/agents/    子系统规范（本文档的展开）
 | 目录 | 可以依赖 |
 | --- | --- |
 | core | 无 |
-| atmosphere、region、post、markers | core |
+| atmosphere、region、post、markers、splats | core |
 | lighting | core、atmosphere |
 | clouds | core、atmosphere、lighting、post |
 | globe、tiles3d | core、atmosphere、lighting、region |
@@ -174,7 +178,7 @@ docs/agents/    子系统规范（本文档的展开）
 - 监听按优先级（大者先）、再按选择器匹配到的实体由深到浅（冒泡）、再按注册顺序执行。`event.stopPropagation()` 阻止低优先级和祖先上的监听，`stopImmediatePropagation()` 阻止其余全部。
 - 默认行为可以被 `event.preventDefault()` 阻止，例如双击进入层级时取消相机的"双击飞近"。
 - 临时屏蔽交互（弹窗打开时等）用 `viewer.interaction.pause({ type, tag, selector, blockDefault })`，保存返回的函数用来恢复；不要注销再重新注册内置监听，也不要用 `enabled = false`（它不挡相机默认行为）。暂停只让监听不触发，要连相机双击飞近一起挡住就加 `blockDefault: true`。
-- 拾取：交互事件（单击、双击、悬停）经 `viewer.pickAt` 先查 GPU 拾取缓冲（`viewer.pickBuffer`，WebGPU），缓冲与当前相机、场景签名不一致时自动退回 CPU 射线，调用方不用区分。新增拾取需求走 `viewer.pick(ndc, { buffer: true })` / `pickAt`，不要自己对整个场景做射线；改了签名看不到的东西（直接改对象变换、显隐而绘制数不变）要调用 `viewer.pickBuffer?.invalidate()`。相机手势仍用射线（`host.pick`）。实体映射统一用 `indoor.entityForHit(object, instanceId)`。见 roadmap.md M2.1。
+- 拾取：交互事件（单击、双击、悬停）经 `viewer.pickAt` 先查 GPU 拾取缓冲（`viewer.pickBuffer`，WebGPU），缓冲与当前相机、场景签名不一致时自动退回 CPU 射线，调用方不用区分。高斯泼溅不在缓冲里（不写深度），`viewer.pick` 求出表面后再对每个泼溅图层发一条射线（`SplatLayer.raycast`，BVH），结果 `kind: 'splats'`。新增拾取需求走 `viewer.pick(ndc, { buffer: true })` / `pickAt`，不要自己对整个场景做射线；改了签名看不到的东西（直接改对象变换、显隐而绘制数不变）要调用 `viewer.pickBuffer?.invalidate()`。相机手势仍用射线（`host.pick`）。实体映射统一用 `indoor.entityForHit(object, instanceId)`。见 roadmap.md M2.1。
 - HTML 顶牌盖在 canvas 上方，会截获事件。实体顶牌带上 `userData.entity` 即可：单击、双击、右键单击经 `MarkerManager.eventProxy` 转成 `viewer.interaction` 上对该实体的事件（`event.marker` 指向顶牌）。与实体无关的顶牌（点位、聚合）自己提供 `onClick` / `onDoubleClick`。滚轮已由 `MarkerManager` 转发给 canvas。
 
 ### 3.8 代码风格
@@ -220,6 +224,12 @@ docs/agents/    子系统规范（本文档的展开）
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
   - 楼层环境光遮蔽（`indoor.ambientOcclusion`，默认开）在楼层第一次显示时烘焙一次，之后只是接收材质里共享的 `colorNode` 采样一张贴图（indoor-bim.md §5.6）。新的楼层网格按角色设 `mesh.userData.aoRole`（`'floor'` / `'occluder'`）；不要给接收 AO 的材质另设 `colorNode`（会被跳过）。
 - **局部场景**（M4.9）：`viewer.localScene.enter({ region })` 只显示一块区域（园区到城区，直径 ≤ 100 km），区域外不画不加载，边缘土层侧壁、展台背景，相机由 `controller.bounds` 管着。地球场景的子模式，与建筑层级独立。裁剪是共享的 `maskNode`（`regionMaskNode`），区域参数按渲染器存；地球瓦片只在跨边界时换裁剪材质（`GlobeTileClipped`），3D Tiles 用 `RegionMaskPlugin` 屏蔽区域外瓦片。新增需要"按区域裁剪"的东西时复用 `regionMaskNode` / `hasRegionMask`，拾取材质要同步带上。见 [local-scene.md](docs/agents/local-scene.md)。
+- **高斯泼溅**（M4.8 第一期）：`viewer.addSplats({ url | data, position, … })` 把一个 `.ply` / `.splat` / `.spz` 场景放到地球上。见 [splats.md](docs/agents/splats.md)。
+  - 解码在 Worker 里（`splatFormats.ts`，不 import three；SPZ 4 的 Zstandard 流发回主线程用 three 的 `zstddec` 解压），按档位预算（`viewer.gpu.splats`）舍去不重要的泼溅，同时建好拾取用的 BVH。新增格式照这个路子加，不要把 three 的加载器搬进主线程。
+  - 绘制用 three 自带的 `GaussianSplat`，只包一层 `colorNode`（sRGB → 线性、不透明度、亮度）。不要改它的顶点阶段，也不要给它挂空气透视、`mrtNode`。它不写深度：进不了拾取缓冲，不挡顶牌，后画的透明物体叠在它上面。
+  - 位置、朝向、尺度、轴向都由宿主给（文件里没有）：`setPlacement`、`upAxis`、`pivot`；贴地走 `viewer.surfaceHeight` 的查询。场景的中心、取景、排序范围用去掉离群点的**核心包围盒**（`computeSplatBounds`），视锥剔除用全量的。
+  - 图层上会改变画面的 setter 都发 `change` 事件；`crop` 是 CPU 过滤后重新上传（拾取不重建，带掩码查原来的 BVH）。
+  - 释放走 `disposeGaussianSplat`（three 的类没有 `dispose()`）；每次加载一个 Worker，返回后关闭。
 - **后期与描边**（M3.1 / M3.2）：每帧都经 `viewer.postProcessing`：场景画进它自己的 HDR 目标（与渲染器自带的格式相同，场景材质不重编），再按阶段跑启用的效果，最后一个全屏 pass 色调映射输出；没有效果时等价于 `renderer.render`。帧外渲染（截图、层级截帧）也走它（`renderOutsideFrame`）。选中 / 悬停 / 告警是描边与发光（`entity.effects`、`indoor.selectOutline`、`viewer.effects`），不改材质，合批设备只描自己的实例。静止超采样（`renderSample`）在场景 pass 和效果自己的 pass 期间平移相机（`setViewOffset`），所以效果的遮罩跟着场景一起抖动；效果里不要缓存跨帧的投影矩阵。调色（`viewer.colorGrading`）是 display 阶段的 `grading` 效果，排在描边之前。新效果实现 `PostEffect`，需要法线等附件用 `attachments` 声明（全局节点），**不要给场景材质设 `material.mrtNode`**。说明见 [api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
 - **顶牌 Marker**：HTML 元素锚定在世界坐标上，每帧用 float64 投影；做地平线、距离、视口裁剪，并按优先级避让；支持数据驱动的显示模式（always / level / hover / click）。`occlusion: 'hide' | 'fade'` 让锚点被建筑、地形挡住时隐藏或淡出（遮挡查询代理，markers.md §5.2.1）；不参与避让的重要顶牌只淡出。
 - **点位 PointLayer**：`viewer.addPoints({ data | url, style, rules, cluster })`。
@@ -246,6 +256,8 @@ docs/agents/    子系统规范（本文档的展开）
 | 新增顶牌样式 | 在 `markers/points.ts` 的 `MarkerStyleName` 加名字，在 `markers/cards.ts` 加 `style` 分支，在 `src/style.css` 写 `.tv-<style>`。锚点约定为元素底部中点（pivot `[0.5, 1]`）；以符号中心为锚点的样式用负下外边距让元素止于符号中心。同步 markers.md 的样式表和演示应用 `PointPanel` 的中文名。 |
 | 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。 |
 | 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。这几项 `npm run smoke:build && npm run smoke` 会自动检查（另有顶牌留在容器内、逐个销毁后 Worker 归零），看画面仍要手测。 |
+| 加载高斯泼溅 | `viewer.addSplats(...)`、面板"高斯泼溅（3DGS）"、`?splats=<url>`，或拖入 `.ply` / `.splat` / `.spz`；方向不对换 `upAxis`，大小不对调 `scale`（文件没有真实尺度）。改了 `src/splats/` 后跑 `tests/splats.test.ts` 和冒烟的"高斯泼溅"用例，并按 splats.md §10 的清单在真实 GPU 上看一遍。 |
+| 新增泼溅文件格式 | 在 `splats/splatFormats.ts` 加解码函数（输出 `SplatData`，不 import three）和 `detectSplatFormat` 的判断，`SplatFormat` 加名字；需要第三方解压库时先征得同意，并决定放主线程（经宿主的 three）还是打进 Worker。补 `tests/splats.test.ts`（用代码生成最小文件），同步 splats.md §3.1。 |
 | 加载点位数据 | `viewer.addPoints(...)`、面板"点位标注"、`?points=<url>`，或拖入 `*.points.json`；规则写法见 markers.md §4。大批量（上万）或高频刷新的数值不要用 DOM 顶牌，走路线图 M3.6 / M4.6。 |
 | 调加载性能 | 先看状态栏和 `viewer.globe.stats`，再按 [tile-loading.md](docs/agents/tile-loading.md) 的调参表调整；不要改坏桶的优先顺序。 |
 
@@ -318,6 +330,12 @@ docs/agents/    子系统规范（本文档的展开）
 - **统计要取场景 pass 的**：后期管线和描边遮罩也会增加 `renderer.info` 的绘制数。拾取缓冲的签名和 `stats` 用 `scene.onAfterRender` 时记下的数，否则悬停改变描边就会让拾取缓冲失效。
 - **MSAA 下按像素 discard 会漏出侧视的竖直面**（2026-11-18，局部场景）：片元丢弃对整个像素生效，像素横跨裁剪边界时，它覆盖的、其实在边界外的采样点也会画出来。朝向相机的面只差半个像素看不出，但被侧视成一条线的竖直面（瓦片裙边穿过边界），一个像素沿面能跨几十米，在侧壁上显出白色竖向点线。把侧壁外移、改 centroid 插值都没用；现在的遮罩只保留"到边界的距离 > 像素在区域坐标里覆盖范围的一半（`fwidth`）"的片元。新增按位置 discard 的遮罩时同样处理。
 - **约束相机时沿直线拉回会让相机下沉**（2026-11-18，局部场景）：把相机朝地面上的中心点、或沿某点切平面拉回，每帧都会低一点，持续往外拖时一路滑到地面；绕地心平移到别的纬度，椭球半径不同，高度也会变。约束和受约束的平移都要保持椭球高（`holdInBounds`）。
+- **泼溅的排序桶被离群点摊薄**（2026-11-22，M4.8）：three 的 `GaussianSplat` 按包围球的近端到远端均分 4096 个桶做计数排序。训练出来的场景常有几百米外的漂浮物，包围球被撑大后主体只占几十个桶，近处前后顺序错乱。图层把 `mesh.boundingSphere` 设成核心包围球 × 1.25，并关掉 three 的视锥剔除自己做（`SplatLayer.rebuild` / `update`）。给它换包围球时两件事要一起改。
+- **`GaussianSplat` 没有 `dispose()`，WebGL 下每个存储缓冲还带一张纹理**（2026-11-22）：只释放 `geometry` / `material` 时，泼溅数据和排序缓冲都留在显存里；WebGL 后端的存储缓冲用纹理模拟（`attribute.pbo`），`attribute.dispose()` 也不带走它。实测移除图层后 `renderer.info.memory.total` 只增不减，直到把私有字段里的存储属性、它们的 `pbo`、计算节点逐个释放（`disposeGaussianSplat`）。升级 three 后复测这一项。
+- **泼溅拾取用均匀网格会退化成暴力遍历**（2026-11-22）：同一场景里泼溅尺寸跨几个数量级，按多数小泼溅定格子，大的只能进"每条射线都查"的名单；狮子场景 62% 的泼溅进了名单，每条射线约 2 ms。换成盒子按每个泼溅真实范围算的 BVH 后是 0.01–0.07 ms（`splatIndex.ts`）。
+- **泼溅颜色不转线性会整体发白**（2026-11-22）：泼溅颜色是显示空间的值，three 的 `GaussianSplat` 原样输出；本仓库的场景 pass 是线性 HDR，之后还要转回显示空间，等于多做了一次 gamma。`SplatLayer` 在 `colorNode` 里先 `sRGBTransferEOTF`。
+- **软件渲染下一帧超过 2 秒，视图永远不静止**（2026-11-22）：帧间隔超过 `RESUME_GAP_MS`（2 s）会被当成"页面恢复"而重画，所以 SwiftShader 上画一个十几万泼溅的场景时 `stats.still` 一直是 false。这不是图层在请求重画（用 `?splatsMax=3000` 这样的小预算验证收敛）；冒烟测试里的泼溅场景要小。
+- **本容器（云端开发环境）里无头 Chromium 的 WebGPU 出不了图**（2026-11-22）：交换链纹理建不出来，设备随即丢失，演示应用的基线也一样（控制台刷 `createBuffer failed … mappedAtCreation`）。有界面模式可以：`xvfb-run -a npx playwright test --project demo-webgpu --headed`（配 `SMOKE_NO_GPU=1`）。WebGL 项目无头正常。本机和 CI 不受影响。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 

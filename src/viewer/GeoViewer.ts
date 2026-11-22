@@ -918,7 +918,7 @@ export class GeoViewer {
    * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe.
    * The file loads in a Worker; listen to the layer's `ready` / `error` events (or the viewer's
    * 'error'), then `layer.flyTo()`. Throws an `option-invalid` `TerraViewError` when `position`
-   * or the source (`url` / `data`) is missing. See docs/api.md §1.13 and docs/agents/splats.md.
+   * or the source (`url` / `data`) is missing. See docs/api.md §1.14 and docs/agents/splats.md.
    */
   addSplats(options: SplatLayerOptions): SplatLayer {
     return this.layers.addSplats(options);

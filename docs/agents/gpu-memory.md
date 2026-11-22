@@ -22,13 +22,14 @@
 | 建筑 / 设备 | `InstanceBatch`、`StylePool`、glTF 模型（`Building`、`modelBudget.ts`） | 设备按几何合批，材质共享；楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出预算时卸载；示例办公楼在 MB 量级 | `indoor.modelBytesTarget` / `modelUnloadDelayMs`（按档位给，[indoor-bim.md](indoor-bim.md) §5.4）；贡献剔除只省绘制，不省显存 |
 | 楼层环境光遮蔽（M3.4） | `indoor/FloorOcclusion`（`viewer.indoor.ambientOcclusion`） | 每个显示过的楼层一张单通道贴图，1 B / 纹素，纹素约 8 cm，长边不超过档位的 `aoMaxResolution`：60 × 30 m 的楼层约 0.27 MB，示例办公楼 5 层共 1.4 MB；最大 2048² 时 4 MB / 层。烘焙时临时用三张同尺寸的 RGBA8 目标，结束即释放。计入 `buildings` | 楼层数与面积、`indoor.ambientOcclusion`（`enabled`、`texelSize`、`maxResolution`） |
 | 日照阴影（M3.9） | `lighting/SunShadows`（`viewer.shadows`） | 一张仅深度的阴影图，24 位深度按 4 B / 纹素：2048² 为 16 MB，4096² 为 64 MB；第一次画阴影时分配（开光照、太阳在地平线以上、视野里有建筑），关掉阴影时释放。另有一张 1×1 的空图。计入 `shadows` | `shadows.mapSize`（默认按档位）、`shadows.enabled` |
+| 高斯泼溅（M4.8） | `splats/SplatLayer`（`viewer.addSplats`）；估算在 `splats/splatData.ts` 的 `splatGpuBytes` | 每个泼溅：中心 16 + 协方差 32 + 颜色 4 + 排序的顺序和键 8 = 60 B；球谐 1 / 2 / 3 阶再加 12 / 16 / 24 B，有球谐时 WebGPU 另有 16 B 的预计算结果（WebGL 没有：在顶点着色器里算）。11.6 万个泼溅、无球谐约 7 MB（估算 6.98，实测 WebGL 6.55、WebGPU 7.03）；100 万个带 1 阶球谐 84 MB。系统内存另有约 1.5–2 倍（解码数据、上传副本、拾取 BVH）。移除图层时全部释放 | `SplatQuality.maxSplats` / `maxShDegree`（图层选项优先）、`crop` |
 | 透明顺序无关混合（M3.9） | `post/PostPipeline`（`viewer.transparency`） | 两张与场景目标同样多重采样的缓冲（RGBA16F + R8），每像素每样本 9 B，加解析后的同尺寸纹理：1280×720、4× MSAA 约 41 MB，1080p 约 93 MB，4K 约 373 MB。只在开了 OIT 且有建筑透明表面要画时分配。计入 `framebuffers` | `transparency.orderIndependent`（默认只在 `ultra` 开）、画布像素数 |
 | 体积云（近地） | `clouds/VolumetricClouds`（`viewer.clouds.volumetric`） | 噪声体 64³ RGBA8 1 MB、天气图 1024² RGBA8 4 MB（`low` 512²，1 MB）、云影图（按档位 256–1024²，0.25–4 MB）、追踪目标（历史的 1/4，2 张 RGBA16F）、两张历史（各 2 张 RGBA16F，16 B / 像素）。历史至多画布一半、按档位 16 万–100 万像素：1280×720 `high` 合计约 11 MB，1080p 约 21 MB。第一次显示时分配，计入 `framebuffers`（经 `postProcessing.gpuBytes`）。换画布尺寸时重建（被材质长期绑定的目标不改尺寸） | `clouds.volumetric.enabled`（`low` 默认关）、`GpuProfile.clouds` |
 | 注记图集 | `LabelManager`（`AtlasPage`，无 mipmap） | 每页最大 `MAX_PAGE²` × 4 B，按需分页 | 注记数量 |
 | 云层、星空、展台背景、遮挡代理 | `CloudLayer` 等 | 一张云图 + 少量顶点，固定且小 | — |
 | 层级切换过渡（P3.4） | `post/LevelTransition` | 只在过渡期间（默认 0.45 s）：截帧 RGBA8 + 视距 R32F + 重投影结果 RGBA8，共 12 B / 像素，加每 4 CSS 像素一个点的网格（1080p 约 13 万个顶点、26 万个三角形，约 6 MB）；1080p 合计约 31 MB，结束即释放，计入 `framebuffers` | 画布像素数 |
 
-`viewer.memory` 汇总前五项（`framebuffers`、`globe`、`tilesGpu`、`buildings`、`shadows`，合计 `gpuTotal`；`buildings` 是已加载的 glTF 模型加上楼层 AO 贴图，不含程序生成的楼板、墙和合批实例数据）和 3D Tiles 解码缓存（`tilesCache` / `tilesCacheMax`），状态栏显示为"显存≈N MB · 建筑模型 m MB（3D 缓存 a / b MB）"（建筑模型不足 1 MB 时不显示）。浏览器自身的合成器、解码中的位图、驱动开销不在其中，实际进程显存通常再多 150–300 MB。
+`viewer.memory` 汇总 `framebuffers`、`globe`、`tilesGpu`、`buildings`、`shadows`、`splats` 六项（合计 `gpuTotal`；`buildings` 是已加载的 glTF 模型加上楼层 AO 贴图，不含程序生成的楼板、墙和合批实例数据）和 3D Tiles 解码缓存（`tilesCache` / `tilesCacheMax`），状态栏显示为"显存≈N MB · 建筑模型 m MB（3D 缓存 a / b MB）"（建筑模型不足 1 MB 时不显示）。浏览器自身的合成器、解码中的位图、驱动开销不在其中，实际进程显存通常再多 150–300 MB。
 
 ### 帧缓冲随分辨率的变化
 
@@ -81,6 +82,7 @@
 | `indoor.aoMaxResolution` | 512 | 1024 | 1024 | 2048 | 楼层 AO 贴图长边的纹素上限（[indoor-bim.md](indoor-bim.md) §5.6） |
 | `shadows.enabled` / `shadows.mapSize` | 关 / 1024 | 开 / 2048 | 开 / 2048 | 开 / 4096 | 日照阴影的默认开关和阴影图边长（[api.md](../api.md) §1.11）；`low` 档关掉是因为每次重画阴影图要多画一遍建筑，而且接收方每个像素多 16 次比较采样 |
 | `clouds`（体积云：默认开关 / 历史像素上限 / 步数 / 朝太阳步数 / 云影图边长） | 关 / 16 万 / 48 / 4 / 256 | 开 / 30 万 / 64 / 5 / 512 | 开 / 52 万 / 96 / 6 / 512 | 开 / 100 万 / 128 / 6 / 1024 | 体积云的画质与开销（[volumetric-clouds.md](volumetric-clouds.md) §8）；`low` 默认关：每像素几十步光线步进对集成显卡太重，用 `clouds.set({ volumetric: true })` 仍可打开 |
+| `splats.maxSplats` / `splats.maxShDegree` | 50 万 / 0 | 150 万 / 1 | 300 万 / 2 | 600 万 / 3 | 每个高斯泼溅图层最多保留的泼溅数和球谐阶数，超出的在加载时按重要度舍去；满预算时每层显存约 29 / 126 / 298 / 732 MB。WebGL 后端在 CPU 上排序，另外压到 60 万（[splats.md](splats.md) §3.2） |
 | `orderIndependentTransparency` | 关 | 关 | 关 | 开 | 建筑透明表面的顺序无关混合；多重采样的两张缓冲随画布像素数增长，`high` 档 4K 下也要多三百多 MB，所以只在 `ultra` 默认开 |
 
 `high` 档的画布和地球参数与引入档位之前完全一致；3D Tiles 的缓存和显存目标比以前大（以前是库默认的 307 / 410 MB 和 192 MB）。
