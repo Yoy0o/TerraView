@@ -1,6 +1,6 @@
 # 室内与 BIM 模型规范
 
-代码：`src/indoor/schema.ts`（格式与校验）、`src/indoor/selector.ts`（选择器编译）、`src/indoor/BimEntity.ts`（实体、样式、标签）、`src/indoor/EntitySet.ts`（查询结果）、`src/indoor/Building.ts`（构建与地理定位）、`src/indoor/LevelControl.ts`（层级控制策略）、`src/indoor/levelView.ts`（取景）、`src/indoor/IndoorManager.ts`（层级路径切换、视点缓存、拾取、顶牌）、`demo/data/demoBuilding.ts`（示例，不进包）。UI：`demo/ui/IndoorPanel.ts`。测试：`tests/indoor.test.ts`、`tests/selector.test.ts`、`tests/interaction.test.ts`。
+代码：`src/indoor/schema.ts`（格式与校验）、`src/indoor/selector.ts`（选择器编译）、`src/indoor/BimEntity.ts`（实体、样式、标签）、`src/indoor/EntitySet.ts`（查询结果）、`src/indoor/Building.ts`（构建与地理定位）、`src/indoor/LevelControl.ts`（层级控制策略）、`src/indoor/levelBinding.ts`（层级绑定：图层等内容按层级显隐）、`src/indoor/levelView.ts`（取景）、`src/indoor/IndoorManager.ts`（层级路径切换、视点缓存、拾取、顶牌）、`demo/data/demoBuilding.ts`（示例，不进包）。UI：`demo/ui/IndoorPanel.ts`。测试：`tests/indoor.test.ts`、`tests/levelBinding.test.ts`、`tests/selector.test.ts`、`tests/interaction.test.ts`。
 
 ## 1. 目标
 
@@ -18,6 +18,8 @@
 | `room` | IfcSpace | Room | 多边形轮廓，自动计算面积，自动生成墙（含门洞） |
 | `element` | IfcWall / IfcDoor / IfcWindow / IfcColumn / IfcSlab / IfcStair | 墙 / 门 / 窗 / 地板 / 屋顶 | 结构构件，可选 |
 | `thing` | IfcElement（设备、传感器、资产） | Thing / Entity | 位置、朝向、尺寸或模型 |
+
+**层级之外的内容**：高斯泼溅、3D Tiles 这类图层不是层级，可以绑定到上面任一节点（包括"地球"），由所在层级决定显隐，见 §6.5。
 
 **托管实体与静态几何**（对应 ThingJS 的 Entity 和 Misc）：文档里列出的元素都是托管实体，可以拾取、改样式、查询、挂顶牌。glTF 中没有对应实体的节点属于静态几何，照常绘制，但拾取时只会解析到它所在的楼层或设备。
 
@@ -76,12 +78,21 @@
 
 校验（`parseBuildingDoc`）：缺字段、类型错误、id 重复、多边形少于 3 个点、层高非正、门洞边号越界或位置超出 0..1、构件 `kind` 不在 6 种之内或既没有 `path` 也没有 `position`、`tags` 不是字符串数组、`viewpoint` 的俯仰超出 −90°..90° 或距离非正等问题，都会抛出带 JSON 路径的错误（例如 `$.floors[0].rooms[0].footprint: expected at least 3 [x, y] points`）。楼层按 `index` 排序，默认值也在这里统一填充。
 
-所有元素（建筑、楼层、房间、设备、构件）都可以带这两个可选字段：
+所有元素（建筑、楼层、房间、设备、构件）都可以带这三个可选字段：
 
 | 字段 | 说明 |
 | --- | --- |
 | `tags` | 字符串数组。墙、楼板、柱子自动带 `structure` 和自身类别（`wall` / `slab` / `column`），门窗等构件带自身类别。带 `structure` 的实体在楼层、房间层级不参与交互 |
 | `viewpoint` | `{ heading, pitch, range }`：进入该层级时的视点。`heading` 是相对建筑本地 +Y 轴顺时针的角度（度；建筑朝向为 0 时就是相对正北），`pitch` 为 −90..90 度（负值向下看），`range` 是到实体包围球中心的距离（米）。缺的字段用该层级的默认取景（§6.2） |
+| `splats` | 数组：绑定在该元素上的高斯泼溅场景（实景）。每项 `{ uri, position, rotation, pitch, roll, scale, upAxis, pivot, show, entityOpacity, opacity, maxSplats, format, name }`，只有 `uri` 必填。`position` 是场景枢轴在**该元素坐标系**里的位置（米，默认原点）：建筑用建筑本地坐标，楼层、房间、构件用楼层内坐标（z = 0 是楼面），设备相对设备自身。`rotation` 自坐标系 +Y 顺时针（度）。`show`、`entityOpacity` 见 §6.5；其余同 `viewer.addSplats` 的选项（[splats.md](splats.md)）。场景在第一次显示时才加载 |
+
+```jsonc
+"floors": [{
+  "id": "F3", "elevation": 8.4, "height": 4.2,
+  "splats": [{ "uri": "scans/F3.spz", "position": [0, 0, 0], "entityOpacity": 0.15 }],   // 进入三层时显示实景，模型淡成 15%
+  "rooms": [{ "id": "F3-R10", "footprint": [...], "splats": [{ "uri": "scans/server-room.ply", "position": [-5, -7, 0], "show": "current" }] }]
+}]
+```
 
 ### 4.1 glTF 与实体的映射
 
@@ -304,6 +315,58 @@ viewer.indoor.unregisterLevelControls('my-app');
 
 `LevelContext` 提供 `object`（该控制负责的层级）、`origin` / `target`（切换的起点和终点）、`indoor`、`camera`、`ellipsoid`。`setEffect` / `resetEffect` 可以返回 Promise，切换会等它完成。效果要写成幂等的绝对状态：返回上级时会重新进入父级，`indoor.refresh()` 和改 `expandFloors` 也会把当前路径上的 `setEffect` 从上到下重跑一遍。`viewFor` 返回 null 表示该层级不飞行。
 
+### 6.5 层级绑定（`indoor.bindings`）
+
+**一棵层级树，多种内容。** 层级树只有一棵：地球 → 建筑 → 楼层 → 房间 / 设备，节点是 BIM 实体。实景数据（高斯泼溅、倾斜摄影）和其他图层不是层级，也不另起一棵平行的树，而是**绑定在某个节点上的内容**：所在层级决定它什么时候显示，实体自己的模型可以在它显示时让位。这样分工：
+
+| | 实体（BIM） | 绑定的内容（泼溅、3D Tiles、宿主自己的对象） |
+| --- | --- | --- |
+| 提供 | 语义：编号、分类、属性、选择器、事件、顶牌、进出层级、取景 | 外观：真实的样子 |
+| 拾取 | 点到内容等于点到它的实体（`pickEntity`） | 给出命中点 |
+| 显隐 | 层级控制（§6.2）决定 | 绑定规则决定，跟着层级走 |
+
+为什么不让泼溅场景自己成为一个层级（与建筑并列）：层级带着进出、路径、事件、选择器、顶牌这一整套，再来一棵树就要把它们复制一遍并保持同步；而泼溅文件内部没有结构（没有"房间"可进），人们要的是"看到**这个层级**真实的样子"。只有实景、没有 BIM 的场地，做法见本节末尾。
+
+```ts
+// 图层的 level 选项（高斯泼溅、3D Tiles 都有）
+viewer.addSplats({ url: 'f3.spz', level: { entity: 'F3', position: [0, 0, 0], entityOpacity: 0 } }); // 三层的实景：进入三层时加载并显示，模型隐去但仍可交互
+viewer.addSplats({ url: 'shell.spz', position: { longitude, latitude }, level: { entity: 'office-a' } }); // 外立面实景：在楼外时显示
+viewer.addTileset({ source, level: { entity: 'office-a', show: 'outside' } }); // 这栋楼自己的倾斜摄影
+viewer.addTileset({ source, level: { show: 'always' } }); // 进楼也不隐藏的 3D Tiles
+
+// 宿主自己的东西
+viewer.indoor.bindings.bind(mesh, { entity: 'F3', show: 'inside' }, { onChange: (b) => (mesh.visible = b.shown) });
+```
+
+`LevelBindingOptions`：
+
+| 字段 | 说明 |
+| --- | --- |
+| `entity` | 内容属于哪个节点：实体，或它的 `id`。按 id 绑定可以早于建筑加载（"先绑定、后加载"），建筑移除后绑定保留，同 id 的建筑再加载时重新接上。不写（或 null）表示地球：内容不属于任何实体，但同样按层级显隐 |
+| `show` | 何时显示（下表），或一个函数 `({ entity, current, relation, visible }) => boolean`。默认：建筑 `'outside'`，楼层 / 房间 / 设备 `'inside'`，不绑实体 `'current'`（只在地球层级） |
+| `entityOpacity` | 内容显示**且已就绪**时，实体及其下级自身几何的不透明度，0–1（默认 1 不变）。小于 1 时模型让位；0 时完全看不见，但仍然被拾取、描边、带顶牌 |
+
+| `show` | 显示的条件 | 典型用途 |
+| --- | --- | --- |
+| `'inside'` | 所在层级是该实体或它的下级 | 楼层、房间的室内实景 |
+| `'current'` | 所在层级正是该实体 | 只在这一级看的内容 |
+| `'outside'` | 所在层级不是该实体及其下级，且实体本身可见 | 建筑的外立面实景、它自己的倾斜摄影 |
+| `'entity'` | 实体可见时（跟着层级控制走，像实体自己的网格一样） | 摆在房间里的一件实物 |
+| `'always'` | 实体存在时 | 不受层级影响 |
+
+规则（`levelBinding.ts`，纯函数 `levelRelation` / `levelShown`，有单测）：
+
+- `relation`：所在层级就是该实体为 `'at'`，在它下面为 `'below'`，其余（地球、兄弟、**它的祖先**）都是 `'outside'`。地球（不绑实体）包含一切层级：在地球层级是 `'at'`，进了任何层级是 `'below'`。
+- 求值时机：层级切换的每一步（`current` 改变后、`enterLevel` / `leaveLevel` 事件之前），以及每帧 `indoor.update`（实体被代码隐藏、建筑增删都能跟上）。所以内容和层级效果同一帧切换，切换过渡（§7.1）截到的是切换前的完整画面。
+- `entityOpacity` 是实体上独立的一个系数（`bindingOpacity`，内部），与用户样式的不透明度、层级的同级半透明（`levelOpacity`）三者相乘，互不覆盖；多个绑定重叠时取最小值。它只在内容"确实在屏幕上"时生效（图层已加载且没有被用户隐藏），所以懒加载期间看到的仍是模型，不会出现"模型隐去、实景还没到"的空白。
+- 不透明度为 0 的实体仍然绘制（全透明、不写深度），所以 CPU 射线和 GPU 拾取缓冲都还认它，描边遮罩也照常：实景做外观、BIM 做语义的"隐形代理"就是这样实现的。
+
+**图层这一侧**（[splats.md](splats.md) §7.1）：高斯泼溅图层还可以**放进实体的坐标系**（`level.position`，米）。这样它跟着实体走：建筑贴地抬升、楼层展开时一起移动；`heading` 等角度相对该坐标系。绑定的图层默认**懒加载**（第一次显示时才下载）。3D Tiles 只绑显隐（瓦片自带地理位置）。没有绑定的图层保持原来的规则：进入建筑时随 `hideTilesetsIndoor` 隐藏。
+
+**文档里声明**：任何元素都可以带 `splats`（§4），加载建筑时自动建图层并绑定，移除建筑时一并移除。
+
+**只有实景、没有 BIM 的场地**：写一份最小的建筑文档（轮廓 + 一层），把场景声明在建筑或楼层上并设 `entityOpacity: 0`。文档提供层级节点、包围范围和拾取代理，于是进出层级、顶牌、取景、返回都照常工作，画面上只有实景。
+
 ## 7. 默认交互与可见性
 
 | 操作 | 结果 |
@@ -346,11 +409,14 @@ resume(); // 或 viewer.interaction.resume() 撤销全部
 - 新增实体类型：先扩展 `EntityType` 和 `schema.ts`，在 `Building` 中构建，再按需要注册层级控制（§6.4）或在 `LEVEL_FRAMING` 里补默认取景，最后同步本文与测试。
 - 实时数据（如 IoT 状态）：更新 `entity.properties`，调用 `setStyle()` 改颜色；顶牌内容改变后调用 `marker.invalidateSize()`。
 - 大规模设备（成千上万个）：设备已按楼层合批（§5.2），1 万个设备约 40 次绘制。新增设备类的构建要走 `InstanceBatcher.add`（给出几何键、基础材质键和 `BaseLook`），不要给设备单独建网格；需要逐实例的新外观参数时扩展 `bimStyle` 与 `resolveLook`，不要克隆材质。
+- 让层级之外的东西（图层、宿主自己的对象）跟着层级显隐：用层级绑定（§6.5），不要在 `enterLevel` 监听里手写显隐，也不要为它新建一种实体类型或另一套层级。新的图层类型要支持绑定时：选项里加 `level?: LevelBindingOptions`，创建时 `indoor.bindings.bind(layer, options, { showing })`，每帧读 `bindings.get(layer)?.shown`，移除时 `unbind`（参照 `GeoViewer.hiddenByLevel`）。
 - 层级效果写在层级控制里，不要在别处直接改楼层的 `group.visible`；同级半透明用 `levelOpacity`，不要占用 `setStyle` 的 `opacity`（那是用户样式）。
 - 新增建筑网格时设 `castShadow` / `receiveShadow`（用 `Building.ts` 的 `shadowed()`），透明的东西自然不投影（§5.7）。
 - 新增楼层上的网格（新构件种类、新的程序几何）：想清楚它在楼层 AO 里的角色（§5.6），贴着地面的面设 `mesh.userData.aoRole = 'floor'`，透明或不该变暗的设 `'occluder'`；材质用 `Building.ts` 的 `material()`（节点材质，带空气透视）。改了楼层上的内容又不经过 `visible` / `refreshTransform()` / 模型加载时，调 `building.floorContentChanged(entity)`（内部）让 AO 重新烘焙。
 
 ## 9. 路线图
+
+- 层级绑定已完成（§6.5，2026-11-23）：高斯泼溅和 3D Tiles 绑到层级节点，文档里声明 `splats`。以后可做：点位图层和 GeoJSON 图层的 `level` 选项；绑定内容计入实体的包围范围（现在取景只看实体自己的几何）；隐藏已久的绑定图层按预算卸载（同楼层模型，§5.4）；通用的层级节点（园区 / 场地，不必是建筑）；实景与模型的对齐工具（点对解算位置、朝向、尺度）。
 
 - 日照阴影、透明顺序无关混合已完成（§5.7，M3.9）。以后可做：透明物体按透明度投出浅影（彩色玻璃）、3D Tiles 作为遮挡物投影到建筑上（每次重画要画大量瓦片，按需评估）。
 - 楼层环境光遮蔽已完成（§5.6，M3.4）。以后可做：透明物体（玻璃隔断）按透明度投射、按房间分区烘焙超大楼层、楼层模型的单面片墙（需要按法线朝向补厚度）。

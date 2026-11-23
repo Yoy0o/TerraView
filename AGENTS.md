@@ -72,6 +72,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 │               EntitySet（查询结果与批量操作）、Building（构建与定位）、InstanceBatch（设备合批，InstancedMesh）、
 │               StylePool（几何 / 材质按键共享 + 引用计数）、modelBudget（模型按需加载的卸载规则与字节估算，纯函数）、ContributionCulling（贡献剔除，默认关闭）、
 │               FloorOcclusion（楼层环境光遮蔽：GPU 烘焙、读回、共享 colorNode、调度）、LevelControl（层级控制策略）、
+│               levelBinding（层级绑定：图层等内容挂到层级节点、按所在层级显隐，规则是纯函数）、
 │               levelView（取景数学）、IndoorManager（层级路径切换、视点缓存、拾取、顶牌）
 ├─ markers/     MarkerManager（HTML 顶牌：投影、裁剪、避让、遮挡）、occlusion（遮挡代理池与规则，纯逻辑）、cards（顶牌样式模板）、
 │               points（点位解析 / 规则，纯函数）、clusterTree（层级聚合树，纯函数 + Worker）、
@@ -95,7 +96,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / SplatPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）、demoSplats（开放的高斯泼溅场景：地址与署名，数据不入库）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / splats；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -188,6 +189,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 设备按楼层 × 几何 × 基础材质 × 渲染状态合成 `InstancedMesh`，颜色 / 发光 / 不透明度是实例属性，材质走样式池（indoor-bim.md §5.2）。设备显隐用 `entity.visible`，移动后调 `refreshTransform()`，改外观用 `setStyle` / `levelOpacity`，不要找设备的材质。
   - 楼层和设备的 glTF 在楼层第一次显示时才加载，隐藏楼层的模型超出 `indoor.modelBytesTarget` 时卸载（indoor-bim.md §5.4）。要在显示前用到模型（取景、包围体）先 `await building.modelsLoaded(entity)`；不要假设 `add()` 之后房间、设备上已经有模型网格。
   - 贡献剔除（`indoor.culling`，默认关闭）让屏幕上太小的设备和非结构构件不渲染，结构与楼板始终保留（indoor-bim.md §5.3）。它只设 `entity.culled`，不要用它改 `visible`，也不要自己改实体网格的 `mesh.visible` 来做显隐。
+  - **层级绑定**（`indoor.bindings`，indoor-bim.md §6.5）：层级树只有一棵，节点是实体；高斯泼溅、3D Tiles 等图层不是层级，而是用 `level` 选项绑到某个节点（`{ entity, show, entityOpacity }`），所在层级决定显隐，实体的模型可以让位（`bindingOpacity`，0 时仍可拾取、描边、带顶牌）。要让层级之外的东西跟着层级走就用它，不要在 `enterLevel` 监听里手写显隐，也不要另起一套层级或新增实体类型。规则是 `levelBinding.ts` 的纯函数；图层的显隐统一经 `GeoViewer.hiddenByLevel`。
   - 楼层环境光遮蔽（`indoor.ambientOcclusion`，默认开）在楼层第一次显示时烘焙一次，之后只是接收材质里共享的 `colorNode` 采样一张贴图（indoor-bim.md §5.6）。新的楼层网格按角色设 `mesh.userData.aoRole`（`'floor'` / `'occluder'`）；不要给接收 AO 的材质另设 `colorNode`（会被跳过）。
 - **局部场景**（M4.9）：`viewer.localScene.enter({ region })` 只显示一块区域（园区到城区，直径 ≤ 100 km），区域外不画不加载，边缘土层侧壁、展台背景，相机由 `controller.bounds` 管着。地球场景的子模式，与建筑层级独立。裁剪是共享的 `maskNode`（`regionMaskNode`），区域参数按渲染器存；地球瓦片只在跨边界时换裁剪材质（`GlobeTileClipped`），3D Tiles 用 `RegionMaskPlugin` 屏蔽区域外瓦片。新增需要"按区域裁剪"的东西时复用 `regionMaskNode` / `hasRegionMask`，拾取材质要同步带上。见 [local-scene.md](docs/agents/local-scene.md)。
 - **高斯泼溅**（M4.8 第一期）：`viewer.addSplats({ url | data, position, … })` 把一个 `.ply` / `.splat` / `.spz` 场景放到地球上。见 [splats.md](docs/agents/splats.md)。
@@ -196,6 +198,7 @@ docs/agents/    子系统规范（本文档的展开）
   - 位置、朝向、尺度、轴向都由宿主给（文件里没有）：`setPlacement`、`upAxis`、`pivot`；贴地走 `viewer.surfaceHeight` 的查询。场景的中心、取景、排序范围用去掉离群点的**核心包围盒**（`computeSplatBounds`），视锥剔除用全量的。
   - 图层上会改变画面的 setter 都发 `change` 事件；`crop` 是 CPU 过滤后重新上传（拾取不重建，带掩码查原来的 BVH）。
   - 释放走 `disposeGaussianSplat`（three 的类没有 `dispose()`）；每次加载一个 Worker，返回后关闭。
+  - 属于某栋楼、某一层的场景用 `level` 绑到那个实体（splats.md §7.1）：可以放进实体坐标系（`level.position`，viewer 每帧 `setFrame`），默认懒加载，拾取归到实体（`pickEntity`）。建筑文档的 `splats` 字段就是这样建出来的。图层本身不 import 室内模块的实现（只用类型），实体矩阵、绑定状态都由 viewer 递过去。
 - **后期与描边**（M3.1 / M3.2）：每帧都经 `viewer.postProcessing`：场景画进它自己的 HDR 目标（与渲染器自带的格式相同，场景材质不重编），再按阶段跑启用的效果，最后一个全屏 pass 色调映射输出；没有效果时等价于 `renderer.render`。帧外渲染（截图、层级截帧）也走它（`renderOutsideFrame`）。选中 / 悬停 / 告警是描边与发光（`entity.effects`、`indoor.selectOutline`、`viewer.effects`），不改材质，合批设备只描自己的实例。静止超采样（`renderSample`）在场景 pass 和效果自己的 pass 期间平移相机（`setViewOffset`），所以效果的遮罩跟着场景一起抖动；效果里不要缓存跨帧的投影矩阵。调色（`viewer.colorGrading`）是 display 阶段的 `grading` 效果，排在描边之前。新效果实现 `PostEffect`，需要法线等附件用 `attachments` 声明（全局节点），**不要给场景材质设 `material.mrtNode`**。说明见 [api.md](docs/api.md) §1.9、[indoor-bim.md](docs/agents/indoor-bim.md) §5.5。
 - **顶牌 Marker**：HTML 元素锚定在世界坐标上，每帧用 float64 投影；做地平线、距离、视口裁剪，并按优先级避让；支持数据驱动的显示模式（always / level / hover / click）。`occlusion: 'hide' | 'fade'` 让锚点被建筑、地形挡住时隐藏或淡出（遮挡查询代理，markers.md §5.2.1）；不参与避让的重要顶牌只淡出。
 - **点位 PointLayer**：`viewer.addPoints({ data | url, style, rules, cluster })`。
@@ -223,6 +226,7 @@ docs/agents/    子系统规范（本文档的展开）
 | 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。这几项 `npm run smoke:build && npm run smoke` 会自动检查（另有顶牌留在容器内、逐个销毁后 Worker 归零），看画面仍要手测。 |
 | 加载高斯泼溅 | `viewer.addSplats(...)`、面板"高斯泼溅（3DGS）"、`?splats=<url>`，或拖入 `.ply` / `.splat` / `.spz`；方向不对换 `upAxis`，大小不对调 `scale`（文件没有真实尺度）。改了 `src/splats/` 后跑 `tests/splats.test.ts` 和冒烟的"高斯泼溅"用例，并按 splats.md §10 的清单在真实 GPU 上看一遍。 |
 | 新增泼溅文件格式 | 在 `splats/splatFormats.ts` 加解码函数（输出 `SplatData`，不 import three）和 `detectSplatFormat` 的判断，`SplatFormat` 加名字；需要第三方解压库时先征得同意，并决定放主线程（经宿主的 three）还是打进 Worker。补 `tests/splats.test.ts`（用代码生成最小文件），同步 splats.md §3.1。 |
+| 把图层绑到层级 | 泼溅：`viewer.addSplats({ …, level: { entity, position?, show?, entityOpacity? } })` 或 `layer.setLevel(...)`；3D Tiles：`addTileset({ …, level })`；数据里：建筑文档元素的 `splats`；宿主自己的对象：`viewer.indoor.bindings.bind(obj, options, { onChange })`。改规则改 `indoor/levelBinding.ts` 并补 `tests/levelBinding.test.ts`；改了文档字段按"新增 BIM 字段"那一行同步手册。 |
 | 加载点位数据 | `viewer.addPoints(...)`、面板"点位标注"、`?points=<url>`，或拖入 `*.points.json`；规则写法见 markers.md §4。大批量（上万）或高频刷新的数值不要用 DOM 顶牌，走路线图 M3.6 / M4.6。 |
 | 调加载性能 | 先看状态栏和 `viewer.globe.stats`，再按 [tile-loading.md](docs/agents/tile-loading.md) 的调参表调整；不要改坏桶的优先顺序。 |
 
@@ -300,6 +304,8 @@ docs/agents/    子系统规范（本文档的展开）
 - **泼溅颜色不转线性会整体发白**（2026-11-22）：泼溅颜色是显示空间的值，three 的 `GaussianSplat` 原样输出；本仓库的场景 pass 是线性 HDR，之后还要转回显示空间，等于多做了一次 gamma。`SplatLayer` 在 `colorNode` 里先 `sRGBTransferEOTF`。
 - **软件渲染下一帧超过 2 秒，视图永远不静止**（2026-11-22）：帧间隔超过 `RESUME_GAP_MS`（2 s）会被当成"页面恢复"而重画，所以 SwiftShader 上画一个十几万泼溅的场景时 `stats.still` 一直是 false。这不是图层在请求重画（用 `?splatsMax=3000` 这样的小预算验证收敛）；冒烟测试里的泼溅场景要小。
 - **本容器（云端开发环境）里无头 Chromium 的 WebGPU 出不了图**（2026-11-22）：交换链纹理建不出来，设备随即丢失，演示应用的基线也一样（控制台刷 `createBuffer failed … mappedAtCreation`）。有界面模式可以：`xvfb-run -a npx playwright test --project demo-webgpu --headed`（配 `SMOKE_NO_GPU=1`）。WebGL 项目无头正常。本机和 CI 不受影响。
+- **绑定内容让模型让位，要等内容真的在屏幕上**（2026-11-23，层级绑定）：懒加载的实景在下载期间还没有画面，如果一进层级就把模型隐去，会有几秒什么都看不到。`entityOpacity` 只在绑定的 `showing()`（图层已就绪且可见）为真时生效。同理它是独立于 `levelOpacity` 的系数（`bindingOpacity`）：房间层级的"同级半透明"每次进入都会把兄弟的 `levelOpacity` 重写成绝对值，借用它会被覆盖。
+- **换绑坐标系时不能直接沿用本地坐标**（2026-11-23）：图层在实体 A 的坐标系里的位置，原样拿到实体 B 的坐标系里是另一个地方。`setLevel` 换实体并跟随时先退回地理位置（`leaveFrame`）再进入新的坐标系（`enterFrame`），heading 同时加减两个坐标系 +Y 的朝向。
 - **Windows 环境**：`python` 可能只是应用商店的占位程序，脚本请用 Node；Bash 中使用 POSIX 路径。
 - **Git Bash 里 vitest 全部失败**：用 `cd /d/...` 进入仓库时，Node 看到的当前目录是小写盘符 `d:\`（推测 vitest 因此按大小写不同的路径加载了两份自身），24 个套件全部报 `Cannot read properties of undefined (reading 'config')`、0 个测试。这不是代码回归：改用 `cd D:/Person/...`（大写盘符）或在 PowerShell 里跑。
 

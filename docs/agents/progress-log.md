@@ -87,6 +87,7 @@ Hub 有记录的 7 个任务合计 640 分钟（约 10.7 小时），均 0–1 �
 | 11-11 | 包名定为 `terra-view`（`terraview` 在 npm 上是占位包，不可用）；CI / 发布工作流、打包自检脚本 `scripts/check-package.mjs` | §10 S1、S8 | 见 Git 记录 | README「持续集成与发布」 |
 | 11-11 | 文档迁移与改写（README、AGENTS、api.md、专题文档的路径与类名）、演示应用改名与设置键迁移 | §10 S7 | 见 Git 记录 | 本文 §7 |
 | 11-22 | 高斯泼溅图层（第一期）：Worker 解码、预算、锚定、绘制、拾取与事件、裁剪、演示面板 | M4.8 | 见 Git 记录 | [splats.md](splats.md)、[api.md](../api.md) §1.13 |
+| 11-23 | 层级绑定：图层挂到层级节点（泼溅、3D Tiles），实体坐标系、懒加载、拾取归实体、建筑文档 `splats` | M4.8 二期 ① | 见 Git 记录 | [indoor-bim.md](indoor-bim.md) §6.5、[splats.md](splats.md) §7.1 |
 
 ## 3. Hub 任务与 roadmap 的对应
 
@@ -235,6 +236,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-23 | 层级绑定（高斯泼溅二期 ①，同时是层级系统的通用扩展）：`indoor/levelBinding.ts`（纯函数规则 + 注册表 `viewer.indoor.bindings`），泼溅和 3D Tiles 的 `level` 选项，泼溅放进实体坐标系并跟随、懒加载、拾取归实体，实体的 `bindingOpacity`，建筑文档的 `splats` 字段（同步 indoor-bim.md、数据制作手册），演示面板的绑定控件和示例办公楼大堂里的示意实景；`tests/levelBinding.test.ts` 和冒烟用例。决定不让泼溅自成层级，理由见 indoor-bim.md §6.5 |
 | 2026-11-22 | M4.8 高斯泼溅第一期（E8 的一项）：`viewer.addSplats`（`src/splats/`：Worker 解码 `.ply` / `.splat` / `.spz`、档位预算、地理锚定、three 自带 `GaussianSplat` 绘制、BVH 拾取接入 `pick` / `interaction` / 相机手势、裁剪、显存与加载状态、三个错误码），演示面板和 `?splats=`，`tests/splats.test.ts` 和冒烟用例；用 three.js 示例库的开放数据验证。规范 [splats.md](splats.md)。开发环境是软件渲染，真实 GPU 上的帧率没有量 |
 | 2026-11-19 | P3.6（B9 / M3.9）：日照阴影（`viewer.shadows`：`lighting/shadowFit.ts` 纯函数适配、`lighting/SunShadows.ts` 自管阴影图和共享接收节点，地球瓦片、3D Tiles、展台接收，只在范围或内容变化时重画）、透明顺序无关混合（`viewer.transparency`，`PostPipeline` 的透明 pass 与合成，WebGPU，默认只在 `ultra`）。新增踩坑三条（AGENTS.md §7：无渲染目标的深度纹理被当成多重采样、放大渲染目标后材质仍绑旧纹理、MRT 按纹理名对应）。verify 436 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.6 落地"） |
 | 2026-11-19 | P3.5（B7 / M3.4、B8 / M3.5）：楼层环境光遮蔽（`viewer.indoor.ambientOcclusion`，GPU 俯视烘焙、接触项加权最大值 + 柔和项平均、读回成 `DataTexture`、共享 `colorNode`、内容变化稳定后重烘）；光照跟随大气（大气 CPU 版、太阳光色、天光 SH 探针、建筑 / 设备 / 3D Tiles 的空气透视）。浏览器实测 TSL 与 CPU 透射率相差 < 7e-5，AO 贴图 WebGPU / WebGL 逐字节相同。P5 顺带：C11 第二处局限修复（`moved` 事件）、M5.1 的 `viewer.snapshot()`、建筑构建的控制台警告；新增 C12（Chapman 近似偏差）。verify 419 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.5 落地"）。P1.7 仍搁置 |
