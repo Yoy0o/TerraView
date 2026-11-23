@@ -270,3 +270,168 @@ test('demo: Gaussian splats load, pick, crop, move, remove', async ({ page, base
   expect(w.blocked, 'requests to other origins').toEqual([]);
   expect(w.errors).toEqual([]);
 });
+
+test('demo: splats bound to levels (declared, lazy, framed, picked as entities)', async ({ page, baseURL }, info) => {
+  const w = await watch(page, baseURL!);
+  const backend = backendOf(info);
+  await page.goto(`/?imagery=debug&noterrain&intro=0&clouds=0&demo${backend === 'WebGL2' ? '&webgl' : ''}`);
+  await probeBackend(page, info);
+  await waitForViewer(page, 'viewer', backend);
+  // ?demo enters the office building, whose document declares a capture on its lobby.
+  await page.waitForFunction(
+    () => {
+      const v = (window as unknown as SmokeWindow).viewer!;
+      return v.indoor.current?.type === 'building' && !v.controller.isFlying && v.splatLayers[0]?.ready === true;
+    },
+    undefined,
+    { timeout: 60_000 },
+  );
+
+  const result = await page.evaluate(async () => {
+    const v = (window as unknown as SmokeWindow).viewer!;
+    const indoor = v.indoor;
+    const frames = (n: number) =>
+      new Promise<void>((resolve) => {
+        const off = v.events.on('frame', () => {
+          if (--n > 0) return;
+          off();
+          resolve();
+        });
+      });
+    const until = async (test: () => boolean) => {
+      for (let i = 0; i < 600 && !test(); i++) await new Promise((r) => setTimeout(r, 50));
+      return test();
+    };
+    const quick = { duration: 0.2 };
+    const building = indoor.current!;
+    const [f1, f2] = building.children.filter((c) => c.type === 'floor');
+
+    // 1. Declared in the document: bound to the lobby, placed in its frame, shown with the room.
+    const plant = v.splatLayers[0];
+    const lobby = indoor.bindings.get(plant)!.entity!;
+    const declared = { room: lobby.type, floor: lobby.parent === f1, position: plant.level?.position?.length, show: plant.level?.show, shown: indoor.bindings.get(plant)!.shown };
+
+    // 2. Bound by id to the second floor: nothing is loaded until that floor is entered.
+    const scan = v.addSplats({ url: '/__splats/ball.splat', name: 'scan', scale: 4, level: { entity: f2.id, position: [0, 0, 0], entityOpacity: 0 } });
+    await frames(3);
+    const waiting = { ready: scan.ready, loading: scan.loading, shown: indoor.bindings.get(scan)!.shown, pending: v.loadState.layers, snapshot: v.snapshot().splats.find((s) => s.id === scan.id)!.level };
+    await indoor.enter(f2, quick);
+    const loaded = await until(() => scan.ready);
+    await frames(3);
+    const room = f2.children.find((c) => c.type === 'room')!;
+    const rect = v.canvas.getBoundingClientRect();
+    const at = (world: { clone(): { project(c: unknown): { x: number; y: number } } }) => {
+      const p = world.clone().project(v.camera);
+      return v.pickAt(rect.left + ((p.x + 1) / 2) * rect.width, rect.top + ((1 - p.y) / 2) * rect.height);
+    };
+    const onScan = at(scan.boundingSphere.center);
+    // The room farthest from the capture: its model is fully transparent now, and still picked.
+    const rooms = f2.children.filter((c) => c.type === 'room' && c.worldBounds());
+    const far = rooms.sort((a, b) => b.worldBounds()!.center.distanceTo(scan.boundingSphere.center) - a.worldBounds()!.center.distanceTo(scan.boundingSphere.center))[0];
+    const onRoom = at(far.worldBounds()!.center);
+    // 3D Tiles follow the same bindings: the reality mesh of this building, one kept indoors, one unbound.
+    const tiles = {
+      exterior: v.addTileset({ source: { type: 'url', url: '/__tiles3d/empty/tileset.json' }, name: 'exterior', level: { entity: building.id } }),
+      kept: v.addTileset({ source: { type: 'url', url: '/__tiles3d/empty/tileset.json' }, name: 'kept', level: { show: 'always' } }),
+      context: v.addTileset({ source: { type: 'url', url: '/__tiles3d/empty/tileset.json' }, name: 'context' }),
+    };
+    await frames(2);
+    const tilesInside = [tiles.exterior.suppressed, tiles.kept.suppressed, tiles.context.suppressed];
+    const inside = {
+      loaded,
+      active: scan.active,
+      plantShown: indoor.bindings.get(plant)!.shown,
+      // The model of the floor steps back completely, the other floor keeps its own.
+      opacity: [f2.bindingOpacity, room.bindingOpacity, f1.bindingOpacity],
+      // The ball stands on the slab of the second floor.
+      aboveSlab: scan.ellipsoidHeight - v.ellipsoid.cartesianToCartographic(f2.group.getWorldPosition(scan.boundingSphere.center.clone()))!.height,
+      pick: onScan.kind,
+      // A pick on the capture is a pick on the floor or on what is in it.
+      pickInFloor: !!onScan.entity && (onScan.entity === f2 || onScan.entity.isDescendantOf(f2)),
+      pickLayer: onScan.splats === scan,
+      roomPick: onRoom.kind,
+      roomPickInFloor: !!onRoom.entity && onRoom.entity.isDescendantOf(f2),
+      tiles: tilesInside,
+    };
+
+    // 3. Shown with the entity: it follows the floors spreading apart at the building level.
+    scan.setLevel({ ...scan.level!, show: 'entity', entityOpacity: 1 });
+    await indoor.enter(building, quick);
+    await frames(3);
+    const before = scan.ellipsoidHeight;
+    indoor.expandFloors = true;
+    await until(() => !(building as unknown as { isExpanding: boolean }).isExpanding);
+    await frames(3);
+    const spread = { shown: indoor.bindings.get(scan)!.shown, lifted: scan.ellipsoidHeight - before, opacity: f2.bindingOpacity };
+    indoor.expandFloors = false;
+    await until(() => !(building as unknown as { isExpanding: boolean }).isExpanding);
+
+    // 4. A layer on the globe taken over into the building's frame where it stands, and released again.
+    const free = v.addSplats({ url: '/__splats/ball.splat', name: 'free', position: { longitude: 116.3935, latitude: 39.9996, height: 80 }, heading: 20, showIndoors: true });
+    await until(() => free.ready);
+    await frames(2);
+    const world = free.boundingSphere.center.clone();
+    const placed = free.placement;
+    free.setLevel({ entity: building.id, follow: true, show: 'always' });
+    await frames(3);
+    const framed = { position: free.level?.position?.length, moved: free.boundingSphere.center.distanceTo(world), heading: free.placement.heading };
+    free.setLevel(null);
+    await frames(2);
+    const released = {
+      level: free.level,
+      moved: free.boundingSphere.center.distanceTo(world),
+      longitude: Math.abs(free.placement.longitude - placed.longitude),
+      latitude: Math.abs(free.placement.latitude - placed.latitude),
+      heading: free.placement.heading,
+      reference: free.placement.heightReference,
+    };
+
+    // On the globe the building's own tileset and the unbound one are drawn again.
+    await indoor.enter(null, { fly: false });
+    await frames(2);
+    const tilesOutside = [tiles.exterior.suppressed, tiles.kept.suppressed, tiles.context.suppressed];
+    for (const t of Object.values(tiles)) v.removeTileset(t);
+
+    // 5. Removing the building takes its declared capture along; the layer bound by id waits for it.
+    indoor.remove(building as never);
+    await frames(3);
+    const removed = { layers: v.splatLayers.map((l) => l.name), unresolved: indoor.bindings.get(scan)!.unresolved, shown: indoor.bindings.get(scan)!.shown, active: scan.active };
+    for (const l of [...v.splatLayers]) v.removeSplats(l);
+    return { declared, waiting, inside, spread, framed, released, removed, tilesOutside, bindings: indoor.bindings.all().length };
+  });
+
+  expect(result.declared).toEqual({ room: 'room', floor: true, position: 3, show: 'entity', shown: true });
+  expect(result.waiting).toMatchObject({ ready: false, loading: false, shown: false, pending: 0 });
+  expect(result.waiting.snapshot).toMatchObject({ shown: false });
+  expect(result.inside).toMatchObject({
+    loaded: true,
+    active: true,
+    plantShown: false,
+    opacity: [0, 0, 1],
+    pick: 'splats',
+    pickInFloor: true,
+    pickLayer: true,
+    roomPick: 'entity',
+    roomPickInFloor: true,
+    // Inside the building: its exterior mesh and the unbound context are hidden, the one bound "always" stays.
+    tiles: [true, false, true],
+  });
+  expect(result.tilesOutside).toEqual([false, false, false]);
+  expect(Math.abs(result.inside.aboveSlab)).toBeLessThan(0.01);
+  expect(result.spread).toMatchObject({ shown: true, opacity: 1 });
+  // One storey up at 7 m per storey.
+  expect(result.spread.lifted).toBeGreaterThan(6.5);
+  expect(result.spread.lifted).toBeLessThan(7.5);
+  expect(result.framed.position).toBe(3);
+  expect(result.framed.moved).toBeLessThan(0.01);
+  expect(result.released).toMatchObject({ level: null, reference: 'ellipsoid' });
+  expect(result.released.moved).toBeLessThan(0.01);
+  expect(result.released.longitude).toBeLessThan(1e-7);
+  expect(result.released.latitude).toBeLessThan(1e-7);
+  expect(result.released.heading).toBeCloseTo(20, 6);
+  expect(result.removed).toEqual({ layers: ['scan', 'free'], unresolved: true, shown: false, active: false });
+  expect(result.bindings).toBe(0);
+
+  expect(w.blocked, 'requests to other origins').toEqual([]);
+  expect(w.errors).toEqual([]);
+});

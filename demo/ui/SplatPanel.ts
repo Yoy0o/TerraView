@@ -1,5 +1,5 @@
 import { SPLAT_DEMOS, SPLAT_DEMO_SITE } from '../data/demoSplats';
-import { type GeoViewer, type SplatLayer, type SplatLayerOptions, type SplatUpAxis } from 'terra-view';
+import { type BimEntity, type GeoViewer, type LevelShow, type SplatLayer, type SplatLayerOptions, type SplatUpAxis } from 'terra-view';
 import { Vector2 } from 'three';
 import { describeError } from './errors';
 import { h, section, slider } from './dom';
@@ -13,6 +13,16 @@ const UP_AXES: [SplatUpAxis, string][] = [
 ];
 
 const FORMAT_NAMES = { ply: 'PLY', splat: '.splat', spz: 'SPZ' } as const;
+const TYPE_NAMES: Record<BimEntity['type'], string> = { building: '建筑', floor: '楼层', room: '房间', thing: '设备', element: '构件' };
+/** When a bound scene is shown ('' = the default for the entity's type). */
+const SHOW_MODES: [LevelShow | '', string][] = [
+  ['', '默认（建筑：楼外；其余：进入后）'],
+  ['inside', '进入该层级及其下级时'],
+  ['current', '仅在该层级时'],
+  ['outside', '在该层级之外时'],
+  ['entity', '跟随实体显隐'],
+  ['always', '始终'],
+];
 /** Above this camera height the view center is no place to put a scene of a few meters. */
 const PLACE_MAX_HEIGHT = 20_000;
 const CENTER = new Vector2(0, 0);
@@ -23,7 +33,9 @@ const megabytes = (bytes: number) => `${(bytes / 2 ** 20).toFixed(bytes < 10 * 2
 /**
  * "高斯泼溅" section: open sample scenes, URL / file loading and, per layer, placement
  * (click the ground to move it, heading, scale, height), axis convention, opacity, a crop
- * radius, zoom-to and removal. Clicking a scene in the view reports the picked position.
+ * radius, the level binding (which building / floor / room the scene belongs to, when it is
+ * shown, how much of the model stays), zoom-to and removal. Clicking a scene in the view
+ * reports the picked position.
  */
 export class SplatPanel {
   readonly root: HTMLElement;
@@ -75,8 +87,16 @@ export class SplatPanel {
           const layer = this.placing;
           this.placing = null;
           this.viewer.canvas.style.cursor = '';
-          if (e.cartographic && viewer.splatLayers.includes(layer)) {
-            layer.setPlacement({ longitude: (e.cartographic.longitude * 180) / Math.PI, latitude: (e.cartographic.latitude * 180) / Math.PI, heightReference: 'ground', height: 0 });
+          if (e.cartographic && e.point && viewer.splatLayers.includes(layer)) {
+            const level = layer.level;
+            const frame = level?.position ? viewer.indoor.bindings.get(layer)?.entity : null;
+            if (level && frame) {
+              // Placed in its entity's frame: the picked point in that frame.
+              const p = frame.group.worldToLocal(e.point.clone());
+              layer.setLevel({ ...level, position: [p.x, p.y, p.z] });
+            } else {
+              layer.setPlacement({ longitude: (e.cartographic.longitude * 180) / Math.PI, latitude: (e.cartographic.latitude * 180) / Math.PI, heightReference: 'ground', height: 0 });
+            }
             this.notify(`已移动：${layer.name}`);
           }
           this.render();
@@ -128,7 +148,10 @@ export class SplatPanel {
   private status(layer: SplatLayer): string {
     if (layer.error) return '加载失败';
     const s = layer.stats;
-    if (!layer.ready || !s) return layer.progress > 0 ? `下载 ${(layer.progress * 100).toFixed(0)}%` : '加载中…';
+    if (!layer.ready || !s) {
+      if (!layer.loading) return '进入所属层级时加载';
+      return layer.progress > 0 ? `下载 ${(layer.progress * 100).toFixed(0)}%` : '加载中…';
+    }
     const sh = s.shDegree > 0 ? ` · ${s.shDegree} 阶球谐` : '';
     return `${count(s.count)}个 · ${FORMAT_NAMES[s.format]}${sh} · 显存 ${megabytes(layer.gpuBytes)}`;
   }
@@ -219,7 +242,68 @@ export class SplatPanel {
       height.root,
       opacity.root,
       crop.root,
+      ...this.levelControls(layer),
     );
+  }
+
+  /** Entities a scene can be bound to from here: its current one, the level path, the selection, every building. */
+  private levelCandidates(layer: SplatLayer): BimEntity[] {
+    const indoor = this.viewer.indoor;
+    const out = new Set<BimEntity>();
+    const bound = indoor.bindings.get(layer)?.entity;
+    if (bound) out.add(bound);
+    for (const e of [indoor.current, indoor.selected]) {
+      if (!e) continue;
+      for (const a of e.ancestors()) out.add(a);
+      out.add(e);
+    }
+    for (const b of indoor.buildings) out.add(b);
+    return [...out];
+  }
+
+  /**
+   * Level binding of a layer: the entity it belongs to (candidates are refreshed when the list
+   * opens), when it is shown, whether it moves with the entity, and how much of the entity's
+   * own model stays visible while the scene is shown.
+   */
+  private levelControls(layer: SplatLayer): HTMLElement[] {
+    const indoor = this.viewer.indoor;
+    const current = layer.level;
+    const entity = h('select', { class: 'field-select', title: '场景属于哪个层级节点：层级决定它何时显示', 'aria-label': '绑定层级' });
+    const fill = () => {
+      const selected = entity.value;
+      entity.replaceChildren(h('option', { value: '' }, '不绑定层级（室外背景）'));
+      for (const e of this.levelCandidates(layer)) entity.append(h('option', { value: e.id }, `${TYPE_NAMES[e.type]} · ${e.name}`));
+      entity.value = [...entity.options].some((o) => o.value === selected) ? selected : '';
+    };
+    fill();
+    entity.value = indoor.bindings.get(layer)?.entity?.id ?? '';
+    // Levels and the selection change while the panel is open.
+    entity.addEventListener('pointerdown', fill);
+    entity.addEventListener('focus', fill);
+
+    const show = h('select', { class: 'field-select', title: '相对所在层级，何时显示', 'aria-label': '显示时机' });
+    for (const [value, label] of SHOW_MODES) show.append(h('option', { value }, label));
+    show.value = typeof current?.show === 'string' ? current.show : '';
+    const follow = h('input', { type: 'checkbox', title: '放进实体的坐标系：随建筑贴地、楼层展开一起移动' });
+    follow.checked = !!current?.position;
+
+    const apply = () => {
+      const target = entity.value ? indoor.getById(entity.value) : null;
+      show.disabled = follow.disabled = model.input.disabled = !target;
+      if (!target) return layer.setLevel(null);
+      // By id: the binding survives the building being loaded again.
+      layer.setLevel({ entity: target.id, show: (show.value || undefined) as LevelShow | undefined, follow: follow.checked, entityOpacity: Number(model.input.value) / 100 });
+    };
+    const model = slider(
+      '模型',
+      { min: 0, max: 100, step: 5, value: Math.round((current?.entityOpacity ?? 1) * 100), format: (x) => (x >= 100 ? '保留' : x <= 0 ? '隐藏（可拾取）' : `${x}%`) },
+      apply,
+    );
+    model.root.title = '场景显示时，所属实体自身模型的不透明度：0 时看不见但仍可拾取、描边、带顶牌';
+    for (const control of [entity, show, follow]) control.addEventListener('change', apply);
+    show.disabled = follow.disabled = model.input.disabled = !entity.value;
+    return [h('div', { class: 'vlayer-line' }, entity), h('div', { class: 'vlayer-line' }, show, h('label', { class: 'mini' }, follow, '跟随')), model.root];
   }
 }
 

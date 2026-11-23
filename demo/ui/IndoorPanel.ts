@@ -1,5 +1,6 @@
-import type { BimEntity, Building, GeoViewer } from 'terra-view';
+import { polygonCentroid, type BimEntity, type Building, type BuildingDoc, type GeoViewer } from 'terra-view';
 import { createDemoBuilding } from '../data/demoBuilding';
+import { createDemoPlantSplat } from '../data/demoSplats';
 import { describeError } from './errors';
 import { h, section, slider, toggle } from './dom';
 
@@ -155,7 +156,7 @@ export class IndoorPanel {
       void this.viewer.indoor.enter(existing);
       return existing as Building;
     }
-    return this.addBuilding(createDemoBuilding(), undefined, true);
+    return this.addBuilding(withDemoCapture(createDemoBuilding()), undefined, true);
   }
 
   async loadUrl(url: string): Promise<void> {
@@ -264,4 +265,19 @@ export class LevelBar {
       this.floors.append(b);
     }
   }
+}
+
+/**
+ * Declares a Gaussian splat scene on the lobby of the demo building, the way a real document
+ * binds a capture to a room (`splats`, indoor-bim.md §4): placed in the floor's frame, shown
+ * with the room, loaded when the floor is first shown. The scene is generated in the page
+ * (`createDemoPlantSplat`) and handed over as a blob URL, so the demo stays offline.
+ */
+function withDemoCapture(doc: BuildingDoc): BuildingDoc {
+  const lobby = doc.floors[0]?.rooms?.find((r) => r.category === 'lobby');
+  if (!lobby) return doc;
+  const [x, y] = polygonCentroid(lobby.footprint);
+  const uri = URL.createObjectURL(new Blob([createDemoPlantSplat()], { type: 'application/octet-stream' }));
+  lobby.splats = [{ uri, format: 'splat', name: '大堂绿植（实景示意）', position: [x, y, 0], upAxis: '+z', pivot: 'origin', show: 'entity' }];
+  return doc;
 }

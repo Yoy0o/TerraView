@@ -10,6 +10,7 @@
  *   /__tiles/imagery.png   grid pattern (basemap imagery)
  *   /__tiles/terrain.png   Terrarium-encoded flat ground at 100 m
  *   /__splats/ball.splat   3000 Gaussian splats on a sphere of radius 1 (`.splat` rows)
+ *   /__tiles3d/empty/tileset.json   a 3D Tiles tileset without content, around the demo building
  *
  * Node only, no dependencies.
  */
@@ -101,6 +102,14 @@ function splatBall(count) {
 
 const SPLATS = { '/__splats/ball.splat': splatBall(3000) };
 
+/** A valid tileset with nothing to draw (west, south, east, north in radians; heights in meters): layer logic without tile data. */
+const RAD = Math.PI / 180;
+const EMPTY_TILESET = JSON.stringify({
+  asset: { version: '1.1' },
+  geometricError: 0,
+  root: { boundingVolume: { region: [116.392 * RAD, 39.999 * RAD, 116.394 * RAD, 40.0 * RAD, 0, 50] }, geometricError: 0, refine: 'ADD' },
+});
+
 // ------------------------------------------------------------------ server
 
 createServer(async (req, res) => {
@@ -111,6 +120,7 @@ createServer(async (req, res) => {
   if (tile) return res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' }).end(tile);
   const splats = SPLATS[url.pathname];
   if (splats) return res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': splats.length }).end(splats);
+  if (url.pathname === '/__tiles3d/empty/tileset.json') return res.writeHead(200, { 'Content-Type': 'application/json' }).end(EMPTY_TILESET);
 
   const path = decodeURIComponent(url.pathname);
   const file = normalize(join(root, path.endsWith('/') ? `${path}index.html` : path));
