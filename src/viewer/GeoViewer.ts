@@ -249,7 +249,17 @@ export interface ViewerSnapshot {
   tilesets: { id: number; name: string; visible: boolean; active: boolean; pending: number; errorScale: number; memory: TilesMemoryStats }[];
   layers: { vector: number; points: number; markers: MarkerStats };
   /** Gaussian splat layers: whether each is loaded, shown and drawn right now, splats drawn, file facts, video memory. */
-  splats: { id: number; name: string; ready: boolean; visible: boolean; active: boolean; gpuBytes: number; stats: SplatLayerStats | null }[];
+  splats: {
+    id: number;
+    name: string;
+    ready: boolean;
+    visible: boolean;
+    active: boolean;
+    gpuBytes: number;
+    stats: SplatLayerStats | null;
+    /** Level binding: id of the bound entity (null: the globe, or not loaded) and whether the level shows the layer; null when unbound. */
+    level: { entity: string | null; shown: boolean } | null;
+  }[];
   indoor: {
     buildings: number;
     /** Entered level (id and type), null on the globe. */
@@ -349,7 +359,11 @@ export interface SurfacePick {
   distance: number;
   entity?: BimEntity;
   tileset?: Tiles3DLayer;
-  /** The Gaussian splat layer hit and the index of the splat (`source: 'splats'`; always a CPU ray). */
+  /**
+   * The Gaussian splat layer hit and the index of the splat (`source: 'splats'`; always a CPU
+   * ray). A layer bound to a level also sets `entity`: the bound entity, or the entity behind
+   * the splats when that is inside it (`SplatLevelOptions.pickEntity`).
+   */
   splats?: SplatLayer;
   splatIndex?: number;
   /** World unit normal facing the camera (GPU pick buffer only; flat per triangle). */
@@ -708,6 +722,24 @@ export class GeoViewer {
       beginTransition: () => this.beginLevelTransition(),
       setTilesetsVisible: (visible) => this.setTilesetsSuppressed(!visible),
       loadModel: (uri) => this.loadModel(uri),
+      // Captures a building document declares on its entities: bound to them, placed in their frame.
+      addSplats: (entity, def, baseUrl) => {
+        const layer = this.addSplats({
+          url: baseUrl ? new URL(def.uri, baseUrl).href : def.uri,
+          name: def.name ?? `${entity.name} · ${def.uri.split(/[\\/]/).pop()?.split(/[?#]/)[0] ?? ''}`,
+          format: def.format,
+          heading: def.rotation,
+          pitch: def.pitch,
+          roll: def.roll,
+          scale: def.scale,
+          upAxis: def.upAxis,
+          pivot: def.pivot,
+          opacity: def.opacity,
+          maxSplats: def.maxSplats,
+          level: { entity, position: def.position ?? [0, 0, 0], show: def.show, entityOpacity: def.entityOpacity },
+        });
+        return () => this.removeSplats(layer);
+      },
       followMove: (delta) => this.controller.translate(delta),
       occlusionBaker: new FloorOcclusionBaker(renderer),
       ambientOcclusion: { maxResolution: profile.indoor.aoMaxResolution, ...options.ambientOcclusion },
@@ -922,7 +954,11 @@ export class GeoViewer {
       globe: { ...this.globe.stats, shown: this._showGlobe },
       tilesets: this.tilesets.map((l) => ({ id: l.id, name: l.name, visible: l.visible, active: l.active, pending: l.pending, errorScale: l.errorScale, memory: { ...l.memory } })),
       layers: { vector: this.vectorLayers.length, points: this.pointLayers.length, markers: { ...this.markers.stats } },
-      splats: this.splatLayers.map((l) => ({ id: l.id, name: l.name, ready: l.ready, visible: l.visible, active: l.active, gpuBytes: l.gpuBytes, stats: l.stats && { ...l.stats } })),
+      splats: this.splatLayers.map((l) => {
+        const binding = this.indoor.bindings.get(l);
+        const level = binding && { entity: binding.entity?.id ?? null, shown: binding.shown };
+        return { id: l.id, name: l.name, ready: l.ready, visible: l.visible, active: l.active, gpuBytes: l.gpuBytes, stats: l.stats && { ...l.stats }, level };
+      }),
       indoor: {
         buildings: indoor.buildings.length,
         current: indoor.current ? { id: indoor.current.id, type: indoor.current.type } : null,
@@ -1069,8 +1105,24 @@ export class GeoViewer {
       const hit = layer.raycast(ray, { maxDistance: best?.distance });
       if (!hit || (ls.hidesOutside && !ls.showsWorld(hit.point))) continue;
       best = { point: hit.point, source: 'splats', distance: hit.distance, splats: layer, splatIndex: hit.index, via: 'ray' };
+      const entity = this.entityBehindSplats(layer, surface);
+      if (entity) best.entity = entity;
     }
     return best;
+  }
+
+  /**
+   * The entity a pick on a level-bound splat layer stands for: the capture is the look of
+   * its entity, so the pick is one on that entity. When the surface behind the splats is
+   * an entity inside the bound one (a room of the scanned floor, drawn or faded out), that
+   * finer one is reported: the geometry gives the meaning, the splats the place.
+   */
+  private entityBehindSplats(layer: SplatLayer, surface: SurfacePick | null): BimEntity | null {
+    if (!layer.pickEntity) return null;
+    const bound = this.indoor.bindings.get(layer)?.entity;
+    if (!bound) return null;
+    const behind = surface?.entity;
+    return behind && (behind === bound || behind.isDescendantOf(bound)) ? behind : bound;
   }
 
   /** Closest hit on what the pick buffer knows: buildings, 3D Tiles and the globe. */
@@ -1459,7 +1511,8 @@ export class GeoViewer {
     const layer = new Tiles3DLayer(options, this.getLoaders(), this.ellipsoid, this.gpu.tiles);
     layer.tiles.setCamera(this.camera);
     layer.tiles.setResolutionFromRenderer(this.camera, this.renderer as never);
-    layer.suppressed = this.tilesetsSuppressed;
+    if (options.level) this.indoor.bindings.bind(layer, options.level, { showing: () => layer.ready && layer.visible });
+    layer.suppressed = this.hiddenByLevel(layer, false);
     layer.events.on('ready', () => this.extendGroundProbe());
     layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'tileset', error, layer }));
     // Tiles loaded, `visible` or `heightOffset` set.
@@ -1479,6 +1532,7 @@ export class GeoViewer {
     if (i < 0) return;
     this.tilesets.splice(i, 1);
     this.surface.clearHeld();
+    this.indoor.bindings.unbind(layer);
     layer.dispose();
     this.events.emit('tilesets-changed', this.tilesets);
   }
@@ -1487,10 +1541,12 @@ export class GeoViewer {
   // Gaussian splats
 
   /**
-   * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe.
-   * The file loads in a Worker; listen to the layer's `ready` / `error` events (or the viewer's
-   * 'error'), then `layer.flyTo()`. Throws an `option-invalid` `TerraViewError` when `position`
-   * or the source (`url` / `data`) is missing. See docs/api.md §1.13 and docs/agents/splats.md.
+   * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe,
+   * or bound to a level of the scene (`level`: shown by the level the view is in, optionally
+   * placed in the entity's frame, loaded when first shown). The file loads in a Worker; listen
+   * to the layer's `ready` / `error` events (or the viewer's 'error'), then `layer.flyTo()`.
+   * Throws an `option-invalid` `TerraViewError` when the position or the source (`url` /
+   * `data`) is missing. See docs/api.md §1.13 and docs/agents/splats.md.
    */
   addSplats(options: SplatLayerOptions): SplatLayer {
     const layer = new SplatLayer(options, {
@@ -1502,8 +1558,14 @@ export class GeoViewer {
         return s.reliable ? s.height : null;
       },
       flyToSphere: (sphere, heading, pitch, duration) => this.flyToSphere(sphere, heading ?? this.getView().heading, pitch ?? -25, duration, { rangeScale: 1.1, minRange: 0.5 }),
+      bindLevel: (bound, level) => {
+        // The entity's geometry steps back only while the capture is really there to replace it.
+        if (level) this.indoor.bindings.bind(bound, level, { showing: () => bound.ready && bound.visible });
+        else this.indoor.bindings.unbind(bound);
+        this.requestRender();
+      },
     });
-    layer.suppressed = this.tilesetsSuppressed && !layer.showIndoors;
+    layer.suppressed = this.hiddenByLevel(layer, layer.showIndoors);
     layer.events.on('ready', () => this.events.emit('splats-changed', this.splatLayers));
     layer.events.on('error', ({ error }) => {
       this.events.emit('splats-changed', this.splatLayers);
@@ -1521,21 +1583,37 @@ export class GeoViewer {
     const i = this.splatLayers.indexOf(layer);
     if (i < 0) return;
     this.splatLayers.splice(i, 1);
+    this.indoor.bindings.unbind(layer);
     layer.dispose();
     this.events.emit('splats-changed', this.splatLayers);
   }
 
   /**
-   * Per frame: layers follow the ground, fade in and are hidden while too small on screen;
-   * inside a building they go with the 3D Tiles (unless `showIndoors`), and outside a local
-   * scene that hides its surroundings with everything else there.
+   * Whether the level the view is in hides a layer: by its level binding when it has one
+   * (`indoor.bindings`), else by the rule for context layers (hidden with the 3D Tiles while
+   * an indoor level is entered, unless the layer stays indoors).
+   */
+  private hiddenByLevel(layer: object, showIndoors: boolean): boolean {
+    const binding = this.indoor.bindings.get(layer);
+    return binding ? !binding.shown : this.tilesetsSuppressed && !showIndoors;
+  }
+
+  /**
+   * Per frame: layers follow the ground or the frame of their level, fade in and are hidden
+   * while too small on screen; the level the view is in shows or hides them (`hiddenByLevel`),
+   * and outside a local scene that hides its surroundings they go with everything else there.
    */
   private updateSplats(dt: number): void {
     const ls = this.localScene;
     const height = this.container.clientHeight;
     for (const layer of this.splatLayers) {
+      if (layer.framed) {
+        const entity = this.indoor.bindings.get(layer)?.entity ?? null;
+        entity?.group.updateWorldMatrix(true, false);
+        if (layer.setFrame(entity ? entity.group.matrixWorld : null)) this.requestRender();
+      }
       const outside = ls.hidesOutside && layer.ready && !ls.showsWorld(layer.boundingSphere.center, 0);
-      layer.suppressed = outside || (this.tilesetsSuppressed && !layer.showIndoors);
+      layer.suppressed = outside || this.hiddenByLevel(layer, layer.showIndoors);
       if (layer.update(dt, this.camera, height) || layer.animating) this.requestRender();
     }
   }
@@ -1549,7 +1627,7 @@ export class GeoViewer {
     if (suppressed === this.tilesetsSuppressed) return;
     this.tilesetsSuppressed = suppressed;
     if (suppressed) this.extendGroundProbe();
-    for (const layer of this.tilesets) layer.suppressed = suppressed;
+    for (const layer of this.tilesets) layer.suppressed = this.hiddenByLevel(layer, false);
   }
 
   // ---------------------------------------------------------------------------
@@ -1867,6 +1945,9 @@ export class GeoViewer {
     // Entered a building before the 3D Tiles loaded (e.g. ?demo): keep them loading, undrawn, until it has ground.
     const probe = this.tilesetsSuppressed && !this._showGlobe && performance.now() < this.probeUntil && this.indoor.awaitingGround;
     for (const layer of this.tilesets) {
+      // A tileset bound to a level follows it (levels change between frames).
+      const hidden = this.hiddenByLevel(layer, false);
+      if (layer.suppressed !== hidden) layer.suppressed = hidden;
       layer.probe = probe;
       layer.update(dt, tilesView);
       // The window counts from the last loading activity, not from when the tiles were suppressed.
@@ -1929,7 +2010,8 @@ export class GeoViewer {
     let layers = 0;
     for (const layer of this.vectorLayers) if (!layer.ready && layer.error === null) layers++;
     for (const layer of this.pointLayers) if (!layer.ready && layer.error === null) layers++;
-    for (const layer of this.splatLayers) if (!layer.ready && layer.error === null) layers++;
+    // A layer waiting for its level to be shown has not started loading.
+    for (const layer of this.splatLayers) if (layer.loading) layers++;
     const state = summarizeLoad({
       globe: this._showGlobe ? this.globe.stats : null,
       imageryUnreachable: this.globe.imageryError !== null,

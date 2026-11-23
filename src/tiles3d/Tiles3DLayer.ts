@@ -5,6 +5,7 @@ import { EventEmitter } from '../core/EventEmitter';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { TerraViewError } from '../core/errors';
 import { gpuProfile, type TilesQuality } from '../core/gpuProfile';
+import type { LevelBindingOptions } from '../indoor/levelBinding';
 import { createAdaptiveErrorState, stepAdaptiveError, tilesFalloffDensity } from './lodPolicy';
 import type { ResolvedRegion } from '../local/region';
 import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, setObjectClipped, type NodeMaterialLibrary } from './nodeMaterials';
@@ -34,6 +35,14 @@ export interface Tiles3DLayerOptions {
   heightOffset?: number;
   /** Dithered cross-fade between levels of detail, in milliseconds (0 disables). */
   fadeDuration?: number;
+  /**
+   * Binds the tileset to a level of the scene (`viewer.indoor.bindings`): the level the view
+   * is in decides when it is drawn and loaded, e.g. `{ entity: 'office-a', show: 'outside' }`
+   * for the reality mesh of one building, or `{ show: 'always' }` to keep a tileset inside
+   * buildings. Without it the tileset is hidden while any indoor level is entered
+   * (`indoor.hideTilesetsIndoor`).
+   */
+  level?: LevelBindingOptions;
 }
 
 export interface Tiles3DLayerEvents extends Record<string, unknown> {

@@ -123,6 +123,8 @@ export class BimEntity implements Selectable {
   private _style: EntityStyle = {};
   /** Opacity factor of level effects (sibling fading), kept apart from user styles. */
   private _levelOpacity = 1;
+  /** Opacity factor while bound content stands in for the geometry (level bindings), kept apart from both. */
+  private _bindingOpacity = 1;
   /** Hidden by contribution culling, kept apart from `visible`. */
   private _culled = false;
   private _effects: ObjectEffects = {};
@@ -198,7 +200,7 @@ export class BimEntity implements Selectable {
   addInstance(instance: EntityInstance): void {
     this.instances.push(instance);
     instance.updateMatrix();
-    instance.setLook(resolveLook(instance.base, this._style, this._levelOpacity));
+    instance.setLook(resolveLook(instance.base, this._style, this.fade));
     instance.setActive(this.group.visible && !this._culled);
   }
 
@@ -278,6 +280,28 @@ export class BimEntity implements Selectable {
     this._levelOpacity = v;
     this.applyStyles();
     this.changed(false);
+  }
+
+  /**
+   * @internal Opacity factor set by level bindings (`LevelBindingOptions.entityOpacity`) while
+   * content bound to this entity or an ancestor (a reality capture) is on screen; multiplied
+   * with the style and level opacity. At 0 the geometry is drawn fully transparent: unseen,
+   * but still picked, outlined and labelled. Set through `indoor.bindings`, not directly.
+   */
+  get bindingOpacity(): number {
+    return this._bindingOpacity;
+  }
+
+  set bindingOpacity(v: number) {
+    if (v === this._bindingOpacity) return;
+    this._bindingOpacity = v;
+    this.applyStyles();
+    this.changed(false);
+  }
+
+  /** Level and binding opacity together: what fades the geometry besides the style. */
+  private get fade(): number {
+    return this._levelOpacity * this._bindingOpacity;
   }
 
   /**
@@ -368,9 +392,9 @@ export class BimEntity implements Selectable {
     }
   }
 
-  /** Re-applies the current style and level opacity (after meshes were added, e.g. a model loaded). */
+  /** Re-applies the current style, level and binding opacity (after meshes were added, e.g. a model loaded). */
   refreshStyle(): void {
-    if (this._levelOpacity !== 1 || Object.keys(this._style).length > 0) this.applyStyles();
+    if (this.fade !== 1 || Object.keys(this._style).length > 0) this.applyStyles();
   }
 
   private applyStyles(): void {
@@ -378,7 +402,7 @@ export class BimEntity implements Selectable {
       const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as StylableMaterial[];
       for (const m of materials) this.applyStyle(m);
     }
-    for (const i of this.instances) i.setLook(resolveLook(i.base, this._style, this._levelOpacity));
+    for (const i of this.instances) i.setLook(resolveLook(i.base, this._style, this.fade));
   }
 
   private applyStyle(m: StylableMaterial): void {
@@ -387,7 +411,7 @@ export class BimEntity implements Selectable {
       s = { color: m.color?.clone() ?? null, emissive: m.emissive?.clone() ?? null, opacity: m.opacity, transparent: m.transparent, depthWrite: m.depthWrite };
       this.styled.set(m, s);
     }
-    const look = resolveLook(s, this._style, this._levelOpacity);
+    const look = resolveLook(s, this._style, this.fade);
     if (m.color && look.color) m.color.copy(look.color);
     if (m.emissive && look.emissive) m.emissive.copy(look.emissive);
     m.opacity = look.opacity;

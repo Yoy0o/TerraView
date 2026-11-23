@@ -110,6 +110,18 @@ export function splatModelMatrix(t: SplatTransform, out: number[] = new Array<nu
 }
 
 /**
+ * Heading of a frame's +Y axis, degrees clockwise from north: `y` is that axis in world
+ * space, `east` and `north` the local directions where it is measured (unit vectors).
+ * What a layer's heading changes by when its placement moves between the globe (heading
+ * from north) and an entity's frame (heading from the frame's +Y).
+ */
+export function frameHeading(y: ArrayLike<number>, east: ArrayLike<number>, north: ArrayLike<number>): number {
+  const e = y[0] * east[0] + y[1] * east[1] + y[2] * east[2];
+  const n = y[0] * north[0] + y[1] * north[1] + y[2] * north[2];
+  return Math.atan2(e, n) / DEG2RAD;
+}
+
+/**
  * How many pixels a sphere's radius covers on screen, for a perspective camera with the
  * given vertical field of view (degrees) and viewport height (pixels). Infinity inside the sphere.
  */

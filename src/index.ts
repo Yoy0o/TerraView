@@ -97,7 +97,7 @@ export type { FeatureHighlightStyle, TileFeature } from './tiles3d/tileFeatures'
 
 // ---------------------------------------------------------------- Gaussian splats
 export { SplatLayer } from './splats/SplatLayer';
-export type { SplatHit, SplatLayerEvents, SplatLayerOptions, SplatLayerStats, SplatPlacement } from './splats/SplatLayer';
+export type { SplatHit, SplatLayerEvents, SplatLayerOptions, SplatLayerStats, SplatLevelOptions, SplatPlacement } from './splats/SplatLayer';
 export type { SplatBounds, SplatCrop, SplatShDegree } from './splats/splatData';
 export type { SplatFormat } from './splats/splatFormats';
 export type { SplatPivot, SplatUpAxis } from './splats/splatPlacement';
@@ -156,6 +156,7 @@ export type {
   LabelMode,
   ModelRef,
   RoomDef,
+  SplatRef,
   StructureDef,
   ThingDef,
   Vec2,
@@ -174,6 +175,8 @@ export {
   showOutside,
 } from './indoor/LevelControl';
 export type { LevelContext, LevelControl } from './indoor/LevelControl';
+export { LEVEL_SHOW_MODES, LevelBindings, defaultLevelShow, levelRelation, levelShown } from './indoor/levelBinding';
+export type { LevelBinding, LevelBindingHooks, LevelBindingOptions, LevelRelation, LevelShow, LevelShowState, LevelTree } from './indoor/levelBinding';
 export type { Framing, LevelView } from './indoor/levelView';
 export { ContributionCuller, DEFAULT_CULLING } from './indoor/ContributionCulling';
 export type { ContributionCullingOptions, CullingRule } from './indoor/ContributionCulling';

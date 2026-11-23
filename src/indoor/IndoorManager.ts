@@ -28,9 +28,10 @@ import {
   type LevelContext,
   type LevelControl,
 } from './LevelControl';
+import { LevelBindings } from './levelBinding';
 import { fovNormalizedRange, type LevelView } from './levelView';
 import { modelsToUnload } from './modelBudget';
-import { parseBuildingDoc, type BuildingDoc, type LabelDef, type LabelMode } from './schema';
+import { parseBuildingDoc, type BuildingDoc, type ElementBase, type LabelDef, type LabelMode, type SplatRef } from './schema';
 
 export interface LevelEvent {
   /** The level entered or left at this step (null = the globe). */
@@ -93,6 +94,12 @@ export interface IndoorHost {
    * the viewer goes back to the full frame rate and, for geometry, refreshes picking.
    */
   contentChanged?: (geometry: boolean) => void;
+  /**
+   * Creates the Gaussian splat scene a document declares on an entity (`ElementBase.splats`),
+   * bound to it, and returns how to remove it again (with its building). `baseUrl` is the
+   * document's URL. Without this hook, `splats` in documents are ignored.
+   */
+  addSplats?: (entity: BimEntity, def: SplatRef, baseUrl?: string) => () => void;
   /** Display text: names of the properties buildings add to entities; default `zh-CN`. */
   readonly messages?: ViewerMessages;
   /** Bakes the floor ambient occlusion (M3.4) on the GPU; without one no floor gets AO. */
@@ -196,6 +203,14 @@ export class IndoorManager {
    * `enabled = false` to remove it.
    */
   readonly ambientOcclusion: FloorOcclusion;
+  /**
+   * Level bindings: layers and other content attached to a level node, shown by the level the
+   * view is in (`SplatLayerOptions.level`, `Tiles3DLayerOptions.level`, or `bindings.bind()`
+   * for anything else). See `LevelBindings` and docs/agents/indoor-bim.md §6.5.
+   */
+  readonly bindings: LevelBindings;
+  /** Removers of the content each building's document declared (splat scenes). */
+  private readonly declared = new Map<Building, (() => void)[]>();
   private _showLabels = true;
   private _expandFloors = false;
   private readonly labels = new Map<BimEntity, Marker>();
@@ -218,6 +233,7 @@ export class IndoorManager {
     // Newly shown floors and a new selection get their state at once, not after the interval.
     for (const type of ['enterLevel', 'select'] as const) this.events.on(type, () => this.culling.invalidate());
     this.ambientOcclusion = new FloorOcclusion(host.occlusionBaker ?? null, () => host.contentChanged?.(false), host.ambientOcclusion);
+    this.bindings = new LevelBindings(this);
   }
 
   get showLabels(): boolean {
@@ -277,6 +293,8 @@ export class IndoorManager {
     showOutside(building);
     this.clampToGround(building, true);
     building.traverse((e) => this.createLabel(e));
+    this.bindings.invalidate();
+    this.addDeclaredContent(building, doc, baseUrl);
     this.events.emit('buildings-changed', this.buildings);
     return building;
   }
@@ -298,10 +316,32 @@ export class IndoorManager {
     this.culling.forget(building);
     this.ambientOcclusion.forget(building);
     building.traverse((e) => this.marked.delete(e));
+    // What the document declared goes with the building; other bindings to it wait for it to come back.
+    for (const remove of this.declared.get(building) ?? []) remove();
+    this.declared.delete(building);
+    this.bindings.invalidate();
+    this.bindings.update();
     building.onChange = null;
     building.onEffects = null;
     building.dispose();
     this.events.emit('buildings-changed', this.buildings);
+  }
+
+  /** Hands the splat scenes a document declares on its entities to the host, bound to them. */
+  private addDeclaredContent(building: Building, doc: BuildingDoc, baseUrl?: string): void {
+    const create = this.host.addSplats;
+    if (!create) return;
+    const defs: ElementBase[] = [doc];
+    for (const f of doc.floors) defs.push(f, ...(f.rooms ?? []), ...(f.things ?? []), ...(f.elements ?? []));
+    if (!defs.some((d) => d.splats?.length)) return;
+    const byId = new Map<string, BimEntity>();
+    building.traverse((e) => byId.set(e.id, e));
+    const removers: (() => void)[] = [];
+    for (const def of defs) {
+      const entity = byId.get(def.id);
+      if (entity) for (const splat of def.splats ?? []) removers.push(create(entity, splat, baseUrl));
+    }
+    this.declared.set(building, removers);
   }
 
   /** An entity of a loaded building changed (`BimEntity.onChange`). */
@@ -324,6 +364,13 @@ export class IndoorManager {
     const out: BimEntity[] = [];
     for (const b of this.buildings) b.traverse((e) => test(e) && out.push(e));
     return EntitySet.create(out);
+  }
+
+  /** Whether an entity belongs to a building that is loaded. */
+  contains(entity: BimEntity): boolean {
+    let root = entity;
+    while (root.parent) root = root.parent;
+    return this.buildings.includes(root as Building);
   }
 
   getById(id: string): BimEntity | null {
@@ -429,6 +476,8 @@ export class IndoorManager {
       if (token.cancelled) return false;
       this.viewCache.delete(level);
       this.current = level.parent;
+      // Bound content switches with the level, not a frame later.
+      this.bindings.update();
       this.events.emit('leaveLevel', event(level));
       if (token.cancelled) return false;
     }
@@ -449,6 +498,7 @@ export class IndoorManager {
         const restore = control.configureCamera?.(this.context(level, origin, target));
         if (restore && !this.cameraRestores.has(level)) this.cameraRestores.set(level, restore);
       }
+      this.bindings.update();
       this.events.emit('enterLevel', event(level));
       if (token.cancelled) return false;
       if (fly && (last || !jumping)) {
@@ -689,6 +739,8 @@ export class IndoorManager {
       b.updateModels(this.clock);
     }
     this.unloadOverBudget();
+    // After the floors moved and were shown or hidden: bound content follows this frame's state.
+    if (this.bindings.update()) changed = true;
     this.ambientOcclusion.update(this.buildings, this.clock);
     if (this.culling.update()) changed = true;
     return changed;
@@ -734,6 +786,7 @@ export class IndoorManager {
   dispose(): void {
     if (this.transition) this.transition.cancelled = true;
     for (const b of [...this.buildings]) this.remove(b);
+    this.bindings.clear();
     this.ambientOcclusion.dispose();
     this.root.removeFromParent();
   }
