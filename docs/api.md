@@ -316,7 +316,7 @@ viewer.interaction.on('click', (e) => {
 | 选项（`SplatLayerOptions`） | 说明 |
 | --- | --- |
 | `url` / `data` / `format` / `name` | （`url`、`data` 二选一必填，都没有时 `addSplats` 同步抛 `option-invalid`）文件地址，或文件的字节（`ArrayBuffer`，交给 Worker 后在主线程失效）；`format`（`'ply' \| 'splat' \| 'spz'`）只在内容和名字都判断不出时需要；`headers`、`credentials` 用于下载 |
-| `position`、`heightReference` | 必填。经纬度（度）和高度（米）。`'ground'`：高度从地面算（`viewer.surfaceHeight`，随地形 / 3D Tiles 加载跟随）；`'ellipsoid'`：椭球高。默认：不给 `position.height` 时贴地，给了按椭球高 |
+| `position`、`heightReference` | 必填（放进实体坐标系的图层除外：`level.position`）。经纬度（度）和高度（米）。`'ground'`：高度从地面算（`viewer.surfaceHeight`，随地形 / 3D Tiles 加载跟随）；`'ellipsoid'`：椭球高。默认：不给 `position.height` 时贴地，给了按椭球高 |
 | `heading`、`pitch`、`roll`、`scale` | 度；heading 自北顺时针，pitch 绕东轴（正值抬起北侧），roll 绕北轴（正值抬起西侧）；`scale` 是每个文件单位的米数（训练结果没有真实尺度） |
 | `upAxis` | 文件里哪边朝上：`'-y'`（默认，3DGS / COLMAP：Y 朝下、Z 朝前）、`'+y'`（glTF、多数 SPZ 4）、`'+z'`。文件里没有记录，方向不对时换一个 |
 | `pivot` | 放在 `position` 上的点：`'bottom'`（默认，场景底面中点）、`'center'`、`'origin'`（文件原点）或文件坐标 `[x, y, z]`。"场景"不含离群的泼溅（每轴两头各去掉 `boundsTrim`，默认 1%） |
@@ -324,18 +324,44 @@ viewer.interaction.on('click', (e) => {
 | `maxSplats`、`maxShDegree` | 最多保留的泼溅数和球谐阶数（0–3）；默认按档位 `viewer.gpu.splats`：50 万 / 0 阶（`low`）、150 万 / 1 阶、300 万 / 2 阶、600 万 / 3 阶（`ultra`），WebGL 后端不超过 60 万。超出的按"不透明度 × 尺寸"从小到大舍去 |
 | `crop` | 只显示盒子或球内的泼溅（`SplatCrop`），坐标是图层本地坐标：X 东、Y 北、Z 上（未转 heading）、文件单位、原点在枢轴 |
 | `minScreenSize`、`fadeDuration` | 场景在屏幕上的半径小于它（像素，默认 3）时不画，到两倍时淡入；加载后的淡入毫秒数（默认 400） |
-| `showIndoors`、`pickable` | 进入建筑后是否仍显示（默认否，随 3D Tiles 一起隐藏）；是否参与拾取（默认是） |
+| `showIndoors`、`pickable` | 进入建筑后是否仍显示（默认否，随 3D Tiles 一起隐藏；绑定了层级的图层不看它）；是否参与拾取（默认是） |
+| `level` | 绑定到层级（`SplatLevelOptions`，见下文"层级绑定"）：`entity`、`show`、`entityOpacity`、`position` / `follow`、`pickEntity` |
+| `load` | `'eager'` 立即加载，`'lazy'` 第一次显示时才加载。默认：绑定了层级的 `'lazy'`，否则 `'eager'` |
 
 | `SplatLayer` | 说明 |
 | --- | --- |
-| `ready`、`error`、`progress`、`stats` | 状态；`stats`（`SplatLayerStats`）：格式、文件里的泼溅数与球谐阶数、加载和绘制的数量、文件大小、解码耗时 |
+| `ready`、`error`、`progress`、`loading`、`preload()`、`stats` | 状态（`loading`：正在下载或解码；懒加载的图层在第一次显示前既不 `ready` 也不 `loading`，`preload()` 让它提前开始）；`stats`（`SplatLayerStats`）：格式、文件里的泼溅数与球谐阶数、加载和绘制的数量、文件大小、解码耗时 |
 | `events` | `ready`（`{ sphere, stats }`）、`error`（`{ message, error }`）、`progress`（`{ loaded, total }` 字节）、`change`（画面会变）、`moved`（位置变了） |
 | `placement`、`setPlacement(部分字段)`、`ellipsoidHeight`、`upAxis` | 读、改摆放（`SplatPlacement`：经纬度、高度及其基准、三个角、缩放）；枢轴的椭球高；轴向（可改） |
+| `level`、`setLevel(选项 \| null)`、`pickEntity` | 层级绑定：读（`level.position` 是此刻在实体坐标系里的位置）、改、解除（留在原地）；拾取是否归到实体 |
 | `visible`、`opacity`、`brightness`、`crop`、`minScreenSize`、`pickable` | 显示设置。改 `crop` 会在 CPU 上过滤并重新上传（每百万泼溅几十毫秒）：在控件松开时设 |
 | `boundingSphere`、`localBounds`、`localToWorld(p)` | 场景在世界坐标里的包围球（不含离群泼溅）；本地坐标里的盒子（裁剪的起点）；本地坐标 → ECEF |
 | `flyTo({ heading, pitch, duration })` | 飞到能看全场景的位置（默认当前航向、俯仰 −25°） |
 | `raycast(ray, { minOpacity, maxDistance })` | 世界坐标射线上的第一个"表面"（`SplatHit`）：沿射线累积的不透明度达到 `minOpacity`（默认 0.5）处，稀薄的漂浮物会被穿过 |
 | `active`、`gpuBytes` | 此刻是否在画；显存估算（每个泼溅 60 字节，球谐另加） |
+
+**层级绑定**（`level`）：泼溅图层可以挂到层级树的一个节点上（建筑、楼层、房间、设备），由所在层级决定显隐，实体自己的模型在它显示时可以让位。层级树仍只有一棵，泼溅不自成层级；通用机制和设计理由见 [indoor-bim.md](agents/indoor-bim.md) §6.5，细节见 [splats.md](agents/splats.md) §7.1。
+
+```ts
+// 三层的室内实景：进入三层时才加载、显示；模型隐去，但房间照常可以点选、悬停、进入
+viewer.addSplats({ url: 'F3.spz', level: { entity: 'F3', position: [0, 0, 0], entityOpacity: 0 } });
+// 外立面实景：在楼外显示（建筑的默认），位置用经纬度
+viewer.addSplats({ url: 'shell.spz', position: { longitude, latitude }, level: { entity: building } });
+// 已经摆好的图层绑到楼层并跟随它；读回楼层内坐标
+layer.setLevel({ entity: floor, follow: true });
+console.log(layer.level.position);
+```
+
+| `SplatLevelOptions` | 说明 |
+| --- | --- |
+| `entity` | 实体或它的 id（按 id 可以早于建筑加载）；不写表示地球 |
+| `show` | `'inside'`（该层级及其下级；楼层、房间、设备的默认）、`'outside'`（在它之外且它可见；建筑的默认）、`'current'`、`'entity'`（跟随实体显隐）、`'always'`，或函数 `({ entity, current, relation, visible }) => boolean` |
+| `entityOpacity` | 图层显示且已加载时，实体及其下级模型的不透明度 0–1（默认 1）。0：看不见，但仍被拾取、描边、带顶牌 |
+| `position` | 枢轴在实体坐标系里的位置（米）：建筑本地坐标、楼层内坐标（房间、构件同楼层）、或相对设备。给了它，图层跟着实体移动（贴地、楼层展开），`heading` / `pitch` / `roll` 相对该坐标系，不再需要经纬度 |
+| `follow` | 没给 `position` 时：把当前的地理位置原样转进实体坐标系并从此跟随（默认 false：只绑显隐） |
+| `pickEntity` | 点到图层算点到实体（默认 true）：`e.kind === 'splats'` 且 `e.entity` 是绑定的实体，泼溅后面若是它内部的实体则报那个更细的 |
+
+建筑文档里可以直接声明：任何元素的 `splats: [{ uri, position, rotation, scale, upAxis, pivot, show, entityOpacity, … }]`（`SplatRef`，[建筑数据制作手册](building-data-manual.md) §4.10），加载建筑时自动建成绑定的图层，移除建筑时一并移除。3D Tiles 图层有同样的 `level` 选项（`LevelBindingOptions`，只绑显隐与模型不透明度）；宿主自己的对象用 `viewer.indoor.bindings.bind(对象, 选项, { onChange })`。
 
 要点：
 
@@ -402,7 +428,7 @@ viewer.interaction.on('click', (e) => {
 
 ### 3.3 3D Tiles
 
-`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`：有瓦片加载完成，或设了 `visible` / `heightOffset`；`moved`：设了 `heightOffset`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
+`Tiles3DLayer`（`viewer.addTileset(options)` 的返回值；选项里的 `level`（`LevelBindingOptions`）把它绑到层级节点，如某栋楼自己的倾斜摄影 `{ entity: 'office-a', show: 'outside' }`、进楼也保留的 `{ show: 'always' }`，见 §1.14"层级绑定"；不绑时进入建筑随 `indoor.hideTilesetsIndoor` 隐藏）：`visible`、`errorTarget`、`heightOffset`、`events`（`ready`、`error`、`change`：有瓦片加载完成，或设了 `visible` / `heightOffset`；`moved`：设了 `heightOffset`）、`ready` / `error`、`pending`（排队、下载、解析中的瓦片数）、`memory`。来源 `TilesetSource`：`url` / `ion` / `google`。预算见 [gpu-memory.md](agents/gpu-memory.md)。级别：稳定。
 
 **要素拾取与属性**（`TileFeature`、`FeatureHighlightStyle`，稳定）：
 
@@ -427,7 +453,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 ### 3.4 高斯泼溅
 
-`SplatLayer`（`viewer.addSplats(options)` 的返回值）、`SplatLayerOptions`、`SplatLayerEvents`、`SplatLayerStats`、`SplatPlacement`、`SplatHit`、`SplatCrop`、`SplatBounds`、`SplatFormat`（`'ply' | 'splat' | 'spz'`）、`SplatUpAxis`、`SplatPivot`、`SplatShDegree`；档位预算 `SplatQuality`（`viewer.gpu.splats`）。用法见 §1.14，规范见 [splats.md](agents/splats.md)。级别：稳定（`layer.group` 是高级）。
+`SplatLayer`（`viewer.addSplats(options)` 的返回值）、`SplatLayerOptions`、`SplatLevelOptions`、`SplatLayerEvents`、`SplatLayerStats`、`SplatPlacement`、`SplatHit`、`SplatCrop`、`SplatBounds`、`SplatFormat`（`'ply' | 'splat' | 'spz'`）、`SplatUpAxis`、`SplatPivot`、`SplatShDegree`；档位预算 `SplatQuality`（`viewer.gpu.splats`）。用法见 §1.14，规范见 [splats.md](agents/splats.md)。级别：稳定（`layer.group` 是高级）。
 
 ### 3.5 矢量
 
@@ -453,6 +479,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | `parseBuildingDoc`、`BuildingDoc`、`FloorDef`、`RoomDef`、`ThingDef`、`StructureDef` 等 | `three-geo-building` 文档格式与校验；[building-data-manual.md](building-data-manual.md) | 稳定 |
 | `compileSelector`、`SelectorError`、`matchesSelector`、`closestMatching` | 选择器 | 稳定 |
 | `LevelControl`、`BUILTIN_LEVEL_CONTROLS`、`buildingLevelControl` 等 | 层级的显隐、半透明、取景策略，可替换 | 稳定 |
+| `LevelBindings`（`viewer.indoor.bindings`）、`LevelBinding`、`LevelBindingOptions`、`LevelBindingHooks`、`LevelShow`、`LevelShowState`、`LevelRelation`、`LEVEL_SHOW_MODES`、`levelRelation` / `levelShown` / `defaultLevelShow` | 层级绑定：图层等内容挂到层级节点，按所在层级显隐，实体模型可让位（`bind(content, options, hooks)`、`unbind`、`get`、`of(entity)`、`all`）。图层用自己的 `level` 选项；`bind` 给宿主自己的对象用（§1.14"层级绑定"、[indoor-bim.md](agents/indoor-bim.md) §6.5）。`LevelTree` 是高级 | 稳定 |
+| `SplatRef` | 建筑文档里元素的 `splats` 项（绑定在该元素上的高斯泼溅场景） | 稳定 |
 | `ContributionCuller`（`viewer.indoor.culling`）、`ContributionCullingOptions`、`DEFAULT_CULLING` | 贡献剔除，默认关闭：`enabled`、`configure`、`options`、`stats`、`invalidate` | 稳定 |
 | `FloorOcclusion`（`viewer.indoor.ambientOcclusion`）、`FloorOcclusionOptions`、`FLOOR_OCCLUSION_DEFAULTS`、`BakedOcclusion`、`OcclusionGrid` | 楼层环境光遮蔽，默认开：`enabled`、`configure`、`options`、`bakedFloors`、`bytes`、`bakedFor`（§1.10）。`Building.contentVersion(floor)`：楼层上内容的版本号，变了就重新烘焙 | 稳定 |
 

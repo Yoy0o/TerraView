@@ -1,8 +1,8 @@
 # 高斯泼溅（3DGS）规范
 
-> 状态：第一期已实现（2026-11-22，路线图 M4.8 的"高斯泼溅"一项）：单文件场景的加载、地理锚定、显示与交互。分块流式（3D Tiles 内嵌泼溅）、与室内层级绑定、深度预通道等在 §11 分期。
+> 状态：第一期已实现（2026-11-22，路线图 M4.8 的"高斯泼溅"一项）：单文件场景的加载、地理锚定、显示与交互。2026-11-23 完成第二期的层级绑定（§7.1）：图层挂到建筑 / 楼层 / 房间 / 设备上，按所在层级显隐、可放进实体坐标系、懒加载、拾取归到实体，建筑文档可声明 `splats`。分块流式（3D Tiles 内嵌泼溅）、深度预通道等在 §11 分期。
 
-代码：`src/splats/`（`splatData.ts` 数据布局、预算、边界、裁剪；`splatFormats.ts` 文件解码；`splatIndex.ts` 拾取用的 BVH 与射线查询；`splatPlacement.ts` 定位数学；`splat.worker.ts` 加载 Worker；`SplatLayer.ts` 图层），以及 viewer 的部件：`GeoViewer`（公开的 `addSplats` / `removeSplats`）、`ViewerLayers`（创建、移除、每帧更新）、`ViewerPicking`（拾取）、`FrameLoop`（帧循环、加载状态）、`diagnostics`（显存、快照）、`viewerTypes`（错误来源、事件）、`InteractionManager`（`kind: 'splats'`）、`core/gpuProfile.ts`（档位预算）、`core/errors.ts`（三个错误码）。演示应用：`demo/ui/SplatPanel.ts`、`demo/data/demoSplats.ts`、`demo/ui/urlOptions.ts`（`?splats=`）。API 见 [api.md](../api.md) §1.14。
+代码：`src/indoor/levelBinding.ts`（层级绑定，通用）；`src/splats/`（`splatData.ts` 数据布局、预算、边界、裁剪；`splatFormats.ts` 文件解码；`splatIndex.ts` 拾取用的 BVH 与射线查询；`splatPlacement.ts` 定位数学；`splat.worker.ts` 加载 Worker；`SplatLayer.ts` 图层），以及 viewer 的部件：`GeoViewer`（公开的 `addSplats` / `removeSplats`）、`ViewerLayers`（创建、移除、每帧更新）、`ViewerPicking`（拾取）、`FrameLoop`（帧循环、加载状态）、`diagnostics`（显存、快照）、`viewerTypes`（错误来源、事件）、`InteractionManager`（`kind: 'splats'`）、`core/gpuProfile.ts`（档位预算）、`core/errors.ts`（三个错误码）。演示应用：`demo/ui/SplatPanel.ts`、`demo/data/demoSplats.ts`、`demo/ui/urlOptions.ts`（`?splats=`）。API 见 [api.md](../api.md) §1.14。
 
 ## 1. 是什么
 
@@ -31,7 +31,7 @@
 | 颜色 | 泼溅颜色按 sRGB 转线性后进场景 pass，再随全帧一起色调映射 | 泼溅颜色是显示值（训练时就在显示空间里混合）；本仓库的场景 pass 是线性 HDR。不转换会整体发白（实测）。与倾斜摄影的照片纹理同样对待。线性空间里混合与训练时略有差别（边缘稍硬），可接受 |
 | 深度 | 不写深度，只做深度测试 | 泼溅被地形、建筑正确遮挡；但泼溅自己不挡后画的透明物体、不挡顶牌的遮挡查询（§5.4、§10） |
 | 轴向 | `upAxis` 选项，默认 `'-y'` | 文件没有元数据说明哪边朝上；3DGS / COLMAP 的惯例是 Y 朝下。SPZ 规范是 Y 朝上，但实际文件两种都有（three 示例里的两个 SPZ 就一个一种），所以不按格式猜 |
-| 与室内 | 进入建筑时默认随 3D Tiles 一起隐藏（`showIndoors: false`） | 室外实景与楼层内部重叠时会穿帮；需要室内实景的设 `showIndoors: true`。按层级绑定是第二期 |
+| 与室内 | 不绑定的图层是"室外背景"：进入建筑时随 3D Tiles 一起隐藏（`showIndoors: false`）。属于某栋楼、某一层的实景用 `level` 绑到那个节点（§7.1） | 室外实景与楼层内部重叠时会穿帮。泼溅不自成层级、不另起一棵树：层级树只有一棵，实体管语义，泼溅管外观（indoor-bim.md §6.5） |
 
 ## 3. 数据
 
@@ -183,7 +183,7 @@ viewer.interaction.on('click', (e) => {
 
 | 方面 | 做法 |
 | --- | --- |
-| 进入建筑 | 3D Tiles 被压制时，`showIndoors: false`（默认）的图层一起隐藏（`suppressed`），返回地球时恢复 |
+| 层级 | 绑定了层级的图层按绑定规则显隐（§7.1）；没绑定的：3D Tiles 被压制时，`showIndoors: false`（默认）的图层一起隐藏（`suppressed`），返回地球时恢复。两种情况都由 `ViewerLayers.hiddenByLevel` 每帧决定（帧循环里调用） |
 | 局部场景 | `outside: 'hide'` 时，核心包围球中心在区域外的图层隐藏；拾取到区域外的点不算。不按区域裁切泼溅本身 |
 | 贴地 | 走 `viewer.surfaceHeight` 的查询（§4），不直接问地形 |
 | 显存 | `viewer.memory.splats`（各图层 `gpuBytes` 之和，计入 `gpuTotal`）；`viewer.snapshot().splats` |
@@ -192,6 +192,35 @@ viewer.interaction.on('click', (e) => {
 | Worker | 每次加载一个 Worker，结果返回后立即关闭（没有模块级的共享 Worker）；`removeSplats` 时还在加载的也一并关闭 |
 | 释放 | `GaussianSplat` 没有 `dispose()`：它的存储缓冲和计算管线在私有字段里，`disposeGaussianSplat` 遍历出来逐个释放（WebGL 后端每个存储缓冲还带一张纹理）。实测两个后端移除后 `renderer.info.memory` 回到基线，反复加载不增长 |
 | 多个 viewer | 图层属于创建它的 viewer。模块级状态只有 Zstandard 解码器（无状态，共享）和射线查询的暂存数组（同步使用） |
+
+### 7.1 层级绑定
+
+泼溅是"某个层级真实的样子"，所以它挂在层级树的节点上，而不是自己成为层级（设计理由和通用机制见 [indoor-bim.md](indoor-bim.md) §6.5）。图层的 `level` 选项（`SplatLevelOptions`）管三件事：
+
+| | 选项 | 说明 |
+| --- | --- | --- |
+| 何时显示 | `entity`、`show` | 属于哪个实体（实体或 id；不写 = 地球），相对所在层级何时显示（`'inside'` / `'outside'` / `'current'` / `'entity'` / `'always'` 或函数）。绑定后不再看 `showIndoors` |
+| 模型怎么办 | `entityOpacity` | 场景显示且已加载时，实体及其下级的模型不透明度：1 保留、约 0.15 淡影叠加、0 隐去但仍可拾取 / 描边 / 带顶牌 |
+| 放在哪 | `position` 或 `follow` | 可选。给了 `position`（米）就放进实体的坐标系，跟着实体移动；`follow: true` 把当前的地理位置原样转进实体坐标系。都不给时只绑显隐，位置仍是经纬度 |
+
+```ts
+// 三层的室内实景：进入三层（或其中的房间）时才加载、显示；模型隐去，房间照常可点选
+const scan = viewer.addSplats({ url: 'F3.spz', level: { entity: 'F3', position: [0, 0, 0], entityOpacity: 0 } });
+
+// 先在地球上摆好，再绑到楼层并跟随；读回实体坐标系里的位置，写进建筑文档
+const layer = viewer.addSplats({ url, position: { longitude, latitude } });
+layer.setLevel({ entity: floor, follow: true });
+layer.level.position; // [x, y, z]，楼层内坐标
+
+layer.setLevel(null); // 解除绑定：留在原地（改为椭球高）
+```
+
+- **坐标系**：建筑用建筑本地坐标（锚点处 X 东、Y 北、Z 上，按建筑 `heading` 旋转）；楼层、房间、构件用楼层内坐标（z = 0 是楼面，楼层展开时一起移动）；设备相对设备自身（随它平移、旋转）。放进坐标系后 `heading` / `pitch` / `roll` 相对该坐标系的轴，`placement` 里的经纬度和高度不再使用，`heightReference` 的贴地也不再起作用（高度由实体决定）。
+- **实现**：图层不认识实体。viewer 每帧把绑定实体的世界矩阵交给图层（`setFrame`），矩阵变了图层才重算自己的矩阵：`世界 = 实体矩阵 · T(position) · Rz·Rx·Ry · scale · 轴向 · (p − pivot)`，仍是 float64。进出坐标系时经由地理位置换算（位置不动，heading 加减坐标系 +Y 的朝向，`frameHeading`），所以换绑到另一个实体时场景也不会跳。
+- **懒加载**：绑定的图层默认 `load: 'lazy'`，第一次该显示时才启动 Worker（`preload()` 可以提前）。没开始加载的图层不计入 `loadState.layers`，`layer.loading` 为 false。一栋楼每层挂一个实景也不会在打开时全部下载。隐藏后不卸载（以后按预算卸载，§11）。
+- **拾取**：`pickEntity`（默认开）让点到场景等于点到它的实体：`e.kind === 'splats'`，同时 `e.entity` 是绑定的实体。如果泼溅后面的表面是这个实体**内部**的实体（扫描的楼层里的某个房间，画着或隐去都算），就报那个更细的实体：几何给语义，泼溅给位置。于是悬停描边、单击选中、双击进入下一级、选择器都照常工作，不需要为泼溅另写一套。
+- **文档里声明**：建筑文档的任何元素都可以带 `splats`（[indoor-bim.md](indoor-bim.md) §4、[建筑数据制作手册](../building-data-manual.md) §4.10），加载建筑时由 viewer 建成绑定的图层（出现在 `viewer.splatLayers` 里，可以照常调），移除建筑时一并移除。按 id 用 API 绑定的图层在建筑移除后保留（隐藏，等同 id 的建筑再加载）。
+- 3D Tiles 图层有同样的 `level` 选项（只绑显隐和模型不透明度，瓦片自带位置）。
 
 ## 8. API 速览
 
@@ -210,9 +239,9 @@ layer.crop = { type: 'sphere', center: [0, 0, 2], radius: 5 };
 viewer.removeSplats(layer);
 ```
 
-`SplatLayer`：`ready`、`error`、`progress`、`stats`、`boundingSphere`、`placement` / `setPlacement`、`ellipsoidHeight`、`upAxis`、`visible`、`opacity`、`brightness`、`crop`、`localBounds`、`localToWorld`、`minScreenSize`、`pickable`、`active`、`gpuBytes`、`raycast(ray, options)`、`flyTo(options)`、`events`（`ready` / `error` / `progress` / `change` / `moved`）。选项和各字段的单位见 `SplatLayerOptions` 的注释和 [api.md](../api.md) §1.14。
+`SplatLayer`：`ready`、`error`、`progress`、`loading`、`preload()`、`stats`、`boundingSphere`、`placement` / `setPlacement`、`level` / `setLevel`、`pickEntity`、`ellipsoidHeight`、`upAxis`、`visible`、`opacity`、`brightness`、`crop`、`localBounds`、`localToWorld`、`minScreenSize`、`pickable`、`active`、`gpuBytes`、`raycast(ray, options)`、`flyTo(options)`、`events`（`ready` / `error` / `progress` / `change` / `moved`）。选项和各字段的单位见 `SplatLayerOptions` 的注释和 [api.md](../api.md) §1.14。
 
-演示应用：面板"高斯泼溅（3DGS）"（示例场景、URL、文件、每个图层的显隐、轴向、点选位置、朝向、缩放、离地、不透明度、裁剪、取景、移除），拖入 `.ply` / `.splat` / `.spz`，URL 参数 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`。
+演示应用：面板"高斯泼溅（3DGS）"（示例场景、URL、文件、每个图层的显隐、轴向、点选位置、朝向、缩放、离地、不透明度、裁剪、层级绑定（绑到哪个实体、显示时机、是否跟随、模型不透明度）、取景、移除）；示例办公楼的大堂里有一个在文档里声明的实景（程序生成的示意数据，离线可用）；拖入 `.ply` / `.splat` / `.spz`，URL 参数 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`。
 
 ## 9. 实测（2026-11-22）
 
@@ -235,10 +264,13 @@ viewer.removeSplats(layer);
 - 显存：加载 → 裁剪 → 取消裁剪 → 移除，`renderer.info.memory.total` 回到基线，再循环 3 次不增长（两个后端）。
 - 静止：小场景下视图进入静止并完成超采样；改 `opacity` 后被唤醒。
 - `npm run smoke`：新增"高斯泼溅"用例（WebGL / WebGPU 各一）。
+- 层级绑定（2026-11-23，同一环境）：示例办公楼文档里声明的场景绑在大堂上，进入建筑后才加载；绑在二层的场景在地球和建筑层级不加载、不显示，进入二层后加载，模型不透明度 0 时房间仍能拾取（WebGL 的 CPU 射线和 WebGPU 的拾取缓冲都认），悬停 / 选中的描边和顶牌照常显示在实景上；楼层展开时场景随楼层上移 7 m；地球上的图层 `follow` 进建筑坐标系再解除，位置变化不到 1 cm、heading 复原；移除建筑带走文档声明的图层，按 id 绑定的保留并等待。
 
 ## 10. 测试
 
 - `tests/splats.test.ts`：协方差；`.splat` / `.ply`（含球谐的通道重排、普通点云、压缩和 ASCII 的报错、截断）/ `.spz` 2、3、4 版（定点位置、两种四元数编码、球谐分阶、Zstandard 回调及其失败）；格式判断；核心包围盒不含离群点；预算（先去不可见、再按重要度、保持文件顺序、同分时仍满足预算）；裁剪与压缩各属性；显存估算；档位预算递增；轴向矩阵、枢轴、模型矩阵（枢轴落在锚点、heading 顺时针、pitch / roll 方向、长度与手性）；屏幕半径与视锥测试；拾取（表面距离、穿过稀薄漂浮物、掩码、距离上限、与暴力遍历逐条一致、空集）；演示应用的 URL 参数。
+- `tests/levelBinding.test.ts`：层级关系与各显示方式的真值表、默认方式；绑定随层级切换（含事件触发前已切换）、`'entity'` 方式与自定义函数、按 id 先绑定后加载和建筑重载、模型不透明度（未就绪不让位、与层级半透明互不覆盖、重叠取最小、解除后恢复）；文档 `splats` 的解析与报错路径、交给宿主并随建筑移除；坐标系朝向。
+- `tests/e2e/demo.e2e.ts`："绑定到层级"用例：文档声明的场景、懒加载、进入楼层后显示、模型隐去后的拾取（场景上归到楼层内的实体、场景旁仍拾取到房间）、3D Tiles 的三种绑定、楼层展开跟随、`follow` 往返、移除建筑。
 - `tests/e2e/demo.e2e.ts`："高斯泼溅"用例：`?splats=` 从 URL 加载生成的 `.splat`（`tests/e2e/server.mjs`）、贴地、拾取（场景上 / 场景旁）、真实鼠标单击到达 `interaction`、裁剪后数量和显存、移动后原处拾取落空、从字节加载第二个图层、坏文件的错误码、移除后显存归零、加载用的 Worker 都已关闭。
 
 **手测清单**（真实 GPU，改了 `src/splats/` 后看）：
@@ -246,7 +278,8 @@ viewer.removeSplats(layer);
 - 三个示例场景各加载一次：方向正、颜色不发白、边缘没有硬边或黑边。
 - 绕场景转一圈：没有成片的前后顺序错乱（排序范围）；从全球视角飞近，场景在几个像素大时淡入。
 - 滚轮对着场景缩放：光标下的点不漂；右键环绕以场景上的点为枢轴。
-- `?demo` 进入建筑：室外的泼溅隐藏，返回后恢复。
+- `?demo` 进入建筑：室外的泼溅隐藏，返回后恢复；大堂里的示意实景在进入建筑后出现，点它选中的是"入口大堂"。
+- 面板里把一个场景绑到当前楼层并勾"跟随"，把"模型"拖到 0：模型消失，悬停房间仍有描边和顶牌；打开"楼层展开"，场景跟着那一层走。
 - 状态栏的显存在移除图层后回落。
 
 ## 11. 分期
@@ -254,7 +287,7 @@ viewer.removeSplats(layer);
 | 期 | 内容 | 依赖 / 备注 |
 | --- | --- | --- |
 | **一（本次）** | 单文件图层：三种格式、Worker 解码、预算、锚定、显示选项、CPU 拾取与事件、裁剪、演示面板 | — |
-| 二：与孪生场景结合 | ① 层级绑定：图层挂到建筑 / 楼层 / 房间（`level` 选项），跟随实体的变换和显隐，进入该层级时显示实景、可与 BIM 模型切换或半透明叠加；建筑文档加 `splats` 字段（同步 indoor-bim.md 和数据制作手册）。② 对齐工具：在泼溅和地面 / 模型上各点几对点，解出 `scale` / `heading` / 位置（相似变换）。③ 按区域裁切（局部场景的 `regionMaskNode`，需要逐泼溅的顶点阶段入口） | ① 需要图层矩阵跟随 `entity.matrixWorld`；③ 要么等 three 给 `GaussianSplat` 开放顶点阶段，要么自己维护一份着色器 |
+| 二：与孪生场景结合 | ① ✅ 2026-11-23 层级绑定（§7.1）：`level` 选项、实体坐标系、懒加载、拾取归实体、模型不透明度、建筑文档的 `splats`；3D Tiles 同样可绑。② 对齐工具：在泼溅和地面 / 模型上各点几对点，解出 `scale` / `heading` / 位置（相似变换）。③ 按区域裁切（局部场景的 `regionMaskNode`，需要逐泼溅的顶点阶段入口）。④ 隐藏已久的绑定图层按总预算卸载（多层实景轮流看时显存只增不减）。⑤ 绑定内容计入实体的包围范围（纯实景的层级取景）、点位 / GeoJSON 图层的 `level` 选项、通用层级节点（园区） | ③ 要么等 three 给 `GaussianSplat` 开放顶点阶段，要么自己维护一份着色器；④ 参照楼层模型的 `modelBudget` |
 | 三：大场景 | ① 3D Tiles 内嵌泼溅（glTF `KHR_gaussian_splatting`，SPZ 压缩扩展）：分块、LOD、流式，走 `Tiles3DLayer` 的预算和调度；② 压缩 PLY、`.ksplat`、SOG；③ 多图层合并排序（现在图层之间只按图层中心排） | ① 评估 3DTilesRendererJS 的 3DGS 插件（README 里列的社区插件）和 three 的 `GLTFGaussianSplatLoaderExtension`；注意 `processTileModel` 里换材质的约束（AGENTS.md §3.5） |
 | 四：画质与分析 | ① 深度预通道（不透明度过阈值的泼溅写深度）：让顶牌遮挡、层级过渡重投影、后画的透明物体认得泼溅，并可进拾取缓冲；② 测量（两次拾取）、选中高亮（按包围盒或涂选的泼溅集合改色）；③ 空气透视；④ 远处用 `maxSplats` 的动态子集（按距离降采样） | ① 是一次额外的全量泼溅绘制，先在真实 GPU 上量开销 |
 

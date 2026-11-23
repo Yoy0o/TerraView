@@ -43,6 +43,34 @@
 
 - `clouds/VolumetricClouds.ts`（linear 阶段的后期效果：天气图、云影图、半分辨率以内 2×2 交错追踪、按云距离 / 相机运动 / 风的时域重投影、按场景深度上采样的合成；全部 TSL 片元 pass，WebGPU 与 WebGL 2 相同）、`atmosphere/volumetricCloudMath.ts`（纯函数：选项、淡出、与着色器同公式的球壳求交与云层区间、步长增长、历史尺寸、天气图范围）、`atmosphere/cloudNoise.ts` + `cloudNoise.worker.ts`（可平铺的 64³ Perlin-Worley / Worley 噪声，Worker 生成，整页共享）、`lighting/cloudShadows.ts`（云影接收节点）。`CloudLayer.densityNode`（云壳密度节点，天气复用）、`AtmosphereNodes.aerialScatteringAlong`（沿给定方向和距离的空气透视）。
 - 测试：`tests/volumetricClouds.test.ts`（20 项）、`tests/intro.test.ts` 补 URL 参数；冒烟新增"近地体积云、云影、销毁"（WebGL / WebGPU，硬件与软件模式都通过）。
+
+### 层级绑定：图层挂到层级节点（2026-11-23，高斯泼溅第二期 ①）
+
+层级树仍只有一棵（地球 → 建筑 → 楼层 → 房间 / 设备）；高斯泼溅、3D Tiles 这类图层不自成层级，而是绑定到其中一个节点上：所在层级决定它何时显示，实体自己的模型在它显示时可以让位。实体管语义（选择器、事件、顶牌、进出层级），绑定的内容管外观。规范见 [docs/agents/indoor-bim.md](docs/agents/indoor-bim.md) §6.5、[docs/agents/splats.md](docs/agents/splats.md) §7.1，API 见 [docs/api.md](docs/api.md) §1.14。
+
+**新增**
+
+- `viewer.indoor.bindings`（`LevelBindings`）：`bind(content, options, hooks)` / `unbind` / `get` / `of(entity)` / `all`。`LevelBindingOptions`：`entity`（实体或 id，按 id 可以早于建筑加载，建筑重载后自动接上；不写 = 地球）、`show`（`'inside'` / `'outside'` / `'current'` / `'entity'` / `'always'` 或函数；默认建筑 `'outside'`、其余 `'inside'`、不绑实体 `'current'`）、`entityOpacity`（内容显示且就绪时实体及其下级模型的不透明度；0 时看不见但仍可拾取、描边、带顶牌）。导出 `LevelBinding`、`LevelBindingHooks`、`LevelShow`、`LevelShowState`、`LevelRelation`、`LevelTree`、`LEVEL_SHOW_MODES`、`levelRelation`、`levelShown`、`defaultLevelShow`。
+- `SplatLayerOptions.level`（`SplatLevelOptions`）、`layer.level` / `setLevel()` / `pickEntity`：除上面三项外，`position`（米）把图层放进实体的坐标系（建筑本地、楼层内、或相对设备），随建筑贴地、楼层展开一起移动；`follow: true` 把当前的地理位置原样转进去；`pickEntity`（默认开）让点到泼溅等于点到实体。
+- 泼溅图层懒加载：`SplatLayerOptions.load`（`'eager'` / `'lazy'`，绑定了层级的默认 `'lazy'`：第一次显示时才下载）、`layer.loading`、`layer.preload()`。
+- `Tiles3DLayerOptions.level`：3D Tiles 图层同样可以绑到层级（显隐和模型不透明度），例如某栋楼自己的倾斜摄影只在楼外显示，或某个图层进楼也保留。
+- 建筑文档：任何元素的 `splats`（`SplatRef[]`：`uri`、`position`、`rotation`、`pitch`、`roll`、`scale`、`upAxis`、`pivot`、`show`、`entityOpacity`、`opacity`、`maxSplats`、`format`、`name`），加载建筑时建成绑定的图层，移除建筑时一并移除；`parseBuildingDoc` 校验并报出字段路径。
+- 演示应用：泼溅面板的层级绑定控件（绑到哪个实体、显示时机、跟随、模型不透明度）；"点选位置"对放进实体坐标系的图层同样有效；示例办公楼的大堂里声明了一个实景（程序生成的示意数据，离线可用）。
+
+**变更**
+
+- 绑定了层级的图层不再看 `showIndoors` / `indoor.hideTilesetsIndoor`，由绑定规则决定；没绑定的行为不变。
+- 点到绑定了层级的泼溅图层时，`SurfacePick.entity` / `PickInfo.entity` / `event.entity` 是它的实体（`kind` 仍是 `'splats'`），所以内置的悬停、选中、双击进入对泼溅同样生效。不想要时设 `level.pickEntity: false`。
+- `loadState.layers` 只数正在加载的泼溅图层（懒加载、尚未开始的不算）；`viewer.snapshot().splats[]` 多了 `level`。
+- `SplatLayerOptions.position` 改为可选（给了 `level.position` 时不需要）；两者都没有时仍同步抛 `option-invalid`。
+
+**工程**
+
+- `indoor/levelBinding.ts`：规则是纯函数（`levelRelation`、`levelShown`），注册表不认识泼溅或瓦片；在层级切换的每一步（事件触发之前）和每帧求值。`BimEntity` 多一个内部系数 `bindingOpacity`，与样式不透明度、`levelOpacity` 相乘、互不覆盖。
+- 图层不依赖室内模块的实现：viewer 每帧把绑定实体的世界矩阵交给泼溅图层（`setFrame`），显隐经 `ViewerLayers.hiddenByLevel` 统一决定（泼溅和 3D Tiles 共用）；文档声明的场景经 `IndoorHost.addSplats` 回到 viewer 创建。
+- 测试：`tests/levelBinding.test.ts`（14 项）；冒烟新增"绑定到层级"用例（WebGL / WebGPU），`tests/e2e/server.mjs` 多一个没有内容的 3D Tiles 数据集。
+- 包体积：入口 780 → 800.4 KiB（gzip 243），超出原预算 0.4 KiB；属于有意增加，`scripts/check-package.mjs` 的入口预算调到 880（gzip 270 不变），说明记在 roadmap §0.2 P1.6。与体积云（预算 860）合并到 main 后入口 874.7 KiB（gzip 265.6），仍在 880 / 270 以内。
+
 ### 高斯泼溅（3DGS）图层（2026-11-22，路线图 M4.8）
 
 把实拍训练出来的 3D 高斯泼溅场景放到地球上，与影像、地形、3D Tiles、建筑同屏显示，可以拾取、取景、摆放和裁剪。规范见 [docs/agents/splats.md](docs/agents/splats.md)，API 见 [docs/api.md](docs/api.md) §1.14。

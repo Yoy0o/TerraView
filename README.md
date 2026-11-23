@@ -179,6 +179,7 @@ npm run check:package  # 打包并装进一个临时宿主工程检查（需要�
 - `viewer.addSplats`：`.ply`（INRIA 训练输出）、`.splat`、`.spz`（1–4 版）在 Worker 里解码，按显存档位的预算保留最重要的泼溅；用 three.js 自带的 `GaussianSplat` 绘制（WebGPU 计算着色器排序，WebGL 回退）
 - 地理锚定：经纬度、贴地或椭球高、heading / pitch / roll、缩放、轴向约定、枢轴，随时可改；远到只剩几个像素时不画
 - 交互：点击 / 悬停事件（`e.kind === 'splats'`）、滚轮缩放到光标和右键环绕落在泼溅表面上（BVH 拾取，每条射线不到 0.1 ms）、盒 / 球裁剪、飞到场景
+- **绑定到层级**：场景可以挂到建筑、楼层、房间或设备上（`level` 选项，或建筑文档里的 `splats`），进入对应层级时才加载和显示，跟着实体移动；模型可以保留、淡化或隐去，隐去后房间和设备照常可以点选、描边、显示顶牌。3D Tiles 图层同样可以绑（[indoor-bim.md](docs/agents/indoor-bim.md) §6.5）
 - 演示面板带三个开放场景（three.js 示例库，CC BY 4.0），也可以拖入自己的文件（[docs/agents/splats.md](docs/agents/splats.md)）
 
 **GeoJSON 矢量与注记**
