@@ -107,7 +107,11 @@ export function viewerSnapshot(v: SnapshotSource): ViewerSnapshot {
     globe: { ...v.globe.stats, shown: v.showGlobe },
     tilesets: v.tilesets.map((l) => ({ id: l.id, name: l.name, visible: l.visible, active: l.active, pending: l.pending, errorScale: l.errorScale, memory: { ...l.memory } })),
     layers: { vector: v.vectorLayers.length, points: v.pointLayers.length, markers: { ...v.markers.stats } },
-    splats: v.splatLayers.map((l) => ({ id: l.id, name: l.name, ready: l.ready, visible: l.visible, active: l.active, gpuBytes: l.gpuBytes, stats: l.stats && { ...l.stats } })),
+    splats: v.splatLayers.map((l) => {
+      const binding = indoor.bindings.get(l);
+      const level = binding && { entity: binding.entity?.id ?? null, shown: binding.shown };
+      return { id: l.id, name: l.name, ready: l.ready, visible: l.visible, active: l.active, gpuBytes: l.gpuBytes, stats: l.stats && { ...l.stats }, level };
+    }),
     indoor: {
       buildings: indoor.buildings.length,
       current: indoor.current ? { id: indoor.current.id, type: indoor.current.type } : null,

@@ -10,6 +10,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 import { cartographic, type Cartographic, type Ellipsoid } from '../core/Ellipsoid';
 import { DEG2RAD } from '../core/math';
 import type { Globe } from '../globe/Globe';
+import type { BimEntity } from '../indoor/BimEntity';
 import type { IndoorManager } from '../indoor/IndoorManager';
 import type { LocalScene } from '../local/LocalScene';
 import type { SplatLayer } from '../splats/SplatLayer';
@@ -72,8 +73,24 @@ export class ViewerPicking {
       const hit = layer.raycast(ray, { maxDistance: best?.distance });
       if (!hit || (ls.hidesOutside && !ls.showsWorld(hit.point))) continue;
       best = { point: hit.point, source: 'splats', distance: hit.distance, splats: layer, splatIndex: hit.index, via: 'ray' };
+      const entity = this.entityBehindSplats(layer, surface);
+      if (entity) best.entity = entity;
     }
     return best;
+  }
+
+  /**
+   * The entity a pick on a level-bound splat layer stands for: the capture is the look of
+   * its entity, so the pick is one on that entity. When the surface behind the splats is
+   * an entity inside the bound one (a room of the scanned floor, drawn or faded out), that
+   * finer one is reported: the geometry gives the meaning, the splats the place.
+   */
+  private entityBehindSplats(layer: SplatLayer, surface: SurfacePick | null): BimEntity | null {
+    if (!layer.pickEntity) return null;
+    const bound = this.viewer.indoor.bindings.get(layer)?.entity;
+    if (!bound) return null;
+    const behind = surface?.entity;
+    return behind && (behind === bound || behind.isDescendantOf(bound)) ? behind : bound;
   }
 
   /** Closest hit on what the pick buffer knows: buildings, 3D Tiles and the globe. */

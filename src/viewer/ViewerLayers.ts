@@ -169,7 +169,8 @@ export class ViewerLayers {
     const layer = new Tiles3DLayer(options, this.getLoaders(), this.viewer.ellipsoid, this.viewer.gpu.tiles);
     layer.tiles.setCamera(this.viewer.camera);
     layer.tiles.setResolutionFromRenderer(this.viewer.camera, this.viewer.renderer as never);
-    layer.suppressed = this.tilesetsSuppressed;
+    if (options.level) this.viewer.indoor.bindings.bind(layer, options.level, { showing: () => layer.ready && layer.visible });
+    layer.suppressed = this.hiddenByLevel(layer, false);
     layer.events.on('ready', () => this.extendGroundProbe());
     layer.events.on('error', ({ error }) => this.viewer.events.emit('error', { source: 'tileset', error, layer }));
     // Tiles loaded, `visible` or `heightOffset` set.
@@ -189,6 +190,7 @@ export class ViewerLayers {
     if (i < 0) return;
     this.viewer.tilesets.splice(i, 1);
     this.surface.clearHeld();
+    this.viewer.indoor.bindings.unbind(layer);
     layer.dispose();
     this.viewer.events.emit('tilesets-changed', this.viewer.tilesets);
   }
@@ -202,7 +204,17 @@ export class ViewerLayers {
     if (suppressed === this.tilesetsSuppressed) return;
     this.tilesetsSuppressed = suppressed;
     if (suppressed) this.extendGroundProbe();
-    for (const layer of this.viewer.tilesets) layer.suppressed = suppressed;
+    for (const layer of this.viewer.tilesets) layer.suppressed = this.hiddenByLevel(layer, false);
+  }
+
+  /**
+   * Whether the level the view is in hides a layer: by its level binding when it has one
+   * (`indoor.bindings`), else by the rule for context layers (hidden with the 3D Tiles while
+   * an indoor level is entered, unless the layer stays indoors).
+   */
+  hiddenByLevel(layer: object, showIndoors: boolean): boolean {
+    const binding = this.viewer.indoor.bindings.get(layer);
+    return binding ? !binding.shown : this.tilesetsSuppressed && !showIndoors;
   }
 
   addGeoJson(options: GeoJsonLayerOptions): GeoJsonLayer {
@@ -268,8 +280,14 @@ export class ViewerLayers {
         return s.reliable ? s.height : null;
       },
       flyToSphere: (sphere, heading, pitch, duration) => viewer.flyToSphere(sphere, heading ?? viewer.getView().heading, pitch ?? -25, duration, { rangeScale: 1.1, minRange: 0.5 }),
+      bindLevel: (bound, level) => {
+        // The entity's geometry steps back only while the capture is really there to replace it.
+        if (level) viewer.indoor.bindings.bind(bound, level, { showing: () => bound.ready && bound.visible });
+        else viewer.indoor.bindings.unbind(bound);
+        viewer.requestRender();
+      },
     });
-    layer.suppressed = this.tilesetsSuppressed && !layer.showIndoors;
+    layer.suppressed = this.hiddenByLevel(layer, layer.showIndoors);
     layer.events.on('ready', () => viewer.events.emit('splats-changed', viewer.splatLayers));
     layer.events.on('error', ({ error }) => {
       viewer.events.emit('splats-changed', viewer.splatLayers);
@@ -287,20 +305,27 @@ export class ViewerLayers {
     const i = this.viewer.splatLayers.indexOf(layer);
     if (i < 0) return;
     this.viewer.splatLayers.splice(i, 1);
+    this.viewer.indoor.bindings.unbind(layer);
     layer.dispose();
     this.viewer.events.emit('splats-changed', this.viewer.splatLayers);
   }
 
   /**
-   * Per frame: splat layers follow the ground, fade in and are hidden while too small on screen;
-   * inside a building they go with the 3D Tiles (unless `showIndoors`), and outside a local
-   * scene that hides its surroundings with everything else there.
+   * Per frame: splat layers follow the ground or the frame of their level, fade in and are
+   * hidden while too small on screen; the level the view is in shows or hides them
+   * (`hiddenByLevel`), and outside a local scene that hides its surroundings they go with
+   * everything else there.
    */
   updateSplats(dt: number, viewportHeight: number): void {
     const ls = this.viewer.localScene;
     for (const layer of this.viewer.splatLayers) {
+      if (layer.framed) {
+        const entity = this.viewer.indoor.bindings.get(layer)?.entity ?? null;
+        entity?.group.updateWorldMatrix(true, false);
+        if (layer.setFrame(entity ? entity.group.matrixWorld : null)) this.viewer.requestRender();
+      }
       const outside = ls.hidesOutside && layer.ready && !ls.showsWorld(layer.boundingSphere.center, 0);
-      layer.suppressed = outside || (this.tilesetsSuppressed && !layer.showIndoors);
+      layer.suppressed = outside || this.hiddenByLevel(layer, layer.showIndoors);
       if (layer.update(dt, this.viewer.camera, viewportHeight) || layer.animating) this.viewer.requestRender();
     }
   }

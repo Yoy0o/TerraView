@@ -18,14 +18,20 @@ import { TerraViewError, type TerraViewErrorCode } from '../core/errors';
 import { EventEmitter } from '../core/EventEmitter';
 import type { SplatQuality } from '../core/gpuProfile';
 import type { TSLNode } from '../core/tsl';
+import type { LevelBindingOptions } from '../indoor/levelBinding';
 import { clamp, DEG2RAD, smoothstep } from '../core/math';
 import { cropSplats, selectSplats, splatGpuBytes, type SplatBounds, type SplatCrop, type SplatData, type SplatShDegree } from './splatData';
 import type { SplatFormat } from './splatFormats';
 import { raycastSplats, type SplatIndex } from './splatIndex';
-import { boxToLocal, resolvePivot, rotate3, screenRadius, sphereInView, splatModelMatrix, upAxisMatrix, type SplatPivot, type SplatUpAxis } from './splatPlacement';
+import { boxToLocal, frameHeading, resolvePivot, rotate3, screenRadius, sphereInView, splatModelMatrix, upAxisMatrix, type SplatPivot, type SplatUpAxis } from './splatPlacement';
 import type { SplatLoadMessage, SplatLoadRequest, SplatLoadResult, SplatWorkerInput } from './splat.worker';
 
-/** Where a splat layer stands and how it is turned and sized. Angles in degrees, lengths in meters. */
+/**
+ * Where a splat layer stands and how it is turned and sized. Angles in degrees, lengths in
+ * meters. A layer placed in the frame of a level (`SplatLevelOptions.position`) takes its
+ * position from there: `longitude`, `latitude`, `height` and `heightReference` are then
+ * not used, and `heading` / `pitch` / `roll` are relative to that frame's axes.
+ */
 export interface SplatPlacement {
   /** Degrees east / north (WGS84). */
   longitude: number;
@@ -37,7 +43,7 @@ export interface SplatPlacement {
    * (`viewer.surfaceHeight`: terrain, or 3D Tiles without the globe), followed as it loads.
    */
   heightReference: 'ellipsoid' | 'ground';
-  /** Degrees clockwise from north. */
+  /** Degrees clockwise from north (from the frame's +Y axis when placed in a level's frame). */
   heading: number;
   /** Degrees about the east axis (positive lifts the north side). */
   pitch: number;
@@ -45,6 +51,35 @@ export interface SplatPlacement {
   roll: number;
   /** Meters per unit of the file (trained scenes have no real-world scale unless aligned). */
   scale: number;
+}
+
+/**
+ * How a splat layer belongs to a level of the scene (`LevelBindingOptions`: which entity,
+ * when it is shown, what the entity's own geometry does meanwhile), and whether it is also
+ * placed in that entity's frame. See docs/agents/splats.md §7.
+ */
+export interface SplatLevelOptions extends LevelBindingOptions {
+  /**
+   * Where the pivot goes in the entity's own frame, meters: the building frame for a building
+   * (X east, Y north, Z up at its anchor, turned by its heading), floor-local for a floor,
+   * room or element (z = 0 at the slab), relative to the device for a thing. With it the
+   * layer is placed in that frame instead of on the globe: it follows the entity (a
+   * building settling on the ground, floors spreading apart), and `heading` / `pitch` /
+   * `roll` are relative to the frame.
+   */
+  position?: readonly [number, number, number];
+  /**
+   * Without `position`: take the layer's place on the globe over into the entity's frame
+   * as it is and follow the entity from then on (read the result from `layer.level.position`).
+   * Default false: only the layer's visibility follows the level.
+   */
+  follow?: boolean;
+  /**
+   * Picks on the layer report the bound entity (the entity hit behind the splats when that
+   * is inside the bound one), so hover, selection and double-click navigation work through
+   * the capture. Default true.
+   */
+  pickEntity?: boolean;
 }
 
 export interface SplatLayerOptions {
@@ -58,8 +93,21 @@ export interface SplatLayerOptions {
   /** Request headers and credentials mode for `url`. */
   headers?: Record<string, string>;
   credentials?: RequestCredentials;
-  /** Where the pivot goes: degrees, and meters above `heightReference`. */
-  position: { longitude: number; latitude: number; height?: number };
+  /**
+   * Where the pivot goes: degrees, and meters above `heightReference`. Required unless the
+   * layer is placed in a level's frame (`level.position`).
+   */
+  position?: { longitude: number; latitude: number; height?: number };
+  /**
+   * Binds the layer to a level of the scene: the level the view is in decides when it is
+   * shown (instead of `showIndoors`), and it can be placed in the entity's frame.
+   */
+  level?: SplatLevelOptions | null;
+  /**
+   * When the file is loaded: `'eager'` at once, `'lazy'` when the layer is first shown (or
+   * `preload()` is called). Default: lazy for a layer bound to a level, eager otherwise.
+   */
+  load?: 'eager' | 'lazy';
   /** Default: `'ground'` when `position.height` is omitted, else `'ellipsoid'`. */
   heightReference?: 'ellipsoid' | 'ground';
   /** Degrees clockwise from north (default 0). */
@@ -93,7 +141,10 @@ export interface SplatLayerOptions {
   minScreenSize?: number;
   /** Fade-in after loading, milliseconds (default 400; 0 shows it at once). */
   fadeDuration?: number;
-  /** Stay visible inside buildings (default false: hidden with the 3D Tiles while an indoor level is entered). */
+  /**
+   * Stay visible inside buildings (default false: hidden with the 3D Tiles while an indoor
+   * level is entered). Not used by a layer bound to a level (`level`).
+   */
   showIndoors?: boolean;
   /** Take part in picking: interaction events, zoom to cursor, orbit pivot (default true). */
   pickable?: boolean;
@@ -149,6 +200,8 @@ export interface SplatLayerHost {
   /** Reliable ground height at a position (radians), meters above the ellipsoid; null while unknown. */
   groundHeight(longitude: number, latitude: number): number | null;
   flyToSphere(sphere: Sphere, heading?: number, pitch?: number, duration?: number): Promise<void>;
+  /** Registers (or, with null, removes) the layer's level binding with the level tree. */
+  bindLevel(layer: SplatLayer, options: LevelBindingOptions | null): void;
 }
 
 /** The splat sort's depth range spans the core bounds times this: stray splats beyond share the last bins. */
@@ -163,6 +216,10 @@ const _inverse = new Matrix4();
 const _origin = new Vector3();
 const _direction = new Vector3();
 const _center = new Vector3();
+const _east = new Vector3();
+const _north = new Vector3();
+const _up = new Vector3();
+const _axis = new Vector3();
 
 /**
  * A Gaussian splat scene on the globe, returned by `viewer.addSplats(options)`. The file
@@ -198,6 +255,15 @@ export class SplatLayer {
   /** Pivot in file coordinates (fixed when the file is loaded, so cropping does not move the scene). */
   private pivot: [number, number, number] = [0, 0, 0];
   private worker: Worker | null = null;
+  /** Options of a load that has not started (`load: 'lazy'`). */
+  private deferred: SplatLayerOptions | null = null;
+  private _level: SplatLevelOptions | null = null;
+  /** Pivot position in the bound entity's frame; null for a layer placed on the globe. */
+  private local: [number, number, number] | null = null;
+  /** World matrix of the bound entity's frame as last seen (layers placed in a frame). */
+  private frame: Matrix4 | null = null;
+  /** The globe placement is to be taken over into the frame once the frame is known (`level.follow`). */
+  private adopting = false;
   /** Splats as loaded (within the budget) with their picking hierarchy, and what is drawn of them (`crop`). */
   private loaded: SplatData | null = null;
   private index: SplatIndex | null = null;
@@ -229,8 +295,12 @@ export class SplatLayer {
   constructor(options: SplatLayerOptions, host: SplatLayerHost) {
     // Plain JavaScript hosts: fail here with a reason rather than in the Worker or with NaN matrices.
     const position = options?.position;
-    if (!position || !Number.isFinite(position.longitude) || !Number.isFinite(position.latitude) || Math.abs(position.latitude) > 90) {
-      throw new TerraViewError('option-invalid', 'SplatLayerOptions.position must have longitude and latitude in degrees', { option: 'position', expected: '{ longitude, latitude, height? }' });
+    const inFrame = isPoint3(options?.level?.position);
+    if (!inFrame && (!position || !Number.isFinite(position.longitude) || !Number.isFinite(position.latitude) || Math.abs(position.latitude) > 90)) {
+      throw new TerraViewError('option-invalid', 'SplatLayerOptions.position must have longitude and latitude in degrees (or level.position a point in the entity frame)', {
+        option: 'position',
+        expected: '{ longitude, latitude, height? }, or level.position: [x, y, z]',
+      });
     }
     if (!options.url && !(options.data instanceof ArrayBuffer)) {
       throw new TerraViewError('option-invalid', 'SplatLayerOptions needs a url or data (ArrayBuffer)', { option: 'url', expected: 'a URL, or data: ArrayBuffer' });
@@ -247,10 +317,10 @@ export class SplatLayer {
     this._opacity = clamp(options.opacity ?? 1, 0, 1);
     this.brightnessUniform.value = Math.max(0, options.brightness ?? 1);
     this._placement = {
-      longitude: options.position.longitude,
-      latitude: options.position.latitude,
-      height: options.position.height ?? 0,
-      heightReference: options.heightReference ?? (options.position.height === undefined ? 'ground' : 'ellipsoid'),
+      longitude: position?.longitude ?? 0,
+      latitude: position?.latitude ?? 0,
+      height: position?.height ?? 0,
+      heightReference: options.heightReference ?? (position?.height === undefined ? 'ground' : 'ellipsoid'),
       heading: options.heading ?? 0,
       pitch: options.pitch ?? 0,
       roll: options.roll ?? 0,
@@ -259,7 +329,10 @@ export class SplatLayer {
     this.group.name = `SplatLayer:${this.name}`;
     this.group.matrixAutoUpdate = false;
     this.group.visible = false;
-    this.load(options);
+    if (options.level) this.applyLevel(options.level);
+    // A layer of a level waits until that level is shown: a building may carry many captures.
+    if ((options.load ?? (options.level ? 'lazy' : 'eager')) === 'lazy') this.deferred = options;
+    else this.load(options);
   }
 
   // ---------------------------------------------------------------------------
@@ -310,6 +383,20 @@ export class SplatLayer {
       if (!this.disposed) this.fail(new TerraViewError('splat-load-failed', `Splat worker failed: ${event.message}`, { url: request.url ?? '', reason: event.message || 'worker error' }));
     };
     worker.postMessage(request, options.data ? [options.data] : []);
+  }
+
+  /** The file is being downloaded or decoded. */
+  get loading(): boolean {
+    return this.worker !== null;
+  }
+
+  /** Starts loading a layer that waits for its first showing (`load: 'lazy'`); no effect otherwise. */
+  preload(): void {
+    const options = this.deferred;
+    if (!options) return;
+    this.deferred = null;
+    this.load(options);
+    this.events.emit('change', undefined);
   }
 
   private closeWorker(): void {
@@ -420,6 +507,117 @@ export class SplatLayer {
     this.events.emit('change', undefined);
   }
 
+  // ---------------------------------------------------------------------------
+  // Level binding
+
+  /**
+   * The layer's level binding (a copy; null when it is not bound). `position` is where the
+   * layer stands in the entity's frame right now, also after `follow` took its globe
+   * placement over: what to write into a building document.
+   */
+  get level(): SplatLevelOptions | null {
+    if (!this._level) return null;
+    const level = { ...this._level };
+    if (this.local) level.position = [this.local[0], this.local[1], this.local[2]];
+    return level;
+  }
+
+  /**
+   * Binds the layer to a level, changes its binding, or (null) releases it. A layer leaving
+   * an entity's frame keeps its place on the globe (as an ellipsoidal height).
+   */
+  setLevel(level: SplatLevelOptions | null): void {
+    this.applyLevel(level);
+    this.updateMatrix();
+    this.events.emit('moved', undefined);
+    this.events.emit('change', undefined);
+  }
+
+  /** Picks on the layer report its bound entity (`SplatLevelOptions.pickEntity`). */
+  get pickEntity(): boolean {
+    return this._level !== null && this._level.pickEntity !== false;
+  }
+
+  /** @internal The layer is placed in its entity's frame, or about to be: the viewer keeps `setFrame` up to date. */
+  get framed(): boolean {
+    return this.local !== null || this.adopting;
+  }
+
+  private applyLevel(level: SplatLevelOptions | null): void {
+    const wasLocal = this.local !== null;
+    this._level = level ? { ...level } : null;
+    const position = level?.position;
+    if (isPoint3(position)) {
+      this.local = [position[0], position[1], position[2]];
+      this.adopting = false;
+    } else if (level?.follow) {
+      // Through the globe placement, so that the layer stays where it is whichever frame it had before.
+      if (wasLocal) this.leaveFrame();
+      this.adopting = true;
+    } else {
+      if (wasLocal) this.leaveFrame();
+      this.adopting = false;
+    }
+    if (!this.framed) this.frame = null;
+    this.host.bindLevel(this, this._level);
+  }
+
+  /**
+   * @internal The world matrix of the bound entity's frame (null while the entity is not
+   * loaded), given every frame to a `framed` layer. Returns true when the layer moved.
+   */
+  setFrame(matrix: Matrix4 | null): boolean {
+    if (!matrix) {
+      this.frame = null;
+      return false;
+    }
+    if (this.frame && this.frame.equals(matrix) && !this.adopting) return false;
+    this.frame = (this.frame ?? new Matrix4()).copy(matrix);
+    if (this.adopting) {
+      // A layer standing on the ground is taken over once that ground is known: in the frame nothing corrects its height later.
+      const p = this._placement;
+      this.followGround();
+      if (p.heightReference === 'ground' && this.host.groundHeight(p.longitude * DEG2RAD, p.latitude * DEG2RAD) === null) return false;
+      this.enterFrame();
+    }
+    this.updateMatrix();
+    this.events.emit('moved', undefined);
+    return true;
+  }
+
+  /** Heading of the frame's +Y axis at a world point, degrees clockwise from north. */
+  private frameHeadingAt(point: Vector3): number {
+    this.host.ellipsoid.eastNorthUp(point, _east, _north, _up);
+    _axis.setFromMatrixColumn(this.frame!, 1).normalize();
+    return frameHeading(_axis.toArray(), _east.toArray(), _north.toArray());
+  }
+
+  /** Takes the globe placement over into the frame: same place, expressed in the entity's coordinates. */
+  private enterFrame(): void {
+    const p = this._placement;
+    const anchor = this.host.ellipsoid.cartographicToCartesian(p.longitude * DEG2RAD, p.latitude * DEG2RAD, this.ellipsoidHeight, new Vector3());
+    p.heading -= this.frameHeadingAt(anchor);
+    const local = anchor.applyMatrix4(_inverse.copy(this.frame!).invert());
+    this.local = [local.x, local.y, local.z];
+    this.adopting = false;
+  }
+
+  /** Back onto the globe where the layer stands now (ellipsoidal height, heading from north). */
+  private leaveFrame(): void {
+    const local = this.local;
+    this.local = null;
+    if (!local || !this.frame) return;
+    const anchor = new Vector3(local[0], local[1], local[2]).applyMatrix4(this.frame);
+    const c = this.host.ellipsoid.cartesianToCartographic(anchor);
+    if (!c) return;
+    const p = this._placement;
+    p.longitude = c.longitude / DEG2RAD;
+    p.latitude = c.latitude / DEG2RAD;
+    p.height = c.height;
+    p.heightReference = 'ellipsoid';
+    p.heading += this.frameHeadingAt(anchor);
+  }
+
   /** Which way is up in the file (`SplatLayerOptions.upAxis`). */
   get upAxis(): SplatUpAxis {
     return this._upAxis;
@@ -440,6 +638,10 @@ export class SplatLayer {
 
   /** Height of the pivot above the ellipsoid, meters. */
   get ellipsoidHeight(): number {
+    if (this.local) {
+      if (!this.frame) return 0;
+      return this.host.ellipsoid.cartesianToCartographic(_center.set(this.local[0], this.local[1], this.local[2]).applyMatrix4(this.frame))?.height ?? 0;
+    }
     const p = this._placement;
     return p.heightReference === 'ground' ? this.ground + p.height : p.height;
   }
@@ -447,7 +649,8 @@ export class SplatLayer {
   /** Takes the ground height under the layer when it is known; true when it changed. */
   private followGround(): boolean {
     const p = this._placement;
-    if (p.heightReference !== 'ground') return false;
+    // In an entity's frame the entity decides the height.
+    if (this.local || p.heightReference !== 'ground') return false;
     const g = this.host.groundHeight(p.longitude * DEG2RAD, p.latitude * DEG2RAD);
     if (g === null || Math.abs(g - this.ground) < 0.01) return false;
     this.ground = g;
@@ -456,10 +659,19 @@ export class SplatLayer {
 
   private updateMatrix(): void {
     const p = this._placement;
-    const anchor = this.host.ellipsoid.cartographicToCartesian(p.longitude * DEG2RAD, p.latitude * DEG2RAD, this.ellipsoidHeight, _center);
-    this.host.ellipsoid.eastNorthUpToFixedFrame(anchor, _enu);
-    _matrix.fromArray(splatModelMatrix({ upAxis: this._upAxis, pivot: this.pivot, heading: p.heading, pitch: p.pitch, roll: p.roll, scale: p.scale }));
-    this.group.matrix.multiplyMatrices(_enu, _matrix);
+    const model = splatModelMatrix({ upAxis: this._upAxis, pivot: this.pivot, heading: p.heading, pitch: p.pitch, roll: p.roll, scale: p.scale });
+    if (this.local) {
+      // The entity is not loaded yet: the layer has no place (and its binding keeps it hidden).
+      if (!this.frame) return;
+      model[12] += this.local[0];
+      model[13] += this.local[1];
+      model[14] += this.local[2];
+      this.group.matrix.multiplyMatrices(this.frame, _matrix.fromArray(model));
+    } else {
+      const anchor = this.host.ellipsoid.cartographicToCartesian(p.longitude * DEG2RAD, p.latitude * DEG2RAD, this.ellipsoidHeight, _center);
+      this.host.ellipsoid.eastNorthUpToFixedFrame(anchor, _enu);
+      this.group.matrix.multiplyMatrices(_enu, _matrix.fromArray(model));
+    }
     this.group.matrixWorldNeedsUpdate = true;
     this.group.updateMatrixWorld(true);
     this.boundingSphere.center.copy(this.coreCenter).applyMatrix4(this.group.matrix);
@@ -579,6 +791,8 @@ export class SplatLayer {
    * is in view and large enough to draw. Returns true when the picture changes because of it.
    */
   update(dt: number, camera: PerspectiveCamera, viewportHeight: number): boolean {
+    // First time it would be shown: start the load it was waiting with.
+    if (this.deferred && this._visible && !this._suppressed) this.preload();
     if (!this.mesh) return false;
     let changed = false;
     if (this.followGround()) {
@@ -667,6 +881,10 @@ export class SplatLayer {
     this.cropMask = null;
     this.ready = false;
   }
+}
+
+function isPoint3(v: unknown): v is readonly [number, number, number] {
+  return Array.isArray(v) && v.length >= 3 && Number.isFinite(v[0]) && Number.isFinite(v[1]) && Number.isFinite(v[2]);
 }
 
 /** The Zstandard decoder shipped with three.js (a small WebAssembly module), loaded on first use and shared. */

@@ -10,6 +10,8 @@
  *      ├─ Element (IfcWall / IfcDoor / IfcWindow / IfcColumn / IfcSlab)
  *      └─ Thing (IfcElement: equipment, sensors, assets; ThingJS Thing/Entity)
  *
+ * Any of them may carry `splats`: Gaussian splat captures bound to that level (`SplatRef`).
+ *
  * Coordinates are meters in a building-local frame: +X east, +Y north, +Z up
  * at the geo anchor, rotated clockwise by `anchor.heading`. Floor content is
  * relative to the floor slab (z = 0 is the floor level). Geometry is either
@@ -95,6 +97,48 @@ export interface ViewpointDef {
   range?: number;
 }
 
+/**
+ * A Gaussian splat scene (`.ply` / `.splat` / `.spz`) shown with an entity: the real look of
+ * a building, floor, room or device next to (or instead of) its modelled geometry. It is
+ * placed in the entity's own frame and loads when it is first shown. See docs/agents/splats.md §7.
+ */
+export interface SplatRef {
+  /** URL, resolved against the document URL. */
+  uri: string;
+  name?: string;
+  /** Only needed when neither the content nor the file name tells. */
+  format?: 'ply' | 'splat' | 'spz';
+  /**
+   * Where the scene's pivot goes, in the entity's frame, meters (default [0, 0, 0]): the
+   * building frame for a building, floor-local (z = 0 at the slab) for a floor, room or
+   * element, relative to the device (and turned with it) for a thing.
+   */
+  position?: Vec3;
+  /** Degrees clockwise about +Z from the frame's +Y axis (default 0). */
+  rotation?: number;
+  /** Degrees about the frame's +X axis, and about its +Y axis (default 0): to level a capture that is not. */
+  pitch?: number;
+  roll?: number;
+  /** Meters per unit of the file (default 1). */
+  scale?: number;
+  /** Which way is up in the file: '-y' (3DGS / COLMAP, default), '+y' or '+z'. */
+  upAxis?: '-y' | '+y' | '+z';
+  /** The point of the scene put on `position`: 'bottom' (default), 'center', 'origin' or a point in file coordinates. */
+  pivot?: 'bottom' | 'center' | 'origin' | Vec3;
+  /**
+   * When it is shown: 'outside' (default for a building: its exterior), 'inside' (default
+   * below: while the view is in this level or deeper), 'current', 'entity' (whenever the
+   * entity is shown) or 'always'.
+   */
+  show?: 'always' | 'entity' | 'inside' | 'current' | 'outside';
+  /** Opacity of the entity's own geometry while the scene is shown, 0..1 (default 1; 0 keeps it interactive but unseen). */
+  entityOpacity?: number;
+  /** Opacity of the scene itself, 0..1 (default 1). */
+  opacity?: number;
+  /** Most splats to keep (default from the GPU tier). */
+  maxSplats?: number;
+}
+
 export interface ElementBase {
   /** Stable unique id within the document (e.g. an IFC GlobalId). */
   id: string;
@@ -110,6 +154,8 @@ export interface ElementBase {
   /** Camera view when this entity's level is entered. */
   viewpoint?: ViewpointDef;
   label?: LabelDef;
+  /** Gaussian splat scenes bound to this entity (any entity type). */
+  splats?: SplatRef[];
 }
 
 export interface BuildingDoc extends ElementBase {
@@ -275,7 +321,56 @@ function base(v: Record<string, unknown>, path: string, ids: Set<string>): Eleme
     tags: tags(v.tags, `${path}.tags`),
     viewpoint: viewpoint(v.viewpoint, `${path}.viewpoint`),
     label: isObj(v.label) ? (v.label as LabelDef) : undefined,
+    splats: splats(v.splats, `${path}.splats`),
   };
+}
+
+const SPLAT_SHOW = ['always', 'entity', 'inside', 'current', 'outside'] as const;
+const SPLAT_UP = ['-y', '+y', '+z'] as const;
+const SPLAT_PIVOT = ['bottom', 'center', 'origin'] as const;
+const SPLAT_FORMAT = ['ply', 'splat', 'spz'] as const;
+
+function oneOf<T extends string>(v: unknown, values: readonly T[], path: string): T | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== 'string' || !(values as readonly string[]).includes(v)) throw new SchemaError(path, `expected one of ${values.join(', ')}`);
+  return v as T;
+}
+
+function unit(v: unknown, path: string): number | undefined {
+  if (v === undefined) return undefined;
+  const n = num(v, path);
+  if (n < 0 || n > 1) throw new SchemaError(path, 'expected 0..1');
+  return n;
+}
+
+function splats(v: unknown, path: string): SplatRef[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) throw new SchemaError(path, 'expected an array of { uri }');
+  return v.map((s, i) => {
+    const sp = `${path}[${i}]`;
+    if (!isObj(s) || typeof s.uri !== 'string' || !s.uri) throw new SchemaError(sp, 'expected { uri }');
+    const out: SplatRef = { uri: s.uri };
+    if (typeof s.name === 'string') out.name = s.name;
+    out.format = oneOf(s.format, SPLAT_FORMAT, `${sp}.format`);
+    if (s.position !== undefined) out.position = vec3(s.position, `${sp}.position`);
+    for (const key of ['rotation', 'pitch', 'roll'] as const) if (s[key] !== undefined) out[key] = num(s[key], `${sp}.${key}`);
+    if (s.scale !== undefined) {
+      out.scale = num(s.scale, `${sp}.scale`);
+      if (out.scale <= 0) throw new SchemaError(`${sp}.scale`, 'must be positive');
+    }
+    out.upAxis = oneOf(s.upAxis, SPLAT_UP, `${sp}.upAxis`);
+    if (s.pivot !== undefined) out.pivot = Array.isArray(s.pivot) ? vec3(s.pivot, `${sp}.pivot`) : oneOf(s.pivot, SPLAT_PIVOT, `${sp}.pivot`);
+    out.show = oneOf(s.show, SPLAT_SHOW, `${sp}.show`);
+    out.entityOpacity = unit(s.entityOpacity, `${sp}.entityOpacity`);
+    out.opacity = unit(s.opacity, `${sp}.opacity`);
+    if (s.maxSplats !== undefined) {
+      out.maxSplats = num(s.maxSplats, `${sp}.maxSplats`);
+      if (out.maxSplats < 1) throw new SchemaError(`${sp}.maxSplats`, 'must be at least 1');
+    }
+    // Absent fields stay absent (documents round-trip through JSON unchanged).
+    for (const key of Object.keys(out) as (keyof SplatRef)[]) if (out[key] === undefined) delete out[key];
+    return out;
+  });
 }
 
 /** Structural element kinds (`StructureDef.kind`). */

@@ -365,6 +365,24 @@ export class GeoViewer {
       beginTransition: () => this.frameLoop.beginLevelTransition(),
       setTilesetsVisible: (visible) => this.layers.setTilesetsSuppressed(!visible),
       loadModel: (uri) => this.loadModel(uri),
+      // Captures a building document declares on its entities: bound to them, placed in their frame.
+      addSplats: (entity, def, baseUrl) => {
+        const layer = this.addSplats({
+          url: baseUrl ? new URL(def.uri, baseUrl).href : def.uri,
+          name: def.name ?? `${entity.name} · ${def.uri.split(/[\\/]/).pop()?.split(/[?#]/)[0] ?? ''}`,
+          format: def.format,
+          heading: def.rotation,
+          pitch: def.pitch,
+          roll: def.roll,
+          scale: def.scale,
+          upAxis: def.upAxis,
+          pivot: def.pivot,
+          opacity: def.opacity,
+          maxSplats: def.maxSplats,
+          level: { entity, position: def.position ?? [0, 0, 0], show: def.show, entityOpacity: def.entityOpacity },
+        });
+        return () => this.removeSplats(layer);
+      },
       followMove: (delta) => this.controller.translate(delta),
       occlusionBaker: new FloorOcclusionBaker(renderer),
       ambientOcclusion: { maxResolution: profile.indoor.aoMaxResolution, ...options.ambientOcclusion },
@@ -915,10 +933,12 @@ export class GeoViewer {
   // Gaussian splats
 
   /**
-   * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe.
-   * The file loads in a Worker; listen to the layer's `ready` / `error` events (or the viewer's
-   * 'error'), then `layer.flyTo()`. Throws an `option-invalid` `TerraViewError` when `position`
-   * or the source (`url` / `data`) is missing. See docs/api.md §1.14 and docs/agents/splats.md.
+   * Adds a 3D Gaussian splatting scene (`.ply`, `.splat`, `.spz`) at a position on the globe,
+   * or bound to a level of the scene (`level`: shown by the level the view is in, optionally
+   * placed in the entity's frame, loaded when first shown). The file loads in a Worker; listen
+   * to the layer's `ready` / `error` events (or the viewer's 'error'), then `layer.flyTo()`.
+   * Throws an `option-invalid` `TerraViewError` when the position or the source (`url` /
+   * `data`) is missing. See docs/api.md §1.14 and docs/agents/splats.md.
    */
   addSplats(options: SplatLayerOptions): SplatLayer {
     return this.layers.addSplats(options);

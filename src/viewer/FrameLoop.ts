@@ -268,6 +268,9 @@ export class FrameLoop {
     // Entered a building before the 3D Tiles loaded (e.g. ?demo): keep them loading, undrawn, until it has ground.
     const probe = this.viewer.layers.tilesetsSuppressed && !this.viewer.state.showGlobe && performance.now() < this.viewer.layers.probeUntil && this.viewer.indoor.awaitingGround;
     for (const layer of this.viewer.tilesets) {
+      // A tileset bound to a level follows it (levels change between frames).
+      const hidden = this.viewer.layers.hiddenByLevel(layer, false);
+      if (layer.suppressed !== hidden) layer.suppressed = hidden;
       layer.probe = probe;
       layer.update(dt, tilesView);
       // The window counts from the last loading activity, not from when the tiles were suppressed.
@@ -335,7 +338,8 @@ export class FrameLoop {
     let layers = 0;
     for (const layer of this.viewer.vectorLayers) if (!layer.ready && layer.error === null) layers++;
     for (const layer of this.viewer.pointLayers) if (!layer.ready && layer.error === null) layers++;
-    for (const layer of this.viewer.splatLayers) if (!layer.ready && layer.error === null) layers++;
+    // A layer waiting for its level to be shown has not started loading.
+    for (const layer of this.viewer.splatLayers) if (layer.loading) layers++;
     const state = summarizeLoad({
       globe: this.viewer.state.showGlobe ? this.viewer.globe.stats : null,
       imageryUnreachable: this.viewer.globe.imageryError !== null,

@@ -27,7 +27,9 @@ import { gzipSync } from 'node:zlib';
  * Keys match the start of the file name under dist/ (workers carry a content hash).
  */
 const BUDGETS = [
-  { file: 'terraview.js', raw: 860, gzip: 270 },
+  // 2026-11-23: 800 → 880 for the Gaussian splat layers and level bindings (entry 800.4 / 243.1 then);
+  // 860 on main for the volumetric clouds. Both merged (2026-11-24): entry 874.7 / 265.6.
+  { file: 'terraview.js', raw: 880, gzip: 270 },
   { file: 'terraview.css', raw: 16, gzip: 5 },
   { file: 'assets/tileMesh.worker', raw: 220, gzip: 115 },
   { file: 'assets/vector.worker', raw: 32, gzip: 10 },

@@ -194,7 +194,17 @@ export interface ViewerSnapshot {
   tilesets: { id: number; name: string; visible: boolean; active: boolean; pending: number; errorScale: number; memory: TilesMemoryStats }[];
   layers: { vector: number; points: number; markers: MarkerStats };
   /** Gaussian splat layers: whether each is loaded, shown and drawn right now, splats drawn, file facts, video memory. */
-  splats: { id: number; name: string; ready: boolean; visible: boolean; active: boolean; gpuBytes: number; stats: SplatLayerStats | null }[];
+  splats: {
+    id: number;
+    name: string;
+    ready: boolean;
+    visible: boolean;
+    active: boolean;
+    gpuBytes: number;
+    stats: SplatLayerStats | null;
+    /** Level binding: id of the bound entity (null: the globe, or not loaded) and whether the level shows the layer; null when unbound. */
+    level: { entity: string | null; shown: boolean } | null;
+  }[];
   indoor: {
     buildings: number;
     /** Entered level (id and type), null on the globe. */
@@ -294,7 +304,11 @@ export interface SurfacePick {
   distance: number;
   entity?: BimEntity;
   tileset?: Tiles3DLayer;
-  /** The Gaussian splat layer hit and the index of the splat (`source: 'splats'`; always a CPU ray). */
+  /**
+   * The Gaussian splat layer hit and the index of the splat (`source: 'splats'`; always a CPU
+   * ray). A layer bound to a level also sets `entity`: the bound entity, or the entity behind
+   * the splats when that is inside it (`SplatLevelOptions.pickEntity`).
+   */
   splats?: SplatLayer;
   splatIndex?: number;
   /** World unit normal facing the camera (GPU pick buffer only; flat per triangle). */
