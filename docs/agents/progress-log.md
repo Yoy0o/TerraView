@@ -271,6 +271,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-24 | 远端分支 `claude/confident-fermi-oy3is7` 的 6 个提交（M4.8 高斯泼溅第一期、层级绑定）cherry-pick 到 main：viewer 相关改动按 G1 拆分放进 `ViewerLayers` / `ViewerPicking` / `FrameLoop` / `diagnostics` / `viewerTypes`，`splats/` 加进分层表（只依赖 core），`TSLNode` 改从 `core/tsl` 取；泼溅的 API 小节改为 api.md §1.14（§1.13 是体积云）；合并后入口 874.7 / 265.6 KiB，在 880 / 270 预算内。`--types` 审查多出两条只导入类型的边（`splats`、`tiles3d` → `indoor/levelBinding` 的 `LevelBindingOptions`），规则允许，未改。verify 523 个测试通过，冒烟 12 项（WebGL / WebGPU）通过 |
 | 2026-11-24 | B13 关闭：集显上"云影多 4 ms"是 `stats.gpuMs` 的波动，改用轮换顺序的吞吐测法后云影只占 0.1–0.6 ms，不改代码；volumetric-clouds §10 集显表和 B12 的数字更正。另评估了推送当前提交对远端分支 `claude/confident-fermi-oy3is7`（高斯泼溅、层级绑定）合并的影响 |
 | 2026-11-24 | B12 完成：天气图按档位 512² / 1024²（`low` / 其余），40–200 km 高的云不再成方块；在 Intel Arc 集显上实测体积云（`low` 档 +0.6–1.5 ms，`medium` 档 +2.1–7.3 ms），`low` 默认维持关；集显上未定位的约 4 ms 记为 B13 |
 | 2026-11-24 | G 组完成（单包内重构）：`GeoViewer` 2,248 → 1,084 行、`Globe` 1,988 → 1,119 行、`VolumetricClouds` 1,252 → 729 行，拆出的部件各自声明窄接口；`src/clouds/`、`src/region/`；`check:layers` 进 `verify` 和 CI，AGENTS.md §2.1 写明分层。新旧构建的着色器逐字节相同、行为逐项相同；`IndoorManager` ↔ `LevelControl` 的类型循环有意保留（§4 G 落地） |
