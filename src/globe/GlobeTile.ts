@@ -10,6 +10,9 @@ import { createTileMaterial, isClippedTileMaterial, MORPH_ATTRIBUTE, retargetTil
 import { TileSelection, type SelectionNode } from './tileSelection';
 
 /** Reference-counted texture shared between a tile and descendants that magnify it. */
+
+/** Level of the quadtree's roots; coarser levels are never drawn. */
+export const MIN_LEVEL = 2;
 export class SharedTexture {
   private refs = 0;
   constructor(
