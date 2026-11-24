@@ -28,8 +28,8 @@ import {
 } from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, NodeMaterialInstance, type NodeMaterial, type WebGPURenderer } from 'three/webgpu';
-import { hasRegionMask, regionMaskNode } from '../local/regionMask';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import { hasRegionMask, regionMaskNode } from '../region/regionMask';
+import type { TSLNode } from '../core/tsl';
 import { isTileMaterial, tileMorphPositionNode } from '../globe/TileMaterial';
 import { bufferPixel, decodeTexel, transformDirection, transformPoint, viewPositionFromDepth } from './pickMath';
 

@@ -14,7 +14,7 @@
  */
 import { DataTexture, LinearFilter, Matrix4, RGBAFormat, UnsignedByteType, type Object3D, type Texture } from 'three';
 import { Fn, If, float, min, mix, positionLocal, smoothstep, texture, uniform, vec4 } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 
 /** What a viewer binds before it renders (`bindCloudShadows`). */
 export interface CloudShadowBinding {

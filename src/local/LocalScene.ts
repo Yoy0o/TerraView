@@ -21,8 +21,8 @@ import type { Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
 import type { CameraBounds, GlobeCameraController } from '../viewer/GlobeCameraController';
 import { RegionDimEffect } from './RegionDimEffect';
 import { RegionWalls } from './RegionWalls';
-import { boxFootprint, resolveRegion, type LocalRegion, type ResolvedRegion } from './region';
-import { setRegionGpuState, type RegionGpuState } from './regionMask';
+import { boxFootprint, resolveRegion, type LocalRegion, type ResolvedRegion } from '../region/region';
+import { setRegionGpuState, type RegionGpuState } from '../region/regionMask';
 
 /** Area of a local scene: a shape (degrees / meters), or the footprint of a 3D Tiles layer. */
 export type LocalSceneRegion = LocalRegion | { type: 'tileset'; layer: Tiles3DLayer };

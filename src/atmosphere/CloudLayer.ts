@@ -46,7 +46,8 @@ import {
 } from 'three/tsl';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { smoothstep as smoothstepCpu } from '../core/math';
-import { atmosphereUniforms, type TSLNode } from './AtmosphereNodes';
+import { atmosphereUniforms } from './AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { normalizeVolumetricOptions, VOLUMETRIC_CLOUD_DEFAULTS, type VolumetricCloudOptions } from './volumetricCloudMath';
 
 export interface CloudOptions {

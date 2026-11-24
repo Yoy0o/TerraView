@@ -22,15 +22,10 @@ import {
   vec3,
   vec4,
 } from 'three/tsl';
-import {
-  atmosphereUniforms as U,
-  integrateScattering,
-  sunTransmittanceAt,
-  toAtmosphereSpace,
-  type TSLNode,
-} from '../atmosphere/AtmosphereNodes';
+import { atmosphereUniforms as U, integrateScattering, sunTransmittanceAt, toAtmosphereSpace } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { sunShadowFactor } from '../lighting/SunShadows';
-import { regionMaskNode } from '../local/regionMask';
+import { regionMaskNode } from '../region/regionMask';
 
 /**
  * Globe tile material: an instance of one shared node material (r187
@@ -307,5 +302,3 @@ export function refreshTileMaterials(): void {
   shared.base.needsUpdate = true;
   shared.clipped.needsUpdate = true;
 }
-
-export type { TSLNode };

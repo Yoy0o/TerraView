@@ -36,7 +36,8 @@ import {
 } from 'three';
 import { Fn, If, abs, cross, dFdx, dFdy, dot, float, min, mix, normalLocal, normalize, output, positionLocal, sign, smoothstep, sqrt, texture, uniform, vec2, vec4 } from 'three/tsl';
 import { MeshBasicNodeMaterial, type WebGPURenderer } from 'three/webgpu';
-import { applyAerialPerspective, type TSLNode } from '../atmosphere/AtmosphereNodes';
+import { applyAerialPerspective } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { cloudShadowFactor } from './cloudShadows';
 import { fitSunShadow, sameFit, shadowCameraMatrix, sunShadowStrength, type ShadowCaster, type ShadowFit, type ShadowView } from './shadowFit';
 

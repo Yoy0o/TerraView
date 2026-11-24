@@ -20,7 +20,8 @@ import {
 } from 'three';
 import { materialEmissive, materialOpacity, referenceAttribute } from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshLambertNodeMaterial, MeshPhongNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMaterial, type NodeMaterial } from 'three/webgpu';
-import { aerialPerspectiveOutputNode, type TSLNode } from '../atmosphere/AtmosphereNodes';
+import { aerialPerspectiveOutputNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { DrawableSink } from '../post/EffectMarks';
 import type { BaseLook, BimEntity, EntityInstance, ResolvedLook } from './BimEntity';
 import { variantKey, type MaterialState, type StylePool } from './StylePool';

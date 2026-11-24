@@ -51,7 +51,7 @@ import {
   vec4,
 } from 'three/tsl';
 import { NodeMaterial, QuadMesh } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { EffectMarks, ResolvedOutline } from './EffectMarks';
 import type { PostEffect, PostFrame, PostInputs } from './PostPipeline';
 import { DEFAULT_OUTLINE_WIDTH, edgeSamples, MAX_OUTLINE_WIDTH, MIN_OUTLINE_WIDTH, outlineMaskScale, outlineRadius, pulseFactor } from './postMath';

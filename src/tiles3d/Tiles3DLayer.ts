@@ -6,7 +6,7 @@ import type { Ellipsoid } from '../core/Ellipsoid';
 import { TerraViewError } from '../core/errors';
 import { gpuProfile, type TilesQuality } from '../core/gpuProfile';
 import { createAdaptiveErrorState, stepAdaptiveError, tilesFalloffDensity } from './lodPolicy';
-import type { ResolvedRegion } from '../local/region';
+import type { ResolvedRegion } from '../region/region';
 import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, setObjectClipped, type NodeMaterialLibrary } from './nodeMaterials';
 import { RegionMaskPlugin } from './regionMaskPlugin';
 import { createFeatureHighlight, disposeFeatureHighlight, type FeatureHighlightStyle, type TileFeature } from './tileFeatures';

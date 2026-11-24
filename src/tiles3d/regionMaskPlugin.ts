@@ -8,7 +8,7 @@
  * `TilesRendererBase.calculateTileViewErrorWithPlugin`.
  */
 import { Sphere, type Object3D } from 'three';
-import { RegionRelation, type ResolvedRegion } from '../local/region';
+import { RegionRelation, type ResolvedRegion } from '../region/region';
 
 interface BoundingVolume {
   getSphere(target: Sphere): void;

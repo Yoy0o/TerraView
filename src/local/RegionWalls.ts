@@ -17,8 +17,8 @@
 import { BufferAttribute, BufferGeometry, Color, FrontSide, Mesh, Vector3, type Matrix4 } from 'three';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { abs, attribute, clamp, dot, float, fract, fwidth, max, mix, normalize, normalWorld, smoothstep, uniform } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
-import { bayerThreshold } from './regionMask';
+import type { TSLNode } from '../core/tsl';
+import { bayerThreshold } from '../region/regionMask';
 
 /** Default soil color at the top of the walls (sRGB). */
 export const WALL_COLOR = 0x8c6b4f;

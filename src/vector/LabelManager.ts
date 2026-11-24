@@ -27,7 +27,7 @@ import {
   vec4,
   viewportSize,
 } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { CollisionGrid } from '../core/CollisionGrid';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { isScaledSpacePointVisible, WGS84_A, WGS84_B } from '../core/geodesy';

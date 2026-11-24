@@ -11,10 +11,10 @@
  */
 import { Matrix4, Vector2, Vector4, type PerspectiveCamera } from 'three';
 import { dot, float, Fn, mix, perspectiveDepthToViewZ, screenUV, select, uniform, uniformArray, vec2, vec3, vec4 } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { PostEffect, PostFrame, PostInputs } from '../post/PostPipeline';
-import { MAX_REGION_VERTICES, type ResolvedRegion } from './region';
-import { regionDistanceNode, writeRing } from './regionMask';
+import { MAX_REGION_VERTICES, type ResolvedRegion } from '../region/region';
+import { regionDistanceNode, writeRing } from '../region/regionMask';
 
 /** Brightness kept outside the region at full dimming. */
 const DIM = 0.32;

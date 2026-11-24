@@ -21,7 +21,7 @@ import { Ellipsoid, cartographic, type Cartographic } from '../core/Ellipsoid';
 import { TerraViewError } from '../core/errors';
 import { geodeticNormal, geodeticToEcef, isScaledSpacePointVisible, WGS84_A } from '../core/geodesy';
 import { clamp, wrapPi } from '../core/math';
-import { RegionRelation, type ResolvedRegion } from '../local/region';
+import { RegionRelation, type ResolvedRegion } from '../region/region';
 import { GlobeTile, SharedTexture, type LoadChannel } from './GlobeTile';
 import { createTileMaterial, EMPTY_OVERLAY, MORPH_ATTRIBUTE, refreshTileMaterials, type TileMaterial } from './TileMaterial';
 import type { TileOverlaySource } from './overlay';

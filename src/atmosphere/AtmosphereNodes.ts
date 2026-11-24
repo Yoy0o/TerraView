@@ -41,11 +41,9 @@ import {
   vec3,
   vec4,
 } from 'three/tsl';
+import type { TSLNode } from '../core/tsl';
 import * as model from './atmosphereModel';
 import { AERIAL_GROUND_DEPTH_KM, GROUND_RADIUS_KM, MIE_EXTINCTION, MIE_G, MIE_SCALE_HEIGHT, MIE_SCATTERING, OZONE_CENTER, OZONE_HALF_WIDTH, RAYLEIGH_SCALE_HEIGHT, TOP_RADIUS_KM, Z_SCALE } from './atmosphereModel';
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type TSLNode = any;
 
 // Constants live in the CPU model (`atmosphereModel.ts`) so both sides compute the same atmosphere.
 export { ATMOSPHERE_HEIGHT_KM, GROUND_RADIUS_KM, TOP_RADIUS_KM, Z_SCALE } from './atmosphereModel';

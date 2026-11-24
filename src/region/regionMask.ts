@@ -15,7 +15,7 @@
  */
 import { Matrix4, Vector2, Vector4, type Object3D } from 'three';
 import { bool, float, Fn, fwidth, If, int, Loop, positionLocal, renderGroup, screenCoordinate, uniform, uniformArray, vec4 } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { MAX_REGION_VERTICES } from './region';
 
 /** What the clip shader of one renderer tests. */

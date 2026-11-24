@@ -44,7 +44,7 @@ import {
 } from 'three';
 import { Discard, Fn, float, min, mix, perspectiveDepthToViewZ, select, texture, uniform, uv, vec2, vec4, vertexStage } from 'three/tsl';
 import { NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { PostEffect, PostFrame, PostPipeline } from './PostPipeline';
 import { DEFAULT_TRANSITION_MS, TRANSITION_EDGE_RATIO, transitionGrid, transitionOpacity } from './postMath';
 

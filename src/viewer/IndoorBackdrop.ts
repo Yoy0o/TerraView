@@ -25,7 +25,7 @@ import {
   uniform,
   vec2,
 } from 'three/tsl';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { bounds2 } from '../indoor/schema';
 import type { Building } from '../indoor/Building';

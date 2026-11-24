@@ -61,7 +61,7 @@ import {
 } from 'three';
 import { float, mix, mrt, output, positionView, renderOutput, texture, uniform, vec4 } from 'three/tsl';
 import { BlendMode, NodeMaterial, QuadMesh, RenderPipeline, RendererUtils, type WebGPURenderer } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { collectAttachments, graphKey, jitterOffset, sampleWeight, sortEffects, type PostStage } from './postMath';
 
 export type { PostStage } from './postMath';

@@ -11,9 +11,10 @@ import {
   type Object3D,
 } from 'three';
 import { float, Fn, materialReference, screenCoordinate } from 'three/tsl';
-import { aerialPerspectiveOutputNode, type TSLNode } from '../atmosphere/AtmosphereNodes';
+import { aerialPerspectiveOutputNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import { unlitShadowOutputNode } from '../lighting/SunShadows';
-import { registerRegionMaskVariant, regionMaskNode } from '../local/regionMask';
+import { registerRegionMaskVariant, regionMaskNode } from '../region/regionMask';
 
 /** Converts plain materials to their node equivalents (`renderer.library.fromMaterial`). */
 export interface NodeMaterialLibrary {

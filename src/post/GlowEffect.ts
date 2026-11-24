@@ -11,7 +11,7 @@ import { BackSide, Color, DoubleSide, FrontSide, HalfFloatType, LinearFilter, Me
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { Discard, Fn, fwidth, materialReference, max, perspectiveDepthToViewZ, positionView, screenUV, texture, uniform, uv, vec4 } from 'three/tsl';
 import { NodeMaterial } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { EffectMarks } from './EffectMarks';
 import type { PostEffect, PostFrame, PostInputs } from './PostPipeline';
 import { outlineMaskScale, pulseFactor } from './postMath';

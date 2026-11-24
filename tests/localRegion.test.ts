@@ -13,7 +13,7 @@ import {
   resolveRegion,
   ringSelfIntersects,
   type ResolvedRegion,
-} from '../src/local/region';
+} from '../src/region/region';
 import { getHeadingPitch, orientationFromHeadingPitch, rayFromNdc } from '../src/viewer/cameraMath';
 import { GlobeCameraController, type CameraBounds } from '../src/viewer/GlobeCameraController';
 

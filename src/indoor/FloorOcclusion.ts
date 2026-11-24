@@ -74,7 +74,7 @@ import {
   vec4,
 } from 'three/tsl';
 import { MeshBasicNodeMaterial, NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { BimEntity } from './BimEntity';
 
 /** Floor ambient occlusion settings (`indoor.ambientOcclusion`). Lengths in meters. */

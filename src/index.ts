@@ -70,8 +70,8 @@ export type { HeadingPitch } from './viewer/cameraMath';
 // ---------------------------------------------------------------- local
 export { LocalScene } from './local/LocalScene';
 export type { LocalSceneCameraOptions, LocalSceneEvents, LocalSceneOptions, LocalSceneRegion, LocalSceneWallOptions } from './local/LocalScene';
-export { MAX_REGION_DIAMETER, MAX_REGION_VERTICES, MIN_REGION_RADIUS, ResolvedRegion } from './local/region';
-export type { LocalRegion } from './local/region';
+export { MAX_REGION_DIAMETER, MAX_REGION_VERTICES, MIN_REGION_RADIUS, ResolvedRegion } from './region/region';
+export type { LocalRegion } from './region/region';
 
 // ---------------------------------------------------------------- globe
 export { Globe } from './globe/Globe';

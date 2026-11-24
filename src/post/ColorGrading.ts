@@ -9,7 +9,7 @@
  */
 import { saturation, uniform, vec4 } from 'three/tsl';
 import type { WebGPURenderer } from 'three/webgpu';
-import type { TSLNode } from '../atmosphere/AtmosphereNodes';
+import type { TSLNode } from '../core/tsl';
 import type { PostEffect } from './PostPipeline';
 import { COLOR_GRADING_PRESETS, gradingPassNeeded, normalizeGrading, type ColorGradingOptions } from './postMath';
 
