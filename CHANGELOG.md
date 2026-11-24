@@ -28,11 +28,12 @@
 
 - `CloudOptions.volumetric`（`boolean` 或 `VolumetricCloudOptions`：`enabled`、`bottom`、`thickness`、`windSpeed`、`windHeading`、`density`、`shadows`、`fadeHeights`、`maxDistance`），`VOLUMETRIC_CLOUD_DEFAULTS`，`ResolvedCloudOptions`（`clouds.getOptions()` 的类型，含 `volumetric`）。与云壳共用 `visible`、`coverage`；天气跟随云壳的密度，从太空看到的云团处底下是成片的积云。默认按显存档位开（`low` 关）。
 - 云影：开光照、太阳在地平线以上时，沿太阳光线穿过云层的透射率图乘进日照阴影的接收节点，只削弱直射阳光；地球地面、3D Tiles（含倾斜摄影）、建筑、设备、展台背景都接收。
-- `GpuProfile.clouds`（`CloudQuality`：默认开关、历史像素上限、步数、朝太阳步数、云影图边长）。
+- `GpuProfile.clouds`（`CloudQuality`：默认开关、历史像素上限、步数、朝太阳步数、云影图边长、天气图边长 `weatherSize`）。
 - 演示应用："云层"下的"体积云（近地）"开关、云底高度、风速；URL 参数 `?cloudVolumetric=0|1`、`?cloudBase`、`?cloudThickness`、`?cloudWind`、`?cloudWindHeading`、`?cloudDensity`、`?cloudShadows=0|1`。
 
 **变更**
 
+- 天气图在 `medium` 及以上是 1024²（`low` 仍是 512²，多 3 MB 显存）：512² 时从 40–200 km 高看，云格只有约 4 个纹素，画成连在一起的圆角方块（B12）。每帧的追踪开销不变，只在天气图移动时重画（集显上约 1–3 ms 一次）。
 - 云壳的漂移只在云壳可见时（相机高于约 60 km）推进；近地时天气不动，体积云按自己的风移动。云壳可见时它的漂移被体积云当作风。
 - 有云影时太阳平行光的 `castShadow` 也打开（即使建筑阴影关着），开关体积云云影时带光照的材质重编一次着色器。
 - 有风时体积云一直在动，画面不算静止：按最近的云在屏幕上的移动速度要最低帧率（每帧 ≤ 1.5 px）；`windSpeed: 0` 时画面可以静止并做超采样。
