@@ -291,7 +291,7 @@ viewer.clouds.set({ volumetric: false }); // 只要云壳
 
 不合法的值被丢弃或夹紧（`normalizeVolumetricOptions`）。进入局部场景、或建筑周围什么都不画（展台背景）时不画体积云；拾取不受云影响。
 
-代价：后期里的光线步进，分辨率至多画布的一半（按档位 16 万–100 万像素，见 `GpuProfile.clouds`），每帧只追其中四分之一的像素，其余靠按云距离、相机运动和风重投影的历史补齐。实测（WebGPU、RTX 40 系，1920×1080）追踪每帧约 0.6 ms（`high`）/ 0.16 ms（`medium`），时域合成、云影图不到 0.05 ms（[volumetric-clouds.md](agents/volumetric-clouds.md) §10）。显存在第一次显示时分配：噪声 1 MB、天气图 1 MB、云影图 0.25–4 MB、历史与追踪目标（1080p 约 16 MB），计入 `viewer.memory.framebuffers`。噪声体在一个 Worker 里生成（约 0.5 s，整页一次，生成完即关闭），之前不画体积云。有风时画面一直在变：按最近的云在屏幕上的移动速度要最低帧率（§1.8）。
+代价：后期里的光线步进，分辨率至多画布的一半（按档位 16 万–100 万像素，见 `GpuProfile.clouds`），每帧只追其中四分之一的像素，其余靠按云距离、相机运动和风重投影的历史补齐。实测（WebGPU、RTX 40 系）：真机 Chrome 1920×889 下整帧多 0.4–1.2 ms，各视角都保持 60 FPS；其中追踪约 0.6 ms（`high`，1080p），时域合成、云影图不到 0.05 ms（[volumetric-clouds.md](agents/volumetric-clouds.md) §10）。显存在第一次显示时分配：噪声 1 MB、天气图 1 MB、云影图 0.25–4 MB、历史与追踪目标（1080p 约 16 MB），计入 `viewer.memory.framebuffers`。噪声体在一个 Worker 里生成（约 0.5 s，整页一次，生成完即关闭），之前不画体积云。有风时画面一直在变：按最近的云在屏幕上的移动速度要最低帧率（§1.8）。
 
 ## 2. 约定
 

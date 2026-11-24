@@ -154,7 +154,7 @@ Hub 与仓库里需要处理的小问题：
 | B9 ✅ | M3.9 | 2026-11-19 完成（P3.6，`viewer.shadows`、`viewer.transparency`，[api.md](../api.md) §1.11）。日照阴影：自管的一张平行光阴影图（`SunLight` 用 float32 世界坐标，ECEF 下不够精确），按包围盒足迹 ∩ 视锥足迹适配，地球、3D Tiles、展台接收；OIT：`OITPassNode` 的算法接进 `PostPipeline`，只处理建筑和设备，默认只在 `ultra` 开 | B2 | 中到大 | 透明与阴影 |
 | B10 | M3.7 | 八面体冒名顶替（树、设备等重复模型远处用面片） | 无 | 中 | 八面体冒名顶替 |
 | B11 | M2.2 可选 | 顶牌遮挡改查拾取缓冲深度，省掉代理绘制；缓冲半分辨率、最多 0.25 s 刷新，相机运动时不新鲜，**收益存疑，先不做** | — | 小 | （暂缓） |
-| B12 | 体积云后续 | 2026-11-24 真机验证时记录：① 100–220 km 过渡带云边有方块感（天气图 512²、纹素约 860 m，云格只有 3–4 个纹素）：高档位改 1024² 天气图（多 3 MB），或加一级粗分辨率的天气图；② 真机性能数据缺失（验证时 Chrome 窗口最小化，rAF 每秒 1.5 次、GPU 降频，测得的 GPU 时间不可用）：在前台窗口、集成显卡上补测，再决定 `low` 档是否默认开 | 无 | 小 | 体积云过渡带与真机性能 |
+| B12 | 体积云后续 | 2026-11-24 真机验证时记录：① 100–220 km 过渡带云边有方块感（天气图 512²、纹素约 860 m，云格只有 3–4 个纹素）：高档位改 1024² 天气图（多 3 MB），或加一级粗分辨率的天气图；② 集成显卡上的性能：独立显卡已在真机补测（RTX 40、1920×889，整帧多 0.4–1.2 ms，始终 60 FPS，[volumetric-clouds.md](volumetric-clouds.md) §10）；集成显卡上实测后再决定 `low` 档是否默认开 | 无 | 小 | 体积云过渡带与真机性能 |
 
 ### C. 地球、3D Tiles 与矢量
 
@@ -257,7 +257,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
-| 2026-11-24 | 体积云的 Claude in Chrome 真机验证（WebGPU / WebGL2，检查清单全过，结果在 [volumetric-clouds.md](volumetric-clouds.md) §10）；记下两项后续（B12）。monorepo 评估：暂不改（roadmap §10.4），单包内重构的细项登记为 G 组，未开工 |
+| 2026-11-24 | 体积云的 Claude in Chrome 真机验证（WebGPU / WebGL2，检查清单全过，结果在 [volumetric-clouds.md](volumetric-clouds.md) §10）；第一次窗口最小化没测到性能，补测：RTX 40、1920×889，体积云让整帧多 0.4–1.2 ms，各视角都保持 60 FPS，有风时 10 FPS 节能、无风时静止停画；记下两项后续（B12）。monorepo 评估：暂不改（roadmap §10.4），单包内重构的细项登记为 G 组，未开工 |
 | 2026-11-24 | 插入项：体积云（近地，`viewer.clouds.set({ volumetric })`）。参考 yisky/hillaire-sky-webgpu 的积云做法（该仓库无许可证，只借鉴思路，代码重写为 TSL 片元 pass，WebGPU / WebGL 2 都能跑）：天气图跟随云壳密度并随风滑动，2×2 交错追踪 + 按云距离 / 相机 / 风重投影的历史，按场景深度上采样合成，云影接进 `sunShadowFactor`。新增踩坑一条（AGENTS.md §7：TSL `If` 回调写成表达式箭头函数），专题文档 §7 记了六条。verify 478 个测试通过，冒烟硬件模式 8 项、软件模式新用例 2 项通过 |
 | 2026-11-19 | P3.6（B9 / M3.9）：日照阴影（`viewer.shadows`：`lighting/shadowFit.ts` 纯函数适配、`lighting/SunShadows.ts` 自管阴影图和共享接收节点，地球瓦片、3D Tiles、展台接收，只在范围或内容变化时重画）、透明顺序无关混合（`viewer.transparency`，`PostPipeline` 的透明 pass 与合成，WebGPU，默认只在 `ultra`）。新增踩坑三条（AGENTS.md §7：无渲染目标的深度纹理被当成多重采样、放大渲染目标后材质仍绑旧纹理、MRT 按纹理名对应）。verify 436 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.6 落地"） |
 | 2026-11-19 | P3.5（B7 / M3.4、B8 / M3.5）：楼层环境光遮蔽（`viewer.indoor.ambientOcclusion`，GPU 俯视烘焙、接触项加权最大值 + 柔和项平均、读回成 `DataTexture`、共享 `colorNode`、内容变化稳定后重烘）；光照跟随大气（大气 CPU 版、太阳光色、天光 SH 探针、建筑 / 设备 / 3D Tiles 的空气透视）。浏览器实测 TSL 与 CPU 透射率相差 < 7e-5，AO 贴图 WebGPU / WebGL 逐字节相同。P5 顺带：C11 第二处局限修复（`moved` 事件）、M5.1 的 `viewer.snapshot()`、建筑构建的控制台警告；新增 C12（Chapman 近似偏差）。verify 419 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.5 落地"）。P1.7 仍搁置 |
