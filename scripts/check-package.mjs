@@ -27,11 +27,12 @@ import { gzipSync } from 'node:zlib';
  * Keys match the start of the file name under dist/ (workers carry a content hash).
  */
 const BUDGETS = [
-  { file: 'terraview.js', raw: 800, gzip: 270 },
+  { file: 'terraview.js', raw: 860, gzip: 270 },
   { file: 'terraview.css', raw: 16, gzip: 5 },
   { file: 'assets/tileMesh.worker', raw: 220, gzip: 115 },
   { file: 'assets/vector.worker', raw: 32, gzip: 10 },
   { file: 'assets/clusterTree.worker', raw: 12, gzip: 5 },
+  { file: 'assets/cloudNoise.worker', raw: 10, gzip: 4 },
 ];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');

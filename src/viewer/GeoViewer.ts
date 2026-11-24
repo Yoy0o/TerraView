@@ -26,6 +26,7 @@ import { AtmosphereLighting, type AtmosphereLight } from '../atmosphere/Atmosphe
 import { atmosphereUniforms, skyColorNode, Z_SCALE } from '../atmosphere/AtmosphereNodes';
 import { CloudLayer, type CloudOptions } from '../atmosphere/CloudLayer';
 import { StarField } from '../atmosphere/Stars';
+import { VolumetricClouds } from '../atmosphere/VolumetricClouds';
 import { cartographic, Ellipsoid, type Cartographic } from '../core/Ellipsoid';
 import { EventEmitter } from '../core/EventEmitter';
 import { classifyGpu, effectivePixelRatio, estimateFramebufferBytes, gpuProfile, type GpuHints, type GpuProfile, type GpuTier } from '../core/gpuProfile';
@@ -76,7 +77,7 @@ import { PickBuffer, type PickTarget } from './PickBuffer';
 import { checkViewerOptions } from './viewerOptions';
 import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
 import { LoadTracker, summarizeLoad, type LoadState } from './loadState';
-import { cloudFrameRate, DEFAULT_IDLE_FRAME_RATE, drawMode, FramePacer, MAX_IDLE_FRAME_RATE, normalizeIdleFrameRate } from './framePacing';
+import { cloudFrameRate, DEFAULT_IDLE_FRAME_RATE, drawMode, FramePacer, MAX_IDLE_FRAME_RATE, normalizeIdleFrameRate, volumetricCloudFrameRate } from './framePacing';
 
 export interface ViewPosition {
   /** Degrees. */
@@ -355,6 +356,7 @@ const _carto = cartographic();
 const _lightPoint = new Vector3();
 const _shadowOrigin = new Vector3();
 const _shadowUp = new Vector3();
+const _drawingBuffer = new Vector2();
 const _localPoint = new Vector3();
 const CENTER_NDC = new Vector2(0, 0);
 /**
@@ -403,8 +405,13 @@ export class GeoViewer {
   readonly controller: GlobeCameraController;
   /** @internal */
   readonly stars = new StarField();
-  /** Animated cloud layer over the imagery (hidden by default: `clouds.visible = true`). */
+  /**
+   * Clouds (hidden by default: `clouds.visible = true`): an animated layer over the imagery
+   * seen from far away, volumetric clouds near the ground (`clouds.set({ volumetric })`).
+   */
   readonly clouds: CloudLayer;
+  /** @internal Volumetric clouds near the ground (a post effect; settings in `clouds`). */
+  private readonly volumetricClouds: VolumetricClouds;
   /** UI-free navigation commands: zoom, rotate, tilt, home, orbit, fullscreen, screenshot, opening spin. */
   readonly navigation: NavigationControls;
   /** @internal */
@@ -648,8 +655,11 @@ export class GeoViewer {
     this.labels.heightProvider = (lon, lat) => (this._showGlobe ? this.globe.getHeight(lon, lat) : 0);
     this.scene.add(this.labels.group);
     this.scene.add(this.stars.mesh);
-    this.clouds = new CloudLayer(this.ellipsoid);
-    this.clouds.onChange = () => this.requestRender();
+    this.clouds = new CloudLayer(this.ellipsoid, { volumetric: profile.clouds.volumetric });
+    this.clouds.onChange = () => {
+      this.updateSunCasting();
+      this.requestRender();
+    };
     if (options.clouds) this.clouds.set(options.clouds);
     this.scene.add(this.clouds.mesh);
     this.scene.add(this.sunLight, this.sunLight.target, this.skyLight, this.skyProbe);
@@ -711,6 +721,9 @@ export class GeoViewer {
     this.postProcessing.add(grading);
     this.postProcessing.add(this.levelTransition);
     this.postProcessing.add(outline);
+    this.volumetricClouds = new VolumetricClouds(renderer, this.clouds, this.ellipsoid, profile.clouds);
+    this.volumetricClouds.onReady = () => this.requestRender();
+    this.postProcessing.add(this.volumetricClouds);
     this.effects = new ViewerEffects(this.marks, outline, glow, () => this.requestRender());
     this.colorGrading = new ColorGrading(renderer, grading, () => this.requestRender());
     if (options.colorGrading) this.colorGrading.set(options.colorGrading);
@@ -726,10 +739,10 @@ export class GeoViewer {
     renderer.shadowMap.enabled = true;
     (this.sunLight.shadow as unknown as { shadowNode: unknown }).shadowNode = sunShadowFactor();
     this.shadows = new SunShadows(renderer, profile.shadows, typeof options.shadows === 'boolean' ? { enabled: options.shadows } : (options.shadows ?? {}), (toggled) => {
-      if (toggled) this.sunLight.castShadow = this.shadows.enabled;
+      if (toggled) this.updateSunCasting();
       this.requestRender();
     });
-    this.sunLight.castShadow = this.shadows.enabled;
+    this.updateSunCasting();
     // Building and device surfaces (entity meshes and device batches) blend order-independently.
     this.postProcessing.oitTest = (object) => object.userData.entity !== undefined || (object as { isBatchMesh?: boolean }).isBatchMesh === true;
     this.transparency = new Transparency(
@@ -1739,15 +1752,33 @@ export class GeoViewer {
   private idleFloorRate(): number {
     // Motion started from code since the last frame (flyTo, zoomBy, playAnimation...) shows at once.
     if (this.timeMultiplier !== 0 || this.controller.inMotion || this.postProcessing.animating) return MAX_IDLE_FRAME_RATE;
-    if (!this.clouds.mesh.visible) return 0;
-    const o = this.clouds.getOptions();
-    return cloudFrameRate({
-      speedDegPerSec: o.speed,
-      layerRadius: this.ellipsoid.radii.x + o.height,
-      distance: this.cameraCarto.height - o.height,
-      fovDeg: this.camera.fov,
-      viewportHeight: this.container.clientHeight,
-    });
+    let rate = 0;
+    if (this.clouds.mesh.visible) {
+      const o = this.clouds.getOptions();
+      rate = cloudFrameRate({
+        speedDegPerSec: o.speed,
+        layerRadius: this.ellipsoid.radii.x + o.height,
+        distance: this.cameraCarto.height - o.height,
+        fovDeg: this.camera.fov,
+        viewportHeight: this.container.clientHeight,
+      });
+    }
+    if (this.volumetricClouds.visible) {
+      // The wind moves the volumetric clouds (0 m/s: they hold still and the view can be still).
+      const v = this.clouds.volumetricOptions;
+      rate = Math.max(
+        rate,
+        volumetricCloudFrameRate({
+          windSpeed: v.windSpeed,
+          cameraHeight: this.cameraCarto.height,
+          bottom: v.bottom,
+          top: v.bottom + v.thickness,
+          fovDeg: this.camera.fov,
+          viewportHeight: this.container.clientHeight,
+        }),
+      );
+    }
+    return rate;
   }
 
   private frame(time: number): void {
@@ -1807,7 +1838,12 @@ export class GeoViewer {
     const now = performance.now();
     const mode = drawMode(this.pacer.isStill(now, this.idleFloorRate()), this.supersampling.enabled, this.postProcessing.samples, this.supersampling.samples);
     // The shadow map is drawn again only when its fit moved or the buildings changed.
-    if (mode !== 'hold') this.shadows.render(this.indoor.root);
+    if (mode !== 'hold') {
+      this.shadows.render(this.indoor.root);
+      // Weather and cloud shadow maps, and this viewer's cloud shadows bound for the receivers.
+      this.updateVolumetricClouds(dt);
+      this.volumetricClouds.renderMaps();
+    }
     if (mode === 'live') this.postProcessing.render();
     else if (mode === 'sample') this.postProcessing.renderSample();
     if (mode !== 'hold') this.lastDrawAt = now;
@@ -1903,6 +1939,7 @@ export class GeoViewer {
       // Drawn outside the frame loop: this viewer's shared uniforms first (see renderOutsideFrame).
       this.updateEnvironment();
       this.shadows.render(this.indoor.root);
+      this.volumetricClouds.bind();
       this.labels.syncCamera(this.camera);
       this.marks.refresh();
     }
@@ -1916,6 +1953,7 @@ export class GeoViewer {
     if (this.postProcessing.samples > 0 && this.pacer.changedAt < this.lastDrawAt && this.postProcessing.present()) return;
     this.updateEnvironment();
     this.shadows.render(this.indoor.root);
+    this.volumetricClouds.bind();
     this.labels.syncCamera(this.camera);
     this.marks.refresh();
     this.postProcessing.render();
@@ -1975,6 +2013,36 @@ export class GeoViewer {
     this.skyLight.position.copy(up);
     this.skyLight.updateMatrixWorld();
     this.updateShadows(sun);
+  }
+
+  /**
+   * The sun light runs the shared shadow node (`sunShadowFactor`) while building shadows or cloud
+   * shadows are wanted; lit materials rebuild once when this flips.
+   */
+  private updateSunCasting(): void {
+    // Also called while the constructor sets the cloud options, before the shadows exist.
+    const shadows = this.shadows as SunShadows | undefined;
+    if (!shadows) return;
+    this.sunLight.castShadow = shadows.enabled || (this.volumetricClouds?.wantsShadows ?? false);
+  }
+
+  /** Visibility, wind and light of the volumetric clouds for this frame (cameraCarto and the environment are current). */
+  private updateVolumetricClouds(dt: number): void {
+    const size = this.renderer.getDrawingBufferSize(_drawingBuffer);
+    const light = this._lighting ? this.atmosphereLight.current : null;
+    this.volumetricClouds.update({
+      dt,
+      camera: this.camera,
+      cameraHeight: this.cameraCarto.height,
+      lighting: this._lighting,
+      sun: atmosphereUniforms.lightDirection.value as Vector3,
+      sunColor: light?.sunColor ?? null,
+      sh: light?.sh ?? null,
+      // No sky to draw clouds against: a local scene, or a building on the studio backdrop.
+      suppressed: this.localScene.engaged || (this.backdrop.amount.value as number) > 0.5,
+      width: size.x,
+      height: size.y,
+    });
   }
 
   /**

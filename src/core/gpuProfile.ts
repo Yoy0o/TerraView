@@ -91,6 +91,23 @@ export interface IndoorQuality {
   aoMaxResolution: number;
 }
 
+/**
+ * Volumetric cloud settings of a tier (`viewer.clouds.volumetric`). The cost grows with the
+ * traced pixels (a quarter of the history per frame) times the steps.
+ */
+export interface CloudQuality {
+  /** Volumetric clouds on by default (`clouds.volumetric.enabled`). */
+  volumetric: boolean;
+  /** Pixels of the cloud history at most (it is at most half the drawing buffer's resolution). */
+  historyPixels: number;
+  /** Ray-march steps per traced pixel at most. */
+  steps: number;
+  /** Steps toward the sun per lit sample. */
+  lightSteps: number;
+  /** Texels along a side of the cloud shadow map (4 bytes each). */
+  shadowMapSize: number;
+}
+
 /** Everything a tier decides. Explicit viewer / layer options take precedence over these. */
 export interface GpuProfile {
   tier: GpuTier;
@@ -119,6 +136,8 @@ export interface GpuProfile {
    * multisampled targets the size of the canvas (9 bytes per sample and pixel), so off by default below `ultra`.
    */
   orderIndependentTransparency: boolean;
+  /** Volumetric clouds near the ground. */
+  clouds: CloudQuality;
 }
 
 const PROFILES: Record<GpuTier, GpuProfile> = {
@@ -145,6 +164,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000, aoMaxResolution: 512 },
     shadows: { enabled: false, mapSize: 1024 },
     orderIndependentTransparency: false,
+    clouds: { volumetric: false, historyPixels: 160_000, steps: 48, lightSteps: 4, shadowMapSize: 256 },
   },
   // Current integrated graphics (Intel Xe / Arc, Radeon 600M-800M), entry discrete cards.
   medium: {
@@ -169,6 +189,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
     shadows: { enabled: true, mapSize: 2048 },
     orderIndependentTransparency: false,
+    clouds: { volumetric: true, historyPixels: 300_000, steps: 64, lightSteps: 5, shadowMapSize: 512 },
   },
   // Discrete cards (4 GB and up), Apple silicon.
   high: {
@@ -193,6 +214,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
     shadows: { enabled: true, mapSize: 2048 },
     orderIndependentTransparency: false,
+    clouds: { volumetric: true, historyPixels: 520_000, steps: 96, lightSteps: 6, shadowMapSize: 512 },
   },
   // 12 GB cards and up, picked explicitly: large screens, long flights without reloading.
   ultra: {
@@ -217,13 +239,14 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000, aoMaxResolution: 2048 },
     shadows: { enabled: true, mapSize: 4096 },
     orderIndependentTransparency: true,
+    clouds: { volumetric: true, historyPixels: 1_000_000, steps: 128, lightSteps: 6, shadowMapSize: 1024 },
   },
 };
 
 /** The settings of a tier (a fresh copy, safe to modify). @advanced */
 export function gpuProfile(tier: GpuTier): GpuProfile {
   const p = PROFILES[tier];
-  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor }, shadows: { ...p.shadows } };
+  return { ...p, globe: { ...p.globe }, tiles: { ...p.tiles }, indoor: { ...p.indoor }, shadows: { ...p.shadows }, clouds: { ...p.clouds } };
 }
 
 /** `low` / `medium` / `high` / `ultra` (any case, surrounding spaces ignored), else undefined. @advanced */

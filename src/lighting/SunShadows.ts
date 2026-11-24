@@ -37,6 +37,7 @@ import {
 import { Fn, If, abs, cross, dFdx, dFdy, dot, float, min, mix, normalLocal, normalize, output, positionLocal, sign, smoothstep, sqrt, texture, uniform, vec2, vec4 } from 'three/tsl';
 import { MeshBasicNodeMaterial, type WebGPURenderer } from 'three/webgpu';
 import { applyAerialPerspective, type TSLNode } from '../atmosphere/AtmosphereNodes';
+import { cloudShadowFactor } from './cloudShadows';
 import { fitSunShadow, sameFit, shadowCameraMatrix, sunShadowStrength, type ShadowCaster, type ShadowFit, type ShadowView } from './shadowFit';
 
 /** Settings of the sun shadows (`viewer.shadows`). */
@@ -175,7 +176,8 @@ export function sunShadowFactor(): TSLNode {
         lit.assign(mix(1, sum.div(16), S.strength.mul(fade)));
       });
     });
-    return lit;
+    // Clouds overhead (volumetric clouds): their own map, 1 while there are none.
+    return lit.mul(cloudShadowFactor());
   })();
   return sharedFactor;
 }

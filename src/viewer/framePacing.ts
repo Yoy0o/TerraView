@@ -81,6 +81,37 @@ export function cloudFrameRate(m: CloudMotion): number {
   return speed / metersPerPixel / CLOUD_MAX_STEP_PX;
 }
 
+/** What `volumetricCloudFrameRate` needs to know. */
+export interface VolumetricCloudMotion {
+  /** Wind speed, meters per second. */
+  windSpeed: number;
+  /** Camera height and the cloud layer's base and top, meters above the ellipsoid. */
+  cameraHeight: number;
+  bottom: number;
+  top: number;
+  /** Vertical field of view in degrees. */
+  fovDeg: number;
+  /** Viewport height in CSS pixels. */
+  viewportHeight: number;
+}
+
+/** Nearest the volumetric clouds are assumed to be, meters (inside the layer they can be anywhere). */
+export const VOLUMETRIC_NEAREST_M = 300;
+
+/**
+ * Frames per second the wind needs for the volumetric clouds to move at most `CLOUD_MAX_STEP_PX`
+ * per frame: the wind across the nearest clouds (the layer's base below it, its top above it,
+ * `VOLUMETRIC_NEAREST_M` inside it). With 6 m/s, 50°, 1000 px: about 4 fps from 1 km under the
+ * base, 14 fps inside the layer.
+ */
+export function volumetricCloudFrameRate(m: VolumetricCloudMotion): number {
+  if (!(m.windSpeed > 0 && m.viewportHeight > 0)) return 0;
+  const gap = m.cameraHeight < m.bottom ? m.bottom - m.cameraHeight : m.cameraHeight > m.top ? m.cameraHeight - m.top : 0;
+  const distance = Math.max(VOLUMETRIC_NEAREST_M, gap);
+  const metersPerPixel = (distance * 2 * Math.tan((m.fovDeg * Math.PI) / 360)) / m.viewportHeight;
+  return m.windSpeed / metersPerPixel / CLOUD_MAX_STEP_PX;
+}
+
 /**
  * How a frame draws:
  * - `live`: the scene as it is, straight to the canvas (the picture changes, or it is not still);

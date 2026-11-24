@@ -11,10 +11,19 @@
  * down (`fadeHeights`) and is skipped entirely once invisible. With sun
  * lighting on, the night side darkens with the same sun direction as the
  * globe. Shading is TSL only (WebGPU and the WebGL 2 fallback).
+ *
+ * Near the ground the volumetric clouds take over (`volumetric` options,
+ * drawn by `VolumetricClouds`): their weather follows this layer's density
+ * (`densityNode`), so the clouds seen from space are where they are seen from
+ * below. The drift only advances while the shell is visible, so the weather
+ * under a camera near the ground holds still (the volumetric clouds move with
+ * their own wind).
  */
 import { BufferAttribute, BufferGeometry, ClampToEdgeWrapping, FrontSide, Mesh, RepeatWrapping, SRGBColorSpace, TextureLoader, type Texture } from 'three';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import {
+  asin,
+  atan,
   attribute,
   clamp,
   cos,
@@ -38,6 +47,7 @@ import {
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { smoothstep as smoothstepCpu } from '../core/math';
 import { atmosphereUniforms, type TSLNode } from './AtmosphereNodes';
+import { normalizeVolumetricOptions, VOLUMETRIC_CLOUD_DEFAULTS, type VolumetricCloudOptions } from './volumetricCloudMath';
 
 export interface CloudOptions {
   /** Show the layer (default false: opt-in). */
@@ -61,9 +71,17 @@ export interface CloudOptions {
    * white PNGs with alpha work. null switches back to procedural clouds.
    */
   textureUrl?: string | null;
+  /**
+   * Volumetric clouds near the ground (`VolumetricCloudOptions`; `true` / `false` is short
+   * for `{ enabled }`). They share `visible` and `coverage` with the layer.
+   */
+  volumetric?: boolean | VolumetricCloudOptions;
 }
 
-export const CLOUD_DEFAULTS: Required<CloudOptions> = {
+/** Cloud settings with every value filled in (`clouds.getOptions()`). */
+export type ResolvedCloudOptions = Required<Omit<CloudOptions, 'volumetric'>> & { volumetric: Required<VolumetricCloudOptions> };
+
+export const CLOUD_DEFAULTS: ResolvedCloudOptions = {
   visible: false,
   coverage: 0.5,
   opacity: 0.9,
@@ -71,7 +89,12 @@ export const CLOUD_DEFAULTS: Required<CloudOptions> = {
   height: 10_000,
   fadeHeights: [60_000, 500_000],
   textureUrl: null,
+  volumetric: VOLUMETRIC_CLOUD_DEFAULTS,
 };
+
+function copyOptions(o: ResolvedCloudOptions): ResolvedCloudOptions {
+  return { ...o, fadeHeights: [...o.fadeHeights], volumetric: { ...o.volumetric, fadeHeights: [...o.volumetric.fadeHeights] } };
+}
 
 /** Clamps and validates options; invalid values are dropped (the current value is kept). */
 export function normalizeCloudOptions(options: CloudOptions): CloudOptions {
@@ -86,6 +109,9 @@ export function normalizeCloudOptions(options: CloudOptions): CloudOptions {
   if (options.textureUrl === null || (typeof options.textureUrl === 'string' && options.textureUrl.trim() !== '')) {
     out.textureUrl = options.textureUrl === null ? null : options.textureUrl.trim();
   }
+  const v = options.volumetric;
+  if (typeof v === 'boolean') out.volumetric = { enabled: v };
+  else if (v && typeof v === 'object') out.volumetric = normalizeVolumetricOptions(v);
   return out;
 }
 
@@ -99,7 +125,7 @@ const NOISE_SCALE = 2.6;
 
 export class CloudLayer {
   readonly mesh: Mesh<BufferGeometry, MeshBasicNodeMaterial>;
-  private readonly options: Required<CloudOptions> = { ...CLOUD_DEFAULTS, fadeHeights: [...CLOUD_DEFAULTS.fadeHeights] };
+  private readonly options: ResolvedCloudOptions = copyOptions(CLOUD_DEFAULTS);
   private readonly uniforms = {
     /** Accumulated drift in radians, wrapped to [0, 2π) on the CPU. */
     drift: uniform(0),
@@ -112,8 +138,18 @@ export class CloudLayer {
   private fade = 1;
   /** @internal Called after the options changed or a cloud map arrived (the viewer draws at the full frame rate). */
   onChange: (() => void) | null = null;
+  /** @internal Changes whenever `densityNode` would build a different graph (a cloud map arrived or was removed). */
+  densityVersion = 0;
 
-  constructor(private readonly ellipsoid: Ellipsoid) {
+  /**
+   * @param defaults Defaults that differ from `CLOUD_DEFAULTS` (the viewer's GPU tier decides
+   *   whether volumetric clouds are on), applied before any option.
+   */
+  constructor(
+    private readonly ellipsoid: Ellipsoid,
+    defaults: { volumetric?: boolean } = {},
+  ) {
+    if (defaults.volumetric !== undefined) this.options.volumetric.enabled = defaults.volumetric;
     const material = new MeshBasicNodeMaterial();
     material.name = 'CloudLayer';
     material.transparent = true;
@@ -140,15 +176,29 @@ export class CloudLayer {
   }
 
   /** Current settings (a copy). */
-  getOptions(): Required<CloudOptions> {
-    return { ...this.options, fadeHeights: [...this.options.fadeHeights] };
+  getOptions(): ResolvedCloudOptions {
+    return copyOptions(this.options);
+  }
+
+  /** @internal The live volumetric settings (read every frame by the volumetric clouds; do not modify). */
+  get volumetricOptions(): Readonly<Required<VolumetricCloudOptions>> {
+    return this.options.volumetric;
+  }
+
+  /** @internal The shell's drift (radians, wrapped) and coverage, which the volumetric weather follows. */
+  get weatherState(): { drift: number; coverage: number } {
+    return { drift: this.uniforms.drift.value as number, coverage: this.options.coverage };
   }
 
   /** Updates any subset of the options; invalid values are ignored. */
   set(options: CloudOptions): void {
-    const o = normalizeCloudOptions(options);
+    const { volumetric, ...o } = normalizeCloudOptions(options);
     Object.assign(this.options, o);
     if (o.fadeHeights) this.options.fadeHeights = [...o.fadeHeights];
+    if (volumetric && typeof volumetric === 'object') {
+      Object.assign(this.options.volumetric, volumetric);
+      if (volumetric.fadeHeights) this.options.volumetric.fadeHeights = [...volumetric.fadeHeights];
+    }
     if (o.height !== undefined) this.applyHeight();
     if (o.coverage !== undefined) this.uniforms.coverage.value = o.coverage;
     if (o.textureUrl !== undefined && o.textureUrl !== this.loadedUrl) this.loadTexture(o.textureUrl);
@@ -162,7 +212,8 @@ export class CloudLayer {
     const alpha = o.opacity * this.fade;
     this.mesh.visible = o.visible && alpha > 0.002;
     this.uniforms.alpha.value = alpha;
-    if (o.visible && Number.isFinite(dt)) {
+    // Only while the shell shows: below it the weather of the volumetric clouds holds still.
+    if (this.mesh.visible && Number.isFinite(dt)) {
       const twoPi = Math.PI * 2;
       this.uniforms.drift.value = (((this.uniforms.drift.value + o.speed * (Math.PI / 180) * dt) % twoPi) + twoPi) % twoPi;
     }
@@ -212,23 +263,27 @@ export class CloudLayer {
     );
   }
 
-  /** (Re)builds the node graph: the procedural and the texture modes differ. */
-  private buildMaterial(): void {
+  /**
+   * @internal Cloud density 0–1 of the layer (its opacity before `opacity` and the height fade)
+   * in a direction (unit vector, ECEF): for the shell itself and for the volumetric clouds'
+   * weather, which follows it. `footprint`: how far the direction moves per pixel (the noise
+   * is band-limited to it). `uvNode`: the shell's own texture coordinates; other callers leave
+   * it out and the cloud map is looked up from the direction. Uses this layer's uniforms
+   * (drift, coverage), so the graph changes only with `densityVersion`.
+   */
+  densityNode(dir: TSLNode, footprint: TSLNode, uvNode: TSLNode = null): TSLNode {
     const u = this.uniforms;
-    const material = this.mesh.material;
-    const dir = attribute('position', 'vec3');
     const map = this.map;
-
-    const density = Fn(() => {
+    return Fn(() => {
       if (map) {
         // Drift east = sample further west; the map repeats in u.
-        const uv = attribute('uv', 'vec2');
-        const c = texture(map, vec2(uv.x.sub(u.drift.div(Math.PI * 2)), uv.y));
+        const uv = uvNode ?? vec2(atan(dir.y, dir.x).div(Math.PI * 2).add(0.5), asin(clamp(dir.z, -1, 1)).div(Math.PI).add(0.5));
+        const at = vec2(uv.x.sub(u.drift.div(Math.PI * 2)), uv.y);
+        // From a direction: an explicit level (the longitude seam would spike the derivatives).
+        const c = uvNode ? texture(map, at) : texture(map, at).level(float(0));
         const raw = max(max(c.r, c.g), c.b).mul(c.a);
         return clamp(raw.mul(u.coverage.mul(2)), 0, 1);
       }
-      // Size of one pixel on the unit sphere: octaves finer than ~2 px are faded out (see bandLimitedFbm).
-      const footprint = length(fwidth(dir));
       // Two layers turning at different rates: drifting shapes that slowly change.
       const n1 = bandLimitedFbm(rotateZ(dir, u.drift).mul(NOISE_SCALE), footprint.mul(NOISE_SCALE), 6, 2.2, 0.55);
       const n2 = bandLimitedFbm(
@@ -250,6 +305,16 @@ export class CloudLayer {
       const threshold = mix(float(0.5), float(-0.6), u.coverage);
       return smoothstep(threshold, threshold.add(0.55), n).pow(1.4);
     })();
+  }
+
+  /** (Re)builds the node graph: the procedural and the texture modes differ. */
+  private buildMaterial(): void {
+    const u = this.uniforms;
+    const material = this.mesh.material;
+    const dir = attribute('position', 'vec3');
+    // Size of one pixel on the unit sphere: octaves finer than ~2 px are faded out (see bandLimitedFbm).
+    const density = this.densityNode(dir, length(fwidth(dir)), attribute('uv', 'vec2'));
+    this.densityVersion++;
 
     // Night side dims with the real sun when lighting is on (the same direction the globe uses).
     const a = atmosphereUniforms;

@@ -293,6 +293,21 @@ export function aerialPerspectiveOutputNode(): TSLNode {
 }
 
 /**
+ * The aerial perspective's scattering between the camera and the point `distance` meters along
+ * the world direction `dir` (unit): for what has no fragment position of its own, such as the
+ * volumetric clouds' march. The same integral (and ground stop) as `applyAerialPerspective`;
+ * the caller scales `inscatter` by `groundHaze`. Call it inside an `Fn`, with the atmosphere on.
+ */
+export function aerialScatteringAlong(dir: TSLNode, distance: TSLNode, steps = AERIAL_STEPS): ScatteringResult {
+  const u = atmosphereUniforms;
+  const dKm = vec3(dir.x, dir.y, dir.z.mul(Z_SCALE)).mul(distance.mul(0.001));
+  const dist = max(length(dKm), 1e-6);
+  const h = u.cameraAltitudeKm;
+  const groundC = h.add(AERIAL_GROUND_DEPTH_KM).mul(h.add(2 * GROUND_RADIUS_KM - AERIAL_GROUND_DEPTH_KM));
+  return integrateScattering(u.cameraPositionKm, dKm.div(dist), dist, u.sunDirection, steps, groundC);
+}
+
+/**
  * The aerial perspective of `aerialPerspectiveOutputNode` applied to another color (call it
  * inside a `Fn`): for output nodes that change the lit color first (unlit 3D Tiles in a sun
  * shadow, `lighting/SunShadows`).
