@@ -1,6 +1,6 @@
 # CI: every push to main and every pull request.
 #
-#   verify   typecheck, unit tests, library build + declarations, demo build (Node 22 and 24)
+#   verify   typecheck, layering, unit tests, library build + declarations, demo build (Node 22 and 24)
 #   package  packs the build and installs it into a fresh host project, the way a consumer
 #            would (scripts/check-package.mjs; the tarball is kept as a workflow artifact), then
 #            runs the browser smoke tests (playwright.config.ts) on the demo and on that host, in
@@ -40,6 +40,8 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Typecheck
         run: npm run typecheck
+      - name: Layering (directory directions, import cycles)
+        run: npm run check:layers
       - name: Unit tests
         run: npm test
       - name: Build the library and its declarations

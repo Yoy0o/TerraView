@@ -55,7 +55,8 @@
     "preview": "vite preview --config vite.demo.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm test && npm run build && npm run build:demo",
+    "verify": "npm run typecheck && npm run check:layers && npm test && npm run build && npm run build:demo",
+    "check:layers": "node scripts/check-layers.mjs",
     "check:package": "node scripts/check-package.mjs",
     "smoke:build": "npm run build && npm run build:demo && node scripts/check-package.mjs --keep-host .smoke/host",
     "smoke": "playwright test"
