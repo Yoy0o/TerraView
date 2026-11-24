@@ -145,3 +145,5 @@ WebGPU、RTX 40 系，无头 Chrome，离线调试影像，每帧都画（`?idle
 合成在最终后期 pass 里（每像素 8 次纹素读取），没有单独计。集成显卡按约 5–10 倍估算：`medium` 1080p 的追踪约 1–2 ms。显存：1280×720 约 11 MB，1080p `high` 约 21 MB（`postProcessing.gpuBytes`）。
 
 冒烟：硬件模式（RTX 40）新用例 WebGL 9.7 s、WebGPU 7.0 s；软件模式（`SMOKE_NO_GPU=1`，SwiftShader）WebGL 31 s、WebGPU 15 s。
+
+**真机验证（Claude in Chrome，2026-11-24）**：本机 Chrome，WebGPU（`nvidia lovelace`，`high`，1920×945，历史 960×474，显存 18.6 MB）与 WebGL2，演示应用的默认设置（ArcGIS 影像、AWS 地形）、开光照。§9 的清单逐项通过：地面仰视、云中、6.5 km 云上、9 km 俯视（云影与云形对应）、山区地形（云被山脊遮挡）、40 km、120 km；两个后端都没有控制台错误；WebGL2 首帧编译着色器约 160 ms，之后开关云的 CPU 时间相同。发现一处画面问题：120 km 前后云边有方块感（progress-log B12）。**没有取得性能数据**：验证时 Chrome 窗口是最小化的（`screenX = -32000`），rAF 每秒只有 1.5 次，GPU 随之降频（整帧 15–40 ms，开云比关云多约 12 ms，都不能代表正常帧率下的开销），需要在前台窗口补测。

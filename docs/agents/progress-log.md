@@ -154,6 +154,7 @@ Hub 与仓库里需要处理的小问题：
 | B9 ✅ | M3.9 | 2026-11-19 完成（P3.6，`viewer.shadows`、`viewer.transparency`，[api.md](../api.md) §1.11）。日照阴影：自管的一张平行光阴影图（`SunLight` 用 float32 世界坐标，ECEF 下不够精确），按包围盒足迹 ∩ 视锥足迹适配，地球、3D Tiles、展台接收；OIT：`OITPassNode` 的算法接进 `PostPipeline`，只处理建筑和设备，默认只在 `ultra` 开 | B2 | 中到大 | 透明与阴影 |
 | B10 | M3.7 | 八面体冒名顶替（树、设备等重复模型远处用面片） | 无 | 中 | 八面体冒名顶替 |
 | B11 | M2.2 可选 | 顶牌遮挡改查拾取缓冲深度，省掉代理绘制；缓冲半分辨率、最多 0.25 s 刷新，相机运动时不新鲜，**收益存疑，先不做** | — | 小 | （暂缓） |
+| B12 | 体积云后续 | 2026-11-24 真机验证时记录：① 100–220 km 过渡带云边有方块感（天气图 512²、纹素约 860 m，云格只有 3–4 个纹素）：高档位改 1024² 天气图（多 3 MB），或加一级粗分辨率的天气图；② 真机性能数据缺失（验证时 Chrome 窗口最小化，rAF 每秒 1.5 次、GPU 降频，测得的 GPU 时间不可用）：在前台窗口、集成显卡上补测，再决定 `low` 档是否默认开 | 无 | 小 | 体积云过渡带与真机性能 |
 
 ### C. 地球、3D Tiles 与矢量
 
@@ -209,6 +210,25 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 | F5 | 计算着色器预计算大气 LUT；GPU 驱动瓦片剔除与间接绘制；计算着色器大规模动态图层 | README 中期 |
 | F6 | 测量工具、漫游录制回放、GCJ-02 纠偏等国内数据适配 | README 产品化 |
 
+### G. 代码结构：单包内重构（方案 A，2026-11-24 登记，未开工）
+
+来源：2026-11-24 的 monorepo 评估（结论记在 [roadmap.md](roadmap.md) §10.4："暂不改 monorepo，先在单包内重构"）。评估时的现状：`src` 105 个文件、3.1 万行；超过 1,000 行的只有 4 个文件；整体分层清楚，但有三处目录级反向依赖和三对文件级循环。typecheck 7.3 s、单测 25.6 s、库构建 21.6 s，规模和耗时都没有拆包的压力。宿主实际打进去的 SDK 压缩后约 378 KiB（gzip 124 KiB），但 `GeoViewer` 会创建所有子系统，拆包并不能让宿主少带代码。
+
+**原则**：只搬代码、不改行为；公共 API 不变（`check-dts` 比对导出名、`docs/api.md` 不动）；`GeoViewer` 上的公开成员保留，改成转调新模块。每一步先单独提交"只搬不改"，再提交整理，方便 `git log --follow` / `git blame -C` 追溯。在 P4 新功能开工前做，避免和功能开发互相冲突。
+
+| 编号 | 内容 | 做法 | 验收 | 规模 |
+| --- | --- | --- | --- | --- |
+| G1 | 拆 `viewer/GeoViewer.ts`（2,248 行，63 条 import、38 个公开子系统字段、约 46 个方法） | 拆成：环境与光照（`updateEnvironment`、`updateAtmosphereLight`、阴影适配输入、体积云的帧状态）；帧循环（`tick`、`frame`、`idleFloorRate`、`pictureChanged`、`checkPendingWork`，保持现有调用顺序，作为一个整体搬，不重排）；拾取（`pick`、`pickAt`、`pickCartographic`、`classifyPick`、`gesturePick`、参考地面）；图层与贴地（3D Tiles / 矢量 / 点位的增删、竖直射线）；诊断（`stats`、`memory`、`snapshot`、`info`）。新模块经一个窄接口（类型导入）拿到 viewer 的状态，不反向 import `GeoViewer` | `GeoViewer.ts` 约 900 行以内；导出名不变；全部单测、冒烟通过；帧循环的手测清单（AGENTS.md §6）通过 | 1.5 人日 |
+| G2 | 拆 `globe/Globe.ts`（1,988 行） | 请求调度与上传预算、遍历与细化（选择规则已在 `tileSelection.ts`）、影像揭示与交叉淡入、统计与调试分开。`visitTile` 改写自 CesiumJS，搬动后 `THIRD_PARTY_NOTICES.md` 里的路径同步 | 同上；`tests/tileSelection` 等调度测试通过；加载手测（无空洞、无闪烁）通过 | 1 人日 |
+| G3 | 拆 `atmosphere/VolumetricClouds.ts`（1,252 行），云相关文件单独成目录 | 着色器节点构建（天气、密度、步进、光照、重投影、合成，函数接收 uniform 对象）与流程编排（渲染目标、帧状态、重画天气图的条件）分开；`VolumetricClouds`、`cloudNoise*`、`volumetricCloudMath`、`CloudLayer` 移到 `src/clouds/` | 同上；体积云手测清单（[volumetric-clouds.md](volumetric-clouds.md) §9）通过 | 0.5 人日 |
+| G4 | 消除目录级反向依赖和文件级循环 | ① `TSLNode` 类型移到 `core/`（现在 `post`、`lighting` 为它反向依赖 `atmosphere`）；② `local/region.ts`、`local/regionMask.ts` 下沉到底层目录（`globe`、`tiles3d` 运行时依赖它们），`LocalScene`、侧壁、压暗留在 `local/`；③ 体积云移出 `atmosphere` 后（G3），`atmosphere` 不再依赖 `lighting` / `post`；④ 三对文件循环：`LevelControl` ↔ `IndoorManager`、`tileFeatures` ↔ `Tiles3DLayer`、`NavigationControls` ↔ `GeoViewer`，抽出接口类型或改为注入 | 依赖分析无目录级环、无文件级环 | 0.5–1 人日 |
+| G5 | 分层检查脚本 | `scripts/check-layers.mjs`（不新增依赖，写法同 `check-dts.mjs`）：按目录列出允许的依赖方向，运行时的反向依赖和文件循环都算失败（只导入类型的放行），接进 `verify` 和 CI；AGENTS.md §2 写明分层 | 故意加一条反向依赖时 `verify` 失败 | 0.5 人日 |
+| G6 | 文档同步 | AGENTS.md §2 目录树、各专题文档里搬动文件的路径引用（全部文档共约 166 处路径，只改涉及的）、`THIRD_PARTY_NOTICES.md` | 文档里搜不到旧路径 | 0.5 人日 |
+
+合计约 4–5 人日。风险低：只搬不改，有 typecheck、478 个单测、声明导出比对、打包检查和 8 项冒烟兜底；主要风险是帧循环里的调用顺序（降帧、变化 / 唤醒、阴影与云图在场景 pass 之前绑定），所以 G1 的帧循环作为整体搬、不重排。
+
+暂不做的（见 roadmap §10.4 的触发条件）：轻量 monorepo（npm workspaces，`packages/terra-view` + `apps/demo` + 宿主工程，约 2–3 人日 + 1 天文档，需要重新生成 `package-lock.json`）；按子系统拆成多个包（约 3–5 周，主要风险是 14 项模块级共享状态在宿主里出现多份副本，以及 96 处跨目录使用的 `@internal` 成员要变成公开 API）。
+
 ## 5. 待人决定
 
 | 事项 | 为什么需要决定 | 我的建议 |
@@ -219,6 +239,8 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 | ~~浏览器冒烟测试用哪个工具（P1.5）~~ | 2026-11-12 决定：有条件时用真实浏览器 MCP，Playwright 兜底（同意新增开发依赖） | — |
 | ~~`cad-to-building` 技能与 CAD 数据去留（A10）~~ | 2026-11-12 决定不迁移，留在源仓库 | — |
 | 首个对外版本号与发布时间（P1.7） | 发布、推标签都要明确同意 | P1.1–P1.6 完成后发 `0.2.0` |
+| ~~是否改 monorepo~~ | 2026-11-24 评估后决定：暂不改，先在单包内重构（G 组），触发条件见 roadmap §10.4 | — |
+| G 组（单包内重构）何时开工 | 2026-11-24 只登记细项；会触及 `GeoViewer`、`Globe` 等核心文件，和功能开发同时进行容易冲突 | 在 P4 新功能开工前做完（约 4–5 人日） |
 | 源仓库 three-geo-global 的收尾方式（A9） | 涉及源仓库分支、Hub 任务 | 合并 `T261109-ppn` 分支后在 README 顶部注明"已迁移到 TerraView"，仓库归档 |
 
 ## 6. 推荐顺序
@@ -235,6 +257,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-24 | 体积云的 Claude in Chrome 真机验证（WebGPU / WebGL2，检查清单全过，结果在 [volumetric-clouds.md](volumetric-clouds.md) §10）；记下两项后续（B12）。monorepo 评估：暂不改（roadmap §10.4），单包内重构的细项登记为 G 组，未开工 |
 | 2026-11-24 | 插入项：体积云（近地，`viewer.clouds.set({ volumetric })`）。参考 yisky/hillaire-sky-webgpu 的积云做法（该仓库无许可证，只借鉴思路，代码重写为 TSL 片元 pass，WebGPU / WebGL 2 都能跑）：天气图跟随云壳密度并随风滑动，2×2 交错追踪 + 按云距离 / 相机 / 风重投影的历史，按场景深度上采样合成，云影接进 `sunShadowFactor`。新增踩坑一条（AGENTS.md §7：TSL `If` 回调写成表达式箭头函数），专题文档 §7 记了六条。verify 478 个测试通过，冒烟硬件模式 8 项、软件模式新用例 2 项通过 |
 | 2026-11-19 | P3.6（B9 / M3.9）：日照阴影（`viewer.shadows`：`lighting/shadowFit.ts` 纯函数适配、`lighting/SunShadows.ts` 自管阴影图和共享接收节点，地球瓦片、3D Tiles、展台接收，只在范围或内容变化时重画）、透明顺序无关混合（`viewer.transparency`，`PostPipeline` 的透明 pass 与合成，WebGPU，默认只在 `ultra`）。新增踩坑三条（AGENTS.md §7：无渲染目标的深度纹理被当成多重采样、放大渲染目标后材质仍绑旧纹理、MRT 按纹理名对应）。verify 436 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.6 落地"） |
 | 2026-11-19 | P3.5（B7 / M3.4、B8 / M3.5）：楼层环境光遮蔽（`viewer.indoor.ambientOcclusion`，GPU 俯视烘焙、接触项加权最大值 + 柔和项平均、读回成 `DataTexture`、共享 `colorNode`、内容变化稳定后重烘）；光照跟随大气（大气 CPU 版、太阳光色、天光 SH 探针、建筑 / 设备 / 3D Tiles 的空气透视）。浏览器实测 TSL 与 CPU 透射率相差 < 7e-5，AO 贴图 WebGPU / WebGL 逐字节相同。P5 顺带：C11 第二处局限修复（`moved` 事件）、M5.1 的 `viewer.snapshot()`、建筑构建的控制台警告；新增 C12（Chapman 近似偏差）。verify 419 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.5 落地"）。P1.7 仍搁置 |
