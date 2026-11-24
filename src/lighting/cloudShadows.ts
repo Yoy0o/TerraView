@@ -1,5 +1,5 @@
 /**
- * Cloud shadows on what the sun lights (volumetric clouds, `atmosphere/VolumetricClouds`): a
+ * Cloud shadows on what the sun lights (volumetric clouds, `clouds/VolumetricClouds`): a
  * map of the sunlight's transmittance through the cloud layer, orthographic along the sun's
  * rays around the camera, read by every receiver through `sunShadowFactor` (so it dims the
  * direct sun only, on the globe, 3D Tiles, buildings and the studio ground alike).

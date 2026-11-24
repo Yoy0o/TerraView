@@ -189,10 +189,10 @@ export { SunShadows } from './lighting/SunShadows';
 export type { SunShadowOptions } from './lighting/SunShadows';
 
 // ---------------------------------------------------------------- atmosphere
-export { CloudLayer, CLOUD_DEFAULTS } from './atmosphere/CloudLayer';
-export type { CloudOptions, ResolvedCloudOptions } from './atmosphere/CloudLayer';
-export { VOLUMETRIC_CLOUD_DEFAULTS } from './atmosphere/volumetricCloudMath';
-export type { VolumetricCloudOptions } from './atmosphere/volumetricCloudMath';
+export { CloudLayer, CLOUD_DEFAULTS } from './clouds/CloudLayer';
+export type { CloudOptions, ResolvedCloudOptions } from './clouds/CloudLayer';
+export { VOLUMETRIC_CLOUD_DEFAULTS } from './clouds/volumetricCloudMath';
+export type { VolumetricCloudOptions } from './clouds/volumetricCloudMath';
 
 // ---------------------------------------------------------------- core
 export { Ellipsoid, cartographic } from './core/Ellipsoid';

@@ -1,8 +1,8 @@
 // Volumetric clouds: options, the layer geometry the shaders share with the CPU, march and history
 // sizing, the tileable noise, the cloud layer's volumetric settings and drift, frame pacing.
 import { describe, expect, it } from 'vitest';
-import { CLOUD_DEFAULTS, CloudLayer, normalizeCloudOptions } from '../src/atmosphere/CloudLayer';
-import { CLOUD_NOISE_SIZE, generateCloudNoise, periodicPerlin, sampleCloudNoise } from '../src/atmosphere/cloudNoise';
+import { CLOUD_DEFAULTS, CloudLayer, normalizeCloudOptions } from '../src/clouds/CloudLayer';
+import { CLOUD_NOISE_SIZE, generateCloudNoise, periodicPerlin, sampleCloudNoise } from '../src/clouds/cloudNoise';
 import {
   CLOUD_SCALES,
   cloudInterval,
@@ -18,7 +18,7 @@ import {
   weatherExtent,
   WEATHER_MAX_REACH,
   WEATHER_SLACK,
-} from '../src/atmosphere/volumetricCloudMath';
+} from '../src/clouds/volumetricCloudMath';
 import { Ellipsoid } from '../src/core/Ellipsoid';
 import { GPU_TIERS, gpuProfile } from '../src/core/gpuProfile';
 import { CLOUD_MAX_STEP_PX, volumetricCloudFrameRate, VOLUMETRIC_NEAREST_M } from '../src/viewer/framePacing';

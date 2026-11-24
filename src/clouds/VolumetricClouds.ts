@@ -86,13 +86,13 @@ import {
   vec4,
 } from 'three/tsl';
 import { NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
+import { aerialScatteringAlong, atmosphereUniforms } from '../atmosphere/AtmosphereNodes';
+import { shIrradiance, type Vec3 } from '../atmosphere/atmosphereModel';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { smoothstep as smoothstepNum } from '../core/math';
+import type { TSLNode } from '../core/tsl';
 import { bindCloudShadows, type CloudShadowBinding } from '../lighting/cloudShadows';
 import type { PostEffect, PostFrame, PostInputs } from '../post/PostPipeline';
-import { aerialScatteringAlong, atmosphereUniforms } from './AtmosphereNodes';
-import type { TSLNode } from '../core/tsl';
-import { shIrradiance, type Vec3 } from './atmosphereModel';
 import { CLOUD_NOISE_SIZE } from './volumetricCloudMath';
 import type { CloudLayer } from './CloudLayer';
 import {

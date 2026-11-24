@@ -44,9 +44,9 @@ import {
   vec2,
   vec3,
 } from 'three/tsl';
+import { atmosphereUniforms } from '../atmosphere/AtmosphereNodes';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { smoothstep as smoothstepCpu } from '../core/math';
-import { atmosphereUniforms } from './AtmosphereNodes';
 import type { TSLNode } from '../core/tsl';
 import { normalizeVolumetricOptions, VOLUMETRIC_CLOUD_DEFAULTS, type VolumetricCloudOptions } from './volumetricCloudMath';
 

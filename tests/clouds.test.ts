@@ -1,6 +1,6 @@
 import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
-import { CLOUD_DEFAULTS, CloudLayer, cloudFade, createShellGeometry, normalizeCloudOptions, octaveWeight } from '../src/atmosphere/CloudLayer';
+import { CLOUD_DEFAULTS, CloudLayer, cloudFade, createShellGeometry, normalizeCloudOptions, octaveWeight } from '../src/clouds/CloudLayer';
 import { Ellipsoid } from '../src/core/Ellipsoid';
 
 const E = Ellipsoid.WGS84;
