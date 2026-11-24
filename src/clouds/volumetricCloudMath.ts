@@ -179,9 +179,10 @@ export const CLOUD_NOISE_SIZE = 64;
 export const WEATHER_SLACK = 15_000;
 
 /**
- * Most the weather map reaches from its center, meters: its 512 texels then stay under ~900 m,
- * a quarter of a weather cell. Coarser texels lose the cells (the clouds turn into an even
- * haze); beyond the map the clouds fade out, high up where the cloud shell takes over.
+ * Most the weather map reaches from its center, meters: its texels then stay under ~860 m
+ * (512 per side, `low`) or ~430 m (1024), a quarter or an eighth of a weather cell. Coarser
+ * texels lose the cells (the clouds turn into an even haze); beyond the map the clouds fade
+ * out, high up where the cloud shell takes over.
  */
 export const WEATHER_MAX_REACH = 220_000;
 

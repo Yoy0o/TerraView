@@ -20,6 +20,7 @@ import {
   stepAdaptiveError,
   tilesFalloffDensity,
 } from '../src/tiles3d/lodPolicy';
+import { CLOUD_SCALES, WEATHER_MAX_REACH } from '../src/clouds/volumetricCloudMath';
 import { applyTexturePolicy, type PolicyTexture } from '../src/tiles3d/nodeMaterials';
 
 const MB = 2 ** 20;
@@ -134,6 +135,19 @@ describe('gpuProfile', () => {
       if (i > 0) expect(size).toBeGreaterThanOrEqual(gpuProfile(GPU_TIERS[i - 1]).shadows.mapSize);
     }
     expect(GPU_TIERS.filter((t) => gpuProfile(t).orderIndependentTransparency)).toEqual(['ultra']);
+  });
+
+  it('keeps volumetric cloud weather texels small enough for round cells above low (B12)', () => {
+    // The map spans up to twice WEATHER_MAX_REACH; a cloud cell is about CLOUD_SCALES.cells / 4 across.
+    const cell = CLOUD_SCALES.cells / 4;
+    for (let i = 0; i < GPU_TIERS.length; i++) {
+      const { weatherSize } = gpuProfile(GPU_TIERS[i]).clouds;
+      expect(Math.log2(weatherSize) % 1).toBe(0);
+      const texel = (2 * WEATHER_MAX_REACH) / weatherSize;
+      // low keeps 512 (clouds off by default there): a quarter of a cell; the others an eighth.
+      expect(texel).toBeLessThanOrEqual(cell / (GPU_TIERS[i] === 'low' ? 4 : 8));
+      if (i > 0) expect(weatherSize).toBeGreaterThanOrEqual(gpuProfile(GPU_TIERS[i - 1]).clouds.weatherSize);
+    }
   });
 });
 

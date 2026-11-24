@@ -106,6 +106,12 @@ export interface CloudQuality {
   lightSteps: number;
   /** Texels along a side of the cloud shadow map (4 bytes each). */
   shadowMapSize: number;
+  /**
+   * Texels along a side of the weather map (4 bytes each). It spans up to 440 km from about
+   * 35 km up: 512 texels are 860 m there, a quarter of a cloud cell, and the cells come out as
+   * angular blobs; 1024 keeps them round (2048 changes nothing visible).
+   */
+  weatherSize: number;
 }
 
 /** Everything a tier decides. Explicit viewer / layer options take precedence over these. */
@@ -164,7 +170,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 64 * MB, unloadDelayMs: 5000, aoMaxResolution: 512 },
     shadows: { enabled: false, mapSize: 1024 },
     orderIndependentTransparency: false,
-    clouds: { volumetric: false, historyPixels: 160_000, steps: 48, lightSteps: 4, shadowMapSize: 256 },
+    clouds: { volumetric: false, historyPixels: 160_000, steps: 48, lightSteps: 4, shadowMapSize: 256, weatherSize: 512 },
   },
   // Current integrated graphics (Intel Xe / Arc, Radeon 600M-800M), entry discrete cards.
   medium: {
@@ -189,7 +195,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 128 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
     shadows: { enabled: true, mapSize: 2048 },
     orderIndependentTransparency: false,
-    clouds: { volumetric: true, historyPixels: 300_000, steps: 64, lightSteps: 5, shadowMapSize: 512 },
+    clouds: { volumetric: true, historyPixels: 300_000, steps: 64, lightSteps: 5, shadowMapSize: 512, weatherSize: 1024 },
   },
   // Discrete cards (4 GB and up), Apple silicon.
   high: {
@@ -214,7 +220,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 256 * MB, unloadDelayMs: 10_000, aoMaxResolution: 1024 },
     shadows: { enabled: true, mapSize: 2048 },
     orderIndependentTransparency: false,
-    clouds: { volumetric: true, historyPixels: 520_000, steps: 96, lightSteps: 6, shadowMapSize: 512 },
+    clouds: { volumetric: true, historyPixels: 520_000, steps: 96, lightSteps: 6, shadowMapSize: 512, weatherSize: 1024 },
   },
   // 12 GB cards and up, picked explicitly: large screens, long flights without reloading.
   ultra: {
@@ -239,7 +245,7 @@ const PROFILES: Record<GpuTier, GpuProfile> = {
     indoor: { modelBytesTarget: 512 * MB, unloadDelayMs: 20_000, aoMaxResolution: 2048 },
     shadows: { enabled: true, mapSize: 4096 },
     orderIndependentTransparency: true,
-    clouds: { volumetric: true, historyPixels: 1_000_000, steps: 128, lightSteps: 6, shadowMapSize: 1024 },
+    clouds: { volumetric: true, historyPixels: 1_000_000, steps: 128, lightSteps: 6, shadowMapSize: 1024, weatherSize: 1024 },
   },
 };
 

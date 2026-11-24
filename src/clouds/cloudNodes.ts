@@ -58,8 +58,6 @@ const LIGHT_FOOTPRINT = 150;
 const SKY_KM = 60_000;
 /** Cloud distance (km) used to reproject pixels without clouds. */
 const CLEAR_KM = 40;
-/** Weather map texels per side. */
-export const WEATHER_SIZE = 512;
 /** Steps through the layer per cloud shadow texel. */
 const SHADOW_STEPS = 12;
 
@@ -178,6 +176,8 @@ export interface CloudShaderInputs {
   /** Steps of the view march and of the light march (GPU tier). */
   steps: number;
   lightSteps: number;
+  /** Weather map texels per side (GPU tier). */
+  weatherSize: number;
 }
 
 // -----------------------------------------------------------------------------
@@ -352,10 +352,10 @@ export function weatherBakeNode(c: CloudShaderInputs, densityNode: (dir: TSLNode
     const invR = float(1).div(u.radius);
     const dir = normalize(u.anchorDir.add(local.mul(invR)));
     // The cloud shell's density here: the weather follows the clouds seen from space.
-    const macro = densityNode(dir, u.weatherExtent.mul(1 / WEATHER_SIZE).mul(invR));
+    const macro = densityNode(dir, u.weatherExtent.mul(1 / c.weatherSize).mul(invR));
     const cellNoise = texture3D(noise, u.bakeCells.add(local.mul(1 / CLOUD_SCALES.cells)), float(0));
     // A coarse map (camera high up) drops cells smaller than two of its texels.
-    const texel = u.weatherExtent.mul(1 / WEATHER_SIZE);
+    const texel = u.weatherExtent.mul(1 / c.weatherSize);
     const cellFade = (cells: number) => smoothstep(CLOUD_SCALES.cells / cells / 2, CLOUD_SCALES.cells / cells, texel);
     const cells = mix(cellNoise.g, NOISE_MEAN, cellFade(4)).mul(0.7).add(mix(cellNoise.b, NOISE_MEAN, cellFade(8)).mul(0.3));
     const clusters = texture3D(noise, u.bakeClusters.add(local.mul(1 / CLOUD_SCALES.clusters)), float(0)).r;

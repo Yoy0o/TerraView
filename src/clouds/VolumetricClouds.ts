@@ -7,8 +7,8 @@
  * Hillaire, "Physically Based Sky, Atmosphere and Cloud Rendering in Frostbite", 2016), in
  * fragment passes (TSL, so WebGPU and the WebGL 2 fallback both run it):
  *
- * 1. Weather (a 512² map around the camera, drawn again only when the camera, the wind or the
- *    cloud settings moved it): where clouds are and how tall, from a cell field and clusters of
+ * 1. Weather (a 512² or 1024² map around the camera, by tier; drawn again only when the camera,
+ *    the wind or the cloud settings moved it): where clouds are and how tall, from a cell field and clusters of
  *    tileable noise, scaled by the cloud shell's own density (`CloudLayer.densityNode`) so the
  *    clouds seen from space are where they are seen from below.
  * 2. Cloud shadows (lighting on): sunlight transmittance through the layer, orthographic along
@@ -70,7 +70,6 @@ import {
   resolveNodes,
   traceNodes,
   weatherBakeNode,
-  WEATHER_SIZE,
   type CloudShaderInputs,
   type Origin,
 } from './cloudNodes';
@@ -94,6 +93,7 @@ export interface VolumetricCloudQuality {
   steps: number;
   lightSteps: number;
   shadowMapSize: number;
+  weatherSize: number;
 }
 
 /** What a frame of clouds needs to know (`VolumetricClouds.update`). */
@@ -223,7 +223,7 @@ export class VolumetricClouds implements PostEffect {
   private visibility = 0;
   private shadowStrength = 0;
 
-  private weather = colorTarget(WEATHER_SIZE, WEATHER_SIZE, 1, UnsignedByteType, LinearFilter);
+  private readonly weather: RenderTarget;
   private shadowMap: RenderTarget;
   private trace = colorTarget(1, 1, 2, HalfFloatType, NearestFilter);
   private history = [colorTarget(2, 2, 2, HalfFloatType, LinearFilter), colorTarget(2, 2, 2, HalfFloatType, LinearFilter)];
@@ -285,6 +285,7 @@ export class VolumetricClouds implements PostEffect {
     private readonly ellipsoid: Ellipsoid,
     private readonly quality: VolumetricCloudQuality,
   ) {
+    this.weather = colorTarget(quality.weatherSize, quality.weatherSize, 1, UnsignedByteType, LinearFilter);
     this.shadowMap = colorTarget(quality.shadowMapSize, quality.shadowMapSize, 1, UnsignedByteType, LinearFilter);
     this.weather.texture.name = 'cloud weather';
     this.shadowMap.texture.name = 'cloud shadow map';
@@ -318,7 +319,7 @@ export class VolumetricClouds implements PostEffect {
   /** GPU bytes of the noise, the maps and the history (nothing is allocated before the clouds first show). */
   get gpuBytes(): number {
     if (!this.noise) return 0;
-    let bytes = CLOUD_NOISE_SIZE ** 3 * 4 + WEATHER_SIZE * WEATHER_SIZE * 4 + this.shadowMap.width * this.shadowMap.height * 4;
+    let bytes = CLOUD_NOISE_SIZE ** 3 * 4 + this.weather.width * this.weather.height * 4 + this.shadowMap.width * this.shadowMap.height * 4;
     bytes += this.trace.width * this.trace.height * 16;
     for (const h of this.history) bytes += h.width * h.height * 16;
     return bytes;
@@ -587,6 +588,7 @@ export class VolumetricClouds implements PostEffect {
       reversedDepth: this.renderer.reversedDepthBuffer === true,
       steps: this.quality.steps,
       lightSteps: this.quality.lightSteps,
+      weatherSize: this.quality.weatherSize,
     };
   }
 
