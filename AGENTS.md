@@ -33,6 +33,7 @@
   ```bash
   npm run dev         # 演示应用 http://localhost:5173（开发服务器可能已经在跑，先查端口占用，不要杀用户的进程）
   npm run typecheck   # tsc --noEmit（src、demo、tests）
+  npm run check:layers  # 分层检查：目录间的依赖方向、文件循环 import（§2.1）
   npm test            # vitest，纯数学与数据逻辑
   npm run build       # 类型检查 + 库构建（dist/terraview.js、terraview.css、assets/*.worker.js）+ 类型声明（dist/types）
   npm run build:demo  # 演示应用的生产构建（dist-demo/）
@@ -54,13 +55,17 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ index.ts     包入口：公共 API 只从这里导出（§3.10）
 ├─ style.css    SDK 样式，发布为 `terra-view/style.css`，类名前缀 `tv-`
 ├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、i18n（显示文案与语言）、errors（TerraViewError）、
-│               gpuProfile（显存档位、预算表、帧缓冲估算，纯函数）
-├─ globe/       四叉树地球：Globe（调度）、GlobeTile（状态）、tileSelection（选择规则纯函数）、
-│               tileMeshLayout（网格索引布局，Worker 与象限填充共用）、TileMaterial（TSL）、Worker 构网、影像源、地形源
+│               gpuProfile（显存档位、预算表、帧缓冲估算，纯函数）、tsl（TSL 节点类型）、cameraBounds（相机活动范围的约定类型）
+├─ globe/       四叉树地球：Globe（配置、每帧更新、瓦片选择、缓存淘汰、高程与射线查询）、
+│               TileLoader（请求调度：分通道优先级队列与并发、取消、下一级预取、每帧上传预算、失败上报）、
+│               TileContent（内容应用：影像揭示与交叉淡入、地形渐变）、PolarCaps（两极补洞）、GlobeTile（状态）、
+│               tileSelection（选择规则纯函数）、tileMeshLayout（网格索引布局，Worker 与象限填充共用）、TileMaterial（TSL）、
+│               Worker 构网、影像源、地形源
 │  └─ terrain/  地形源描述、quantized-mesh 解码、terrainTiling（主线程与 Worker 共用的分块 / 插值规则）
 ├─ atmosphere/  大气散射 TSL 节点（含建筑与 3D Tiles 的空气透视 `aerialPerspectiveOutputNode`）、大气的 CPU 版（atmosphereModel：透射率、天空、SH，常数两边共用）、
-│               AtmosphereLighting（光照跟随大气：太阳颜色、天光探针）、星空、云层（CloudLayer，远看的云壳）、
-│               体积云（VolumetricClouds：天气图、云影图、追踪、时域重投影、合成的后期效果；volumetricCloudMath 纯函数；
+│               AtmosphereLighting（光照跟随大气：太阳颜色、天光探针）、星空
+├─ clouds/      云层（CloudLayer，远看的云壳）、体积云（VolumetricClouds：后期效果的渲染目标、帧状态、何时画什么；
+│               cloudNodes：天气图、云影图、追踪、时域重投影、合成各 pass 的 TSL 节点图；volumetricCloudMath 纯函数；
 │               cloudNoise 可平铺 3D 噪声 + Worker）
 ├─ lighting/    日照阴影：shadowFit（阴影图范围适配：包围盒足迹 ∩ 视锥足迹、纹素对齐、分档，纯函数）、
 │               SunShadows（viewer.shadows：自管的仅深度阴影图、共享接收节点 sunShadowFactor / unlitShadowOutputNode）、
@@ -76,14 +81,19 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ markers/     MarkerManager（HTML 顶牌：投影、裁剪、避让、遮挡）、occlusion（遮挡代理池与规则，纯逻辑）、cards（顶牌样式模板）、
 │               points（点位解析 / 规则，纯函数）、clusterTree（层级聚合树，纯函数 + Worker）、
 │               PointLayer（点位图层）
-├─ local/       局部场景（沙盘）：region（区域数学与棱柱，纯函数）、regionMask（共享裁剪遮罩，按渲染器取区域）、
-│               RegionWalls（侧壁）、RegionDimEffect（区域外压暗）、LocalScene（调度，viewer.localScene）
+├─ region/      局部场景的区域：region（区域数学与棱柱，纯函数）、regionMask（共享裁剪遮罩，按渲染器取区域）；globe、tiles3d、local 共用
+├─ local/       局部场景（沙盘）：RegionWalls（侧壁）、RegionDimEffect（区域外压暗）、LocalScene（调度，viewer.localScene）
 ├─ post/        后期管线（PostPipeline：场景 pass → linear 效果 → 色调映射 → display 效果；静止超采样的抖动样本与历史缓冲）、EffectMarks（描边 / 发光对象登记）、
 │               OutlineEffect（遮罩 + 边缘搜索，可描单个合批实例）、GlowEffect（遮罩 + BloomNode）、ViewerEffects（viewer.effects）、
 │               Supersampling（viewer.supersampling）、ColorGrading（viewer.colorGrading + 对比度 / 饱和度效果）、
 │               LevelTransition（viewer.levelTransition：层级切换时截帧，按深度重投影后溶解）、
 │               Transparency（viewer.transparency：建筑和设备的透明顺序无关混合，透明 pass 在 PostPipeline 里）、postMath（纯函数）
-└─ viewer/      GeoViewer（总装、拾取、帧循环）、GlobeCameraController、cameraMath、CameraFlight（弧线 / 注视飞行）、
+└─ viewer/      GeoViewer（总装：创建子系统并接线、公共 API、容器）及其部件（各自声明所需的窄接口，不 import GeoViewer）：
+                ViewerEnvironment（大气 / 星空 uniform、灯光、阴影适配输入、体积云帧状态）、
+                FrameLoop（帧循环：降帧与静止判定、各部件的更新顺序、帧外渲染、统计、加载状态）、
+                ViewerPicking（拾取、要素拾取、手势拾取与参考地面）、ViewerLayers（图层增删、glTF 加载、贴地高程与防入地）、
+                diagnostics（显存估算、快照、GPU 识别）、viewerState（部件共享的状态）、viewerTypes（公共类型）、
+                indoorBehaviors（默认的室内交互）；GlobeCameraController、cameraMath、CameraFlight（弧线 / 注视飞行）、
                 NavigationControls（导航命令，无 UI）、IntroAnimation（开场自转）、
                 IndoorBackdrop（无地表时的展台背景）、
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
@@ -99,6 +109,26 @@ tests/          vitest：geo / camera / keyboard / flight / navigation / terrain
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
+
+### 2.1 分层
+
+目录之间的运行时依赖只能自下而上，由 `npm run check:layers`（`scripts/check-layers.mjs`，`verify` 和 CI 都跑）检查，规则表是脚本里的 `ALLOWED`：
+
+| 目录 | 可以依赖 |
+| --- | --- |
+| core | 无 |
+| atmosphere、region、post、markers | core |
+| lighting | core、atmosphere |
+| clouds | core、atmosphere、lighting、post |
+| globe、tiles3d | core、atmosphere、lighting、region |
+| vector | core、globe |
+| indoor | core、atmosphere、lighting、post、markers |
+| local | core、region、post、globe、tiles3d |
+| viewer | 以上全部 |
+
+- 文件之间不能有运行时的循环 import。只导入类型的（`import type`，或说明符全部带 `type`）构建时会被擦掉，方向不限；`node scripts/check-layers.mjs --types` 把它们也算上做审查，故意保留的类型循环列在 `ACCEPTED_TYPE_CYCLES`（目前一处：`IndoorManager` ↔ `LevelControl`，公共的 `LevelContext.indoor` 就是管理器本身）。
+- 下层要用上层的东西时，在下层声明它需要的窄接口，由上层把自己或一组引用传进来（`ViewerPicking` 的 `PickingHost`、`TileLoader` 的 `LoaderHost`、`NavigationControls` 的 `NavigationHost`），不要反向 import。
+- 新增目录或新增一条依赖方向是设计决定：改 `ALLOWED`，在提交说明里写理由。
 
 ## 3. 全局约定（必须遵守）
 
@@ -198,10 +228,10 @@ docs/agents/    子系统规范（本文档的展开）
   - 聚合用加载时建一次的层级聚合树（借鉴 Supercluster），每帧按节点距离选层；顶牌按需创建 DOM，避让走网格索引并定时放置。见 markers.md §5。
   - 共 8 种样式（card / pin / tag / poi / pulse / beacon / badge / label），见 markers.md。
 - **矢量**：GeoJSON 在 Worker 中解析和栅格化，按瓦片贴地；注记做屏幕空间避让。
-- **帧率与静止超采样**：画面安静 1 秒后先做静止超采样（默认 16 / 32 个亚像素抖动样本，P3.3），画完就**不再画帧**，只按 `idleFrameRate`（默认 10）更新状态；关掉超采样时按 `idleFrameRate` 重画。有变化立刻恢复实时画面（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。两种信号：**变化**（`requestRender()`，画面可能不同了，丢掉超采样）和**唤醒**（`GeoViewer.wake()`，输入或 DOM 上的工作，只要求全帧率更新，不丢画面）；新信号先想清楚是哪一种，输入本身只能是唤醒，否则鼠标一动静止画面就先变糙再变细。画面静止后漏接一个变化，改动要等下一次别的变化才出现（不再是"晚 100 ms"），所以新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`（如 `labels.update`、`Globe.animating`、`Tiles3DLayer.animating`），或像云层那样给出最低帧率（大于 0 就永远不算静止）；能廉价读到的状态放进 `GeoViewer.pictureChanged()` 每帧比较。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `GeoViewer.checkPendingWork()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
+- **帧率与静止超采样**：画面安静 1 秒后先做静止超采样（默认 16 / 32 个亚像素抖动样本，P3.3），画完就**不再画帧**，只按 `idleFrameRate`（默认 10）更新状态；关掉超采样时按 `idleFrameRate` 重画。有变化立刻恢复实时画面（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。两种信号：**变化**（`requestRender()`，画面可能不同了，丢掉超采样）和**唤醒**（`GeoViewer.wake()`，输入或 DOM 上的工作，只要求全帧率更新，不丢画面）；新信号先想清楚是哪一种，输入本身只能是唤醒，否则鼠标一动静止画面就先变糙再变细。画面静止后漏接一个变化，改动要等下一次别的变化才出现（不再是"晚 100 ms"），所以新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`（如 `labels.update`、`Globe.animating`、`Tiles3DLayer.animating`），或像云层那样给出最低帧率（大于 0 就永远不算静止）；能廉价读到的状态放进 `FrameLoop.pictureChanged()` 每帧比较。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `FrameLoop.checkPendingWork()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
 - **光照跟随大气与空气透视**（M3.5）：开光照时，建筑和 3D Tiles 的平行光颜色、天光探针（`viewer.skyProbe`，内部）由大气的 CPU 版（`atmosphere/atmosphereModel.ts`）在视点处算出，和着色器用同一套常数（改大气常数只改那里）。建筑、设备、3D Tiles 的材质挂共享的 `aerialPerspectiveOutputNode()` 作为 `outputNode`（与地球瓦片相同的空气透视，逐像素，100 m 内跳过）；新增这类材质时照样挂上，不要用 `scene.fog` / `scene.fogNode`（会作用到注记、云、展台等所有材质）。见 docs/api.md §1.10。
 - **日照阴影与透明混合**（M3.9）：开光照时一张自管的平行光阴影图（`viewer.shadows`，`lighting/SunShadows`），每帧按"建筑包围盒 ∩ 视锥"适配，只把建筑树（`indoor.root`）画进去，只在范围或建筑内容变化时重画。接收方读共享的 `sunShadowFactor()`：光照材质经太阳光的 `shadow.shadowNode`（只削弱直射），地球瓦片乘在直射项上，无光照的 3D Tiles 和展台背景用 `unlitShadowOutputNode` / 直接乘。新建的建筑网格要 `castShadow` / `receiveShadow`（`Building` 的 `shadowed()`、`BatchMesh` 构造里已设）；透明材质不投影。不要用 three 的 `SunLight` / `CSMShadowNode`（float32 世界坐标乘阴影矩阵，ECEF 下差半米），也不要给太阳光开 three 自己的阴影图。直接改建筑网格后调用 `viewer.shadows.invalidate()`。透明顺序无关混合（`viewer.transparency`，WebGPU，默认只在 `ultra`）只处理建筑实体网格和设备批次（`postProcessing.oitTest`）。见 docs/api.md §1.11。
-- **体积云**：近地（300 km 以下）的积云层是 linear 阶段的后期效果（`atmosphere/VolumetricClouds`），设置在 `viewer.clouds.set({ volumetric })`。天气图（512²，随风滑动、只在锚点 / 风 / 设置变化时重画）跟随云壳的 `densityNode`；追踪每帧只画历史四分之一的像素（2×2 交错），其余按云距离、相机运动和风重投影；合成按场景深度上采样。云影乘进 `sunShadowFactor()`（只削弱直射光），有云影时太阳光 `castShadow` 打开。体纹理没有 mip：噪声通道是单八度，着色器按像素足迹逐八度淡出，新增噪声查找照此处理。云壳的漂移被当作风（不触发重画天气图）。见 [volumetric-clouds.md](docs/agents/volumetric-clouds.md)。
+- **体积云**：近地（300 km 以下）的积云层是 linear 阶段的后期效果（`clouds/VolumetricClouds`，节点图在 `clouds/cloudNodes`），设置在 `viewer.clouds.set({ volumetric })`。天气图（512²，随风滑动、只在锚点 / 风 / 设置变化时重画）跟随云壳的 `densityNode`；追踪每帧只画历史四分之一的像素（2×2 交错），其余按云距离、相机运动和风重投影；合成按场景深度上采样。云影乘进 `sunShadowFactor()`（只削弱直射光），有云影时太阳光 `castShadow` 打开。体纹理没有 mip：噪声通道是单八度，着色器按像素足迹逐八度淡出，新增噪声查找照此处理。云壳的漂移被当作风（不触发重画天气图）。见 [volumetric-clouds.md](docs/agents/volumetric-clouds.md)。
 - **开场动画、云层、导航控制**：核心 API 是 `viewer.playIntro()`、`viewer.clouds`、`viewer.navigation`，演示界面（`ui/NavigationBar`、面板开关、URL 参数）只调用它们。脚本化的相机运动走 `controller.playAnimation`，程序缩放 / 环绕走 `zoomBy` / `orbitBy`，不要直接改相机位姿，否则手势打断不了。见 [intro-and-navigation.md](docs/agents/intro-and-navigation.md)。
 
 ## 5. 常见任务
@@ -221,7 +251,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 ## 6. 提交前验证
 
-1. 运行 `npm run verify`（typecheck、test、库构建与类型声明、演示构建），全部通过。
+1. 运行 `npm run verify`（typecheck、分层检查、test、库构建与类型声明、演示构建），全部通过。
 2. 涉及数学、调度规则或数据格式的改动，必须在 `tests/` 里补单测（相机不变量、地形分块、BIM 解析与层级都已有测试，可以照着写）。
 3. 浏览器手测（可以用 `window.viewer` 编程驱动）。有条件时用真实浏览器（Claude in Chrome 等）；自动化兜底是 `npm run smoke`（Playwright，CI 也跑）：演示应用（离线调试影像、`?demo` 逐级进出并核对事件顺序、销毁）和打包宿主（两个 viewer、逐个销毁、Worker 归零），出现页面错误、控制台错误或请求外部域名就失败。改了渲染、Worker、容器、层级相关的代码时跑一遍。手测清单：
    - 全球俯视状态下，光标分别放在北、南、东、西，滚轮放大，航向保持 0°、俯仰保持 -90°，画面不翻转。
@@ -271,7 +301,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **隐藏的东西不会被淘汰**：地球隐藏时 `Globe.update()` 不运行，缓存淘汰也不运行，几百块瓦片的纹理一直占显存（正好是 Google 3D Tiles 最缺显存的时候）。隐藏超过档位规定的时间由 `globe.releaseHidden` 释放。新增缓存时不要只靠"每帧 update 里顺便淘汰"。
 - **瓦片纹理参数要在上传前设**：GPU 纹理创建时就定了有没有 mip 链，之后改 `generateMipmaps` / 过滤方式不生效。3D Tiles 的纹理策略在 `processTileModel` 里做（`applyTexturePolicy`）。
 - **读不到显存大小，`powerPreference` 在 Windows 上无效**：浏览器不暴露显存容量和用量，档位只能按适配器厂商 / 架构猜（`classifyGpu`，可用 `?gpu=` 指定），`viewer.memory` 是自己分配量的估算。Chrome 在 Windows 上忽略 `powerPreference`，双显卡笔记本可能跑在集显上，测性能前先看状态栏徽标里的适配器名。
-- **共享 uniform 在帧外渲染时串 viewer**：大气、注记的相机 uniform 是模块级的，所有 viewer 共用，帧内渲染前由各自重写。截图、层级切换截帧这类帧外的 `renderer.render` 原来没有重写，同页有两个 viewer 时会画出另一个 viewer 的相机和大气。帧外渲染一律走 `GeoViewer.renderOutsideFrame()`；新增共享 uniform 时同样要在渲染前重写（docs/api.md §4）。
+- **共享 uniform 在帧外渲染时串 viewer**：大气、注记的相机 uniform 是模块级的，所有 viewer 共用，帧内渲染前由各自重写。截图、层级切换截帧这类帧外的 `renderer.render` 原来没有重写，同页有两个 viewer 时会画出另一个 viewer 的相机和大气。帧外渲染一律走 `FrameLoop.renderOutsideFrame()`（`captureFrame`、层级截帧都经它）；新增共享 uniform 时同样要在渲染前重写（docs/api.md §4）。
 - **注释里写了 `@internal` 字样，整条导出被裁掉**（2026-11-13，P1.1）：`stripInternal` 按字符串在前导注释里找 `@internal`，写在正文、反引号里都算。`src/index.ts` 文件头的说明提到这个标记，它是第一条导出的前导注释，`GeoViewer` 就从发布的声明里消失了；声明文件本身仍然合法，`tsconfig.dts.json` 看不出来，是打包宿主的类型检查发现的。现在 `build:types` 最后跑 `scripts/check-dts.mjs`，比对入口在源码和声明里的导出名。注释里提到这两个标记时不要带 `@`；分级规则见 docs/api.md §2。
 - **冒烟测试里 `window.viewer` 提前"存在"**：带 id 的元素会成为同名的 `window` 属性（演示应用的 `<div id="viewer">`、宿主的 `#left` / `#right`），等 viewer 要等 `window.viewer?.info` 之类的实例字段。
 - **软件渲染下"等瓦片加载完"会超时**（2026-11-13，CI 首跑宿主测试 150 s 超时）：无 GPU 时 SwiftShader 占满 CPU，画面约 4 fps，影像的 `createImageBitmap` 每次约 900 ms（有 GPU 时 1 ms），屏幕之外的低优先级加载（留作回退的祖先影像，按设计只用三分之一的并发）排空要再花一倍时间，2 核 runner 上跑不完。冒烟测试用 `probeBackend` 问浏览器是不是软件渲染：是的话只等"屏幕上的瓦片都有自己的影像"，有 GPU 时才要求队列排空。新增等待条件同样要分这两档，不要用软件渲染下的耗时判断 SDK 性能。本机 `SMOKE_NO_GPU=1` 只把 WebGL / WebGPU 放到 SwiftShader 上，页面合成仍走 GPU，比 CI 快好几倍：本机软件模式能过不代表 CI 有余量。
@@ -336,7 +366,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 ### 8.5 CI 与发布
 
-- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、单测、库构建与类型声明、演示构建；`package`（打包与浏览器冒烟，一个 job 共用同一份构建）：库构建、`check-package --keep-host`（打包检查并保留宿主构建），把 tgz 存为工作流产物，再构建演示应用、用 Playwright 自带的 Chromium 跑 `npm run smoke`（无 GPU：WebGL 经 ANGLE、WebGPU 经 Dawn 的回退适配器，都走 SwiftShader），失败时把 `test-output/` 存为产物；冒烟不重试。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
+- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、分层检查、单测、库构建与类型声明、演示构建；`package`（打包与浏览器冒烟，一个 job 共用同一份构建）：库构建、`check-package --keep-host`（打包检查并保留宿主构建），把 tgz 存为工作流产物，再构建演示应用、用 Playwright 自带的 Chromium 跑 `npm run smoke`（无 GPU：WebGL 经 ANGLE、WebGPU 经 Dawn 的回退适配器，都走 SwiftShader），失败时把 `test-output/` 存为产物；冒烟不重试。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
 - `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 不再是 `"private": true` 时执行，需要仓库密钥 `NPM_TOKEN`；版本号带 `-` 的发到 `next` 标签。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
 - 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本 → 合并到 main → 打标签并推送。打标签和推送要先得到明确同意。
 - 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。

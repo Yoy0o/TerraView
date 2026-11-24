@@ -41,7 +41,7 @@ flowchart LR
   - 以前的判定在渲染循环里先置了 `visible` 和 `lastRenderedFrame` 再判断"是否在屏幕上"，结果对新上屏的瓦片永远成立。瓦片就会从它很久以前显示过的粗影像（甚至占位色）开始淡入，缩小时尤其明显，是"缩放闪烁"的主要来源。
   - "上一帧这里画的是什么"由 `shownAncestor` 判断：上一帧画了自己的祖先（可能隔几级，快速放大时一帧细化多级），或者上一帧由父瓦片的象限填充顶替（`GlobeTile.filledFrame`）。后一种以前不淡入，子瓦片就绪时会直接跳到更清晰的影像。
   - **淡入中途换目标**：淡入进行到不足一半时又有新影像到达（例如锚点影像和自身影像先后到达），继续从原来的画面淡向新影像，不从中间画面重新开始；否则仍占主导的旧画面会一下子消失。
-- **平稳揭示（先模糊、再成组变清晰）**：屏幕上的瓦片不在影像到达的那一帧立即切换，规则见 `tileSelection.ts` 的 `imagerySwitchDue`（有单测），由 `Globe.updateShownImagery` 执行：
+- **平稳揭示（先模糊、再成组变清晰）**：屏幕上的瓦片不在影像到达的那一帧立即切换，规则见 `tileSelection.ts` 的 `imagerySwitchDue`（有单测），由 `TileContent.updateShownImagery` 执行：
   - 从占位色切换：立即。
   - 换成更清晰的祖先影像（锚点、预取的祖先）：等 `IMAGERY_COALESCE_MS`（400 ms），期间到达的更清晰影像合并成一次切换，不再逐级各淡入一次（以前 L5→L6→L8→L9 可能连闪三四次）。
   - 换成自身影像：等同一父瓦片下、这一帧画出的兄弟瓦片都拿到自身影像（或确定没有：超出层级、404、失败）后一起淡入，最多等 `IMAGERY_GROUP_WAIT_MS`（1.5 s）。这样变化单位是父瓦片大小的一块，而不是棋盘格式地一格格闪。
@@ -84,7 +84,7 @@ flowchart LR
 
 ### 3.2 预取下一级影像（只进 HTTP 缓存）
 
-放大时屏幕中心的瓦片要等一个网络往返（ArcGIS 从国内 300–800 ms，排队时更久）才变清晰。`Globe.prefetchNextLevel` 在空闲时把下一级影像提前下载进浏览器 HTTP 缓存，放大后的请求直接命中缓存。
+放大时屏幕中心的瓦片要等一个网络往返（ArcGIS 从国内 300–800 ms，排队时更久）才变清晰。`TileLoader.prefetchNextLevel` 在空闲时把下一级影像提前下载进浏览器 HTTP 缓存，放大后的请求直接命中缓存。
 
 - **只下载、不解码、不上传**：`ImageryProvider.prefetch` 读完响应体就丢弃，不占主线程、内存和显存，也不进瓦片缓存（不会挤掉 700 块里有用的瓦片）。真正需要时走正常的 `requestImage`，请求的 `mode` / `credentials` 与预取相同，才能命中同一条缓存。依赖服务端的缓存头（ArcGIS 为 `max-age=86400`）；`no-store` 的服务预取无效，应关闭。
 - **只取下一级、只取视野中心**：渲染瓦片满足 `shouldPrefetchChildren`（SSE ≥ 阈值的一半，即大约再放大一步就要细化；离视野中心不超过半对角视场角的 0.4 倍）时，预取它的四个子瓦片，按离中心远近排序。每个瓦片对同一影像源只取一次。
@@ -124,7 +124,7 @@ Worker 亲和路由（`terrainAffinity`）把读取同一张地形图的瓦片�
 
 贴地和防入地不直接调用它们，统一走 `viewer.surfaceHeight`（`viewer/SurfaceHeight.ts`）：地球显示时就是这里的地形高度，网格间距作为 `resolution`、不超过门槛才 `reliable`；地球隐藏时换成 3D Tiles 竖直射线，用瓦片 `geometricError` 套同样的门槛（§7、roadmap.md ISSUE-1）。
 
-- 相机防入地使用 `GeoViewer.collisionGround`，要求 `maxCellSize = max(50 m, 离地高度 × 1.5)`，粗糙的估计不会把相机顶高。
+- 相机防入地使用 `ViewerLayers.collisionGround`，要求 `maxCellSize = max(50 m, 离地高度 × 1.5)`，粗糙的估计不会把相机顶高。
 - 建筑、点位贴地使用 150 m 的门槛；建筑在拿到可靠高度之前每 5 帧检查一次，之后每 30 帧检查一次，不可靠时保持当前高度。
 
 ## 5. 上传预算与背压

@@ -4,11 +4,12 @@
 
 | 模块 | 职责 |
 | --- | --- |
-| `atmosphere/VolumetricClouds.ts` | 后期效果（linear 阶段，`order = -50`）：天气图、云影图、追踪、时域重投影、合成 |
-| `atmosphere/volumetricCloudMath.ts` | 选项与夹紧、高度淡出、云层球壳求交（与着色器同一套公式）、步长增长、历史尺寸、交错顺序、天气图范围、噪声坐标取模（纯函数，有单测） |
-| `atmosphere/cloudNoise.ts` / `cloudNoise.worker.ts` | 可平铺的 3D 噪声（Perlin-Worley + 三个单八度 Worley，64³ RGBA8，1 MB），在 Worker 里生成（约 0.5 s），整页共享 |
+| `clouds/VolumetricClouds.ts` | 后期效果（linear 阶段，`order = -50`）：渲染目标、帧状态（风、天气图锚点、重投影的上一帧位姿）、噪声体、何时重画天气图和云影图 |
+| `clouds/cloudNodes.ts` | 五个 pass 的 TSL 节点图（天气图、云影图、追踪、时域重投影、合成）和它们共用的部分（云层求交、天气查找、密度、光线步进、相函数），只构建节点、不持有状态 |
+| `clouds/volumetricCloudMath.ts` | 选项与夹紧、高度淡出、云层球壳求交（与着色器同一套公式）、步长增长、历史尺寸、交错顺序、天气图范围、噪声坐标取模（纯函数，有单测） |
+| `clouds/cloudNoise.ts` / `cloudNoise.worker.ts` | 可平铺的 3D 噪声（Perlin-Worley + 三个单八度 Worley，64³ RGBA8，1 MB），在 Worker 里生成（约 0.5 s），整页共享 |
 | `lighting/cloudShadows.ts` | 云影的共享接收节点，乘进 `sunShadowFactor()`，只削弱直射阳光 |
-| `atmosphere/CloudLayer.ts` | 选项（`volumetric`），云壳密度节点 `densityNode`（天气跟随云壳） |
+| `clouds/CloudLayer.ts` | 选项（`volumetric`），云壳密度节点 `densityNode`（天气跟随云壳） |
 
 ## 1. 参考与来源
 

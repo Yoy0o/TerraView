@@ -4,6 +4,22 @@
 
 ## [未发布]
 
+### 单包内重构（2026-11-24，progress-log G 组）
+
+只搬代码、不改行为：公共 API 的导出名不变（`check-dts`），发布的声明里 `GeoViewer`、`Globe` 的公开成员不变；新旧构建在浏览器里编译出的着色器逐字节相同，加载、静止超采样、拾取等行为逐项相同。
+
+**变更**
+
+- `viewer.date`、`viewer.timeMultiplier`、`viewer.indoorBackdrop` 从字段改为同类型的 getter / setter（读写方式不变）。
+- `TileFeature` 的声明移到 `Tiles3DLayer` 旁边（仍从包入口导出，形状不变）；`CameraBounds` 移到 `core/cameraBounds`（`GlobeCameraController` 仍导出它）。
+- 库构建 `terraview.js` 未压缩 +16 KiB、gzip +5 KiB（新模块的文件头和 `this.viewer.` 之类的前缀；宿主压缩后 gzip 约 +1.7 KiB），在包体积预算内。
+
+**工程**
+
+- `GeoViewer.ts`（2,248 行 → 约 1,080 行）拆出 `ViewerEnvironment`、`FrameLoop`、`ViewerPicking`、`ViewerLayers`、`diagnostics`、`viewerState`、`viewerTypes`、`indoorBehaviors`；`Globe.ts`（1,988 → 1,119 行）拆出 `TileLoader`、`TileContent`、`PolarCaps`；`VolumetricClouds.ts`（1,252 → 729 行）拆出节点图 `cloudNodes.ts`。部件各自声明所需的窄接口，不 import 上层。
+- 目录调整：云相关文件移到 `src/clouds/`；区域数学与裁剪遮罩移到 `src/region/`（`local/` 只留局部场景本身）；`TSLNode` 类型移到 `core/tsl`。
+- 新增 `npm run check:layers`（`scripts/check-layers.mjs`，接进 `verify` 和 CI）：目录间的运行时依赖只能自下而上、文件之间没有运行时循环 import；`--types` 把只导入类型的也算上做审查。分层表见 AGENTS.md §2.1。
+
 ### 体积云（近地）（2026-11-24）
 
 相机降到约 300 km 以下时，云从覆盖全球的云壳过渡到立体的积云层：可以从地面仰望、飞进云里、从云上俯瞰，云被山体和建筑挡住，开光照时在地面、建筑和 3D Tiles 上投下随风移动的云影。思路参考 [yisky/hillaire-sky-webgpu](https://github.com/yisky/hillaire-sky-webgpu)（该仓库没有许可证，未复制代码和数据）与 Schneider 2015、Hillaire 2016。说明见 [docs/api.md](docs/api.md) §1.13，规范见 [docs/agents/volumetric-clouds.md](docs/agents/volumetric-clouds.md)。
@@ -24,7 +40,7 @@
 
 **工程**
 
-- `atmosphere/VolumetricClouds.ts`（linear 阶段的后期效果：天气图、云影图、半分辨率以内 2×2 交错追踪、按云距离 / 相机运动 / 风的时域重投影、按场景深度上采样的合成；全部 TSL 片元 pass，WebGPU 与 WebGL 2 相同）、`atmosphere/volumetricCloudMath.ts`（纯函数：选项、淡出、与着色器同公式的球壳求交与云层区间、步长增长、历史尺寸、天气图范围）、`atmosphere/cloudNoise.ts` + `cloudNoise.worker.ts`（可平铺的 64³ Perlin-Worley / Worley 噪声，Worker 生成，整页共享）、`lighting/cloudShadows.ts`（云影接收节点）。`CloudLayer.densityNode`（云壳密度节点，天气复用）、`AtmosphereNodes.aerialScatteringAlong`（沿给定方向和距离的空气透视）。
+- `clouds/VolumetricClouds.ts`（linear 阶段的后期效果：天气图、云影图、半分辨率以内 2×2 交错追踪、按云距离 / 相机运动 / 风的时域重投影、按场景深度上采样的合成；全部 TSL 片元 pass，WebGPU 与 WebGL 2 相同）、`atmosphere/volumetricCloudMath.ts`（纯函数：选项、淡出、与着色器同公式的球壳求交与云层区间、步长增长、历史尺寸、天气图范围）、`atmosphere/cloudNoise.ts` + `cloudNoise.worker.ts`（可平铺的 64³ Perlin-Worley / Worley 噪声，Worker 生成，整页共享）、`lighting/cloudShadows.ts`（云影接收节点）。`CloudLayer.densityNode`（云壳密度节点，天气复用）、`AtmosphereNodes.aerialScatteringAlong`（沿给定方向和距离的空气透视）。
 - 测试：`tests/volumetricClouds.test.ts`（20 项）、`tests/intro.test.ts` 补 URL 参数；冒烟新增"近地体积云、云影、销毁"（WebGL / WebGPU，硬件与软件模式都通过）。
 
 ### 日照阴影、透明顺序无关混合（2026-11-19，路线图 §0.2 P3.6：M3.9）

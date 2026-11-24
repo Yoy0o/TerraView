@@ -9,7 +9,7 @@
 | 相机原语 | `viewer/GlobeCameraController.ts` | `playAnimation(step)`（脚本动画）、`zoomBy(amount, ndc?)`（程序缩放）、`orbitBy(dHeading, dTilt, duration?, pivot?)`（程序环绕 / 倾斜）、`isAnimating`、`stopAnimation()` |
 | 开场动画 | `viewer/IntroAnimation.ts` | 速度曲线（纯函数 `introSpinProfile` / `introSpinAngle` / `introHeightScale`）和 `playIntroSpin(host, options)` |
 | 导航命令 | `viewer/NavigationControls.ts`（`viewer.navigation`） | 放大、缩小、旋转、倾斜、俯视切换、指北、回到初始视角、环绕、全屏、截图、开场动画 |
-| 云层 | `atmosphere/CloudLayer.ts`（`viewer.clouds`） | 云壳网格、TSL 材质、漂移、按相机高度淡出 |
+| 云层 | `clouds/CloudLayer.ts`（`viewer.clouds`） | 云壳网格、TSL 材质、漂移、按相机高度淡出 |
 | 演示界面 | `demo/ui/NavigationBar.ts`、`demo/ui/ControlPanel.ts`（场景一节）、`demo/ui/urlOptions.ts`、`demo/main.ts` | 按钮条、面板开关与滑块、URL 参数解析、启动时播放 |
 
 ## 2. 开场动画

@@ -436,8 +436,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | 楼层 AO 的 `colorNode` | `indoor/FloorOcclusion` | 只读节点图；贴图、范围、强度是材质属性，楼层坐标是逐对象 uniform（取自网格的 `userData`），都不跨 viewer |
 | 日照阴影的接收节点（`sunShadowFactor`、无光照材质的 `unlitShadowOutputNode`）和它的 uniform：阴影图纹理、阴影矩阵、太阳方向、强度、纹素、柔化 | `lighting/SunShadows` | 每个 viewer 渲染前用 `shadows.bind()` 重写全部值（在 `updateEnvironment` 里，帧外渲染也先调用）；阴影图是各 viewer 自己的渲染目标，没有阴影时绑定自己的 1×1 空图。逐对象的阴影坐标矩阵在绘制时用当前值现算 |
 | 云影的接收节点（`cloudShadowFactor`，乘在 `sunShadowFactor` 里）和它的 uniform：云影图纹理、世界到云影图的矩阵、强度、云层高度 | `lighting/cloudShadows` | 每个 viewer 渲染前绑定自己的（帧内在场景 pass 之前，帧外渲染也先绑定）；没有体积云或没开光照的 viewer 把强度置 0，接收方什么都不取样。逐对象矩阵在绘制时用当前值现算 |
-| 体积云的噪声体（64³ RGBA8 数据）和生成它的 Worker | `atmosphere/VolumetricClouds` | 只读数据，整页生成一次；每个 viewer 各自建纹理上传。Worker 生成完立即关闭；还在生成时最后一个使用者销毁，Worker 随之关闭 |
-| 局部场景的裁剪遮罩节点、瓦片裁剪基础材质 `GlobeTileClipped`、3D Tiles 的遮罩组合节点 | `local/regionMask`、`globe/TileMaterial`、`tiles3d/nodeMaterials` | 区域参数按渲染器存（`setRegionGpuState`，WeakMap），节点在每次渲染 / 每次绘制时读当前渲染器的状态，没开局部场景的 viewer 遮罩恒为真；不需要渲染前重写。地球瓦片只有跨区域边界时才用裁剪材质，别的 viewer 的瓦片不受影响 |
+| 体积云的噪声体（64³ RGBA8 数据）和生成它的 Worker | `clouds/VolumetricClouds` | 只读数据，整页生成一次；每个 viewer 各自建纹理上传。Worker 生成完立即关闭；还在生成时最后一个使用者销毁，Worker 随之关闭 |
+| 局部场景的裁剪遮罩节点、瓦片裁剪基础材质 `GlobeTileClipped`、3D Tiles 的遮罩组合节点 | `region/regionMask`、`globe/TileMaterial`、`tiles3d/nodeMaterials` | 区域参数按渲染器存（`setRegionGpuState`，WeakMap），节点在每次渲染 / 每次绘制时读当前渲染器的状态，没开局部场景的 viewer 遮罩恒为真；不需要渲染前重写。地球瓦片只有跨区域边界时才用裁剪材质，别的 viewer 的瓦片不受影响 |
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |
 | 点位聚合 Worker | `markers/PointLayer` | 引用计数，最后一个点位图层销毁时关闭 |

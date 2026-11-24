@@ -74,7 +74,7 @@
 | M2.2 改查拾取缓冲深度 | 可选优化，暂缓 | 见 §3 M2.2 |
 | M3.7 画质与性能 | 未开始 | M3.9 ✅ 2026-11-19（P3.6：日照阴影、OIT）；M3.4、M3.5 ✅ 2026-11-19（P3.5）。M3.1、M3.2 ✅ 2026-11-17（P3.1、P3.2）；M3.3 ✅ 2026-11-18（P3.3：静止超采样、超采样后停画、调色）。M3.3 的按需渲染、M3.8 楼层按需加载提前到 §0.2 P2，其余在 P3。按需渲染先以空闲降帧落地（P2.1a ✅ 2026-11-13），完全停帧随 P3.3 以"超采样画完后停画"落地；M3.8 ✅ 2026-11-17（P2.2） |
 | M4.1–M4.8 孪生数据与空间分析 | 未开始 | §0.2 P4，按需求排期 |
-| 代码结构：单包内重构 | 已登记，未开工（2026-11-24） | monorepo 评估后的结论（§10.4）：拆 `GeoViewer`、`Globe`、体积云的大文件，消除目录级反向依赖，加分层检查脚本；细项见 progress-log G 组，建议在 P4 之前做 |
+| 代码结构：单包内重构 | ✅ 2026-11-24 | monorepo 评估后的结论（§10.4）：拆 `GeoViewer`、`Globe`、体积云的大文件（2,248 / 1,988 / 1,252 行 → 1,084 / 1,119 / 729 行），云和区域各成目录，消除目录级反向依赖和两对文件循环，`check:layers` 进 `verify` 和 CI（AGENTS.md §2.1）；细项与验证见 progress-log G 组 |
 | M5.1–M5.3 工程与工具 | M5.1 部分完成，其余未开始 | 持续项。M5.1 的 JSON 导出以 `viewer.snapshot()` 落地（2026-11-19），基于 three `Inspector` 的面板没有做 |
 
 ### 0.2 TerraView 阶段计划（2026-11-12 调整）
@@ -218,7 +218,7 @@
 | 0 | 5.5% | 100% | 9.6% | 100% |
 
 - 10 fps 以下收益不稳：建筑场景 5 fps 三轮都比 10 fps 更费（33–37% 对 23–27%），单帧 CPU 从约 6 ms 涨到约 11 ms。推测是负载太轻时 CPU / GPU 降频，同样的工作耗时更长（统计的是时间，不是能耗）。地球场景 10 → 5 fps 也只再省 3.7 个百分点。
-- 代码里的时间步长上限：`GeoViewer.frame` 把 `dt` 限在 0.25 s，`GlobeCameraController.update` 限在 0.1 s，`lodPolicy` 限在 0.25 s。低于 4 fps，云层漂移、`timeMultiplier` 推动的日期、各种淡入淡出都会比真实时间慢；低于 10 fps，任何仍在进行的相机运动（漏判的惯性、动画）也会变慢。10 fps 是这些上限都还成立的最低帧率。
+- 代码里的时间步长上限：`FrameLoop.frame` 把 `dt` 限在 0.25 s，`GlobeCameraController.update` 限在 0.1 s，`lodPolicy` 限在 0.25 s。低于 4 fps，云层漂移、`timeMultiplier` 推动的日期、各种淡入淡出都会比真实时间慢；低于 10 fps，任何仍在进行的相机运动（漏判的惯性、动画）也会变慢。10 fps 是这些上限都还成立的最低帧率。
 - 漏判信号时的延迟最多一帧：10 fps 是 100 ms，正好在"感觉即时"的 0.1 s 阈值内（Nielsen 的响应时间阈值、Chrome RAIL 模型的输入响应目标）；5 fps 是 200 ms，看得出迟滞。
 - 按帧计数的逻辑会随帧率一起变慢：遮挡去抖（连续几次读数）、贡献剔除（每 5 帧）、点位每帧最多建 200 个顶牌、贴地每帧 256 个点。全帧率的 1 s 安静期内这些都能收完（3000 个点位约 15 帧）。
 - 降帧以后仍在动的只有两样，都要单独判断：
@@ -298,7 +298,7 @@
   - `LabelManager.update` 返回是否有注记在淡入淡出或换了高度；
   - `Globe.animating`（影像交叉淡入、地形渐变进行中）；
   - `Tiles3DLayer.animating`（渐显插件 `fadingTiles > 0`，或自适应误差目标这一帧变了：不加载也会换缓存里的层级）；
-  - `GeoViewer.pictureChanged()` 每帧直接比较：相机世界矩阵和投影矩阵（绕过控制器改相机也能发现）、画布像素尺寸、`globe.surfaceSignature`（加入了线框开关）、`viewer.date`、色调映射与曝光、`tileDebugUniforms`；
+  - `FrameLoop.pictureChanged()` 每帧直接比较：相机世界矩阵和投影矩阵（绕过控制器改相机也能发现）、画布像素尺寸、`globe.surfaceSignature`（加入了线框开关）、`viewer.date`、色调映射与曝光、`tileDebugUniforms`；
   - 动画帧停顿超过 2 s 后恢复（标签页隐藏、睡眠）时重画一次，不依赖画布还保留着画面（Playwright 和扩展驱动的 Chrome 都一直报告页面可见，没法实测浏览器是否保留，所以兜底）。
 - **一直在动的东西不静止**：`idleFloorRate()` 大于 0（`timeMultiplier`、控制器运动、闪烁的描边、漂移的云层）时画面永远不算静止。演示应用 `?demo` 的告警设备用闪烁描边，所以那个场景按设计一直全帧率；换成不闪烁的样式后正常静止。
 - **截图**：`renderOutsideFrame`（`captureFrame`、层级切换截帧）在历史有样本且之后没有变化时直接显示历史（`present`），否则画实时帧。
@@ -575,7 +575,7 @@ IoT 数据管线（M4.5，E4）优先，它解锁场强图（M4.1）和高频数
   - 抽样像素的拾取结果与 CPU 射线一致。
 - **状态（2026-11-09 完成）**：`viewer/PickBuffer.ts`、`viewer/pickMath.ts`，单测 `tests/pickBuffer.test.ts`。
   - **布局**按上面的 `RGBA32Uint` 实现：r187 的片元输出类型跟随渲染目标纹理类型（`NodeBuilder.getOutputType`），整数目标可以直接写 `uvec4`。法线用屏幕空间导数求面法线（地球瓦片没有法线属性），翻到朝向相机。
-  - **材质替换**：`setRenderObjectFunction` 里只画三类网格（建筑、3D Tiles、地球瓦片，由 `GeoViewer.classifyPick` 判定并按对象缓存），其余（天空、星空、云、展台背景、注记）跳过。拾取材质是一个节点图的 `NodeMaterialInstance`，按面朝向分三个变体；有自定义 `positionNode` 的源材质（地球瓦片）各有一个实例，基础材质按位置节点计引用数，源材质 dispose 时释放。地球瓦片用 `TileMaterial.tileMorphPositionNode()`（与瓦片着色器同一个形变位置节点，去掉大气计算），`morph` 等自定义属性每次绘制前从源材质复制。对象 id 用 `uniform('uint').onObjectUpdate` 写入；实例 id 是 `instanceIndex`，合批设备经 `BatchMesh.entityAt` 映射回实体。
+  - **材质替换**：`setRenderObjectFunction` 里只画三类网格（建筑、3D Tiles、地球瓦片，由 `ViewerPicking.classifyPick` 判定并按对象缓存），其余（天空、星空、云、展台背景、注记）跳过。拾取材质是一个节点图的 `NodeMaterialInstance`，按面朝向分三个变体；有自定义 `positionNode` 的源材质（地球瓦片）各有一个实例，基础材质按位置节点计引用数，源材质 dispose 时释放。地球瓦片用 `TileMaterial.tileMorphPositionNode()`（与瓦片着色器同一个形变位置节点，去掉大气计算），`morph` 等自定义属性每次绘制前从源材质复制。对象 id 用 `uniform('uint').onObjectUpdate` 写入；实例 id 是 `instanceIndex`，合批设备经 `BatchMesh.entityAt` 映射回实体。
   - **背景**：天空 `backgroundNode` 是浮点着色器，画不进整数目标，拾取 pass 期间暂时清空 `background` / `backgroundNode` / `fog` / `environment`。
   - **调度**：半分辨率；最近 3 s 内有过查询、并且视图或场景变了才重画，最多每 0.25 s 一次；`readRenderTargetPixelsAsync` 异步回读整张缓冲。
   - **新鲜度**：缓冲带一份签名（相机世界矩阵、投影矩阵、画布尺寸、主 pass 的绘制数和三角形数、失效计数、地球的 `surfaceSignature`）。查询时相机部分现场比较，签名不一致就返回 `undefined`，调用方改走 CPU 射线；所以拖动、飞行、加载期间自动退回射线，静止后 0.25 s 内恢复。层级切换、楼层展开、建筑贴地后移动会调用 `invalidate()`，同一 tick 内立即生效。地球瓦片换网格、形变动画不改变绘制数，由 `Globe.surfaceSignature` 覆盖。
