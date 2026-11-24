@@ -86,6 +86,7 @@ Hub 有记录的 7 个任务合计 640 分钟（约 10.7 小时），均 0–1 �
 | 11-11 | 样式拆分与 `tv-` 前缀、顶牌层相对容器定位、键盘监听改容器、解码器路径、聚合 Worker 关闭 | §10 S3–S6 | `f04798a` | [api.md](../api.md) §1、CHANGELOG |
 | 11-11 | 包名定为 `terra-view`（`terraview` 在 npm 上是占位包，不可用）；CI / 发布工作流、打包自检脚本 `scripts/check-package.mjs` | §10 S1、S8 | 见 Git 记录 | README「持续集成与发布」 |
 | 11-11 | 文档迁移与改写（README、AGENTS、api.md、专题文档的路径与类名）、演示应用改名与设置键迁移 | §10 S7 | 见 Git 记录 | 本文 §7 |
+| 11-24 | 体积云（近地）：天气跟随云壳的积云层，低分辨率交错追踪 + 时域重投影，按场景深度合成；云影乘进日照阴影的接收节点；Worker 生成可平铺噪声 | 插入项 | 见 Git 记录 | [volumetric-clouds.md](volumetric-clouds.md) |
 
 ## 3. Hub 任务与 roadmap 的对应
 
@@ -234,6 +235,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-24 | 插入项：体积云（近地，`viewer.clouds.set({ volumetric })`）。参考 yisky/hillaire-sky-webgpu 的积云做法（该仓库无许可证，只借鉴思路，代码重写为 TSL 片元 pass，WebGPU / WebGL 2 都能跑）：天气图跟随云壳密度并随风滑动，2×2 交错追踪 + 按云距离 / 相机 / 风重投影的历史，按场景深度上采样合成，云影接进 `sunShadowFactor`。新增踩坑一条（AGENTS.md §7：TSL `If` 回调写成表达式箭头函数），专题文档 §7 记了六条。verify 478 个测试通过，冒烟硬件模式 8 项、软件模式新用例 2 项通过 |
 | 2026-11-19 | P3.6（B9 / M3.9）：日照阴影（`viewer.shadows`：`lighting/shadowFit.ts` 纯函数适配、`lighting/SunShadows.ts` 自管阴影图和共享接收节点，地球瓦片、3D Tiles、展台接收，只在范围或内容变化时重画）、透明顺序无关混合（`viewer.transparency`，`PostPipeline` 的透明 pass 与合成，WebGPU，默认只在 `ultra`）。新增踩坑三条（AGENTS.md §7：无渲染目标的深度纹理被当成多重采样、放大渲染目标后材质仍绑旧纹理、MRT 按纹理名对应）。verify 436 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.6 落地"） |
 | 2026-11-19 | P3.5（B7 / M3.4、B8 / M3.5）：楼层环境光遮蔽（`viewer.indoor.ambientOcclusion`，GPU 俯视烘焙、接触项加权最大值 + 柔和项平均、读回成 `DataTexture`、共享 `colorNode`、内容变化稳定后重烘）；光照跟随大气（大气 CPU 版、太阳光色、天光 SH 探针、建筑 / 设备 / 3D Tiles 的空气透视）。浏览器实测 TSL 与 CPU 透射率相差 < 7e-5，AO 贴图 WebGPU / WebGL 逐字节相同。P5 顺带：C11 第二处局限修复（`moved` 事件）、M5.1 的 `viewer.snapshot()`、建筑构建的控制台警告；新增 C12（Chapman 近似偏差）。verify 419 个测试通过，冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.5 落地"）。P1.7 仍搁置 |
 | 2026-11-18 | P3.4 GPU 版层级过渡（B5 / M1.4 遗留）：去掉 DOM 版 `FrameCrossfade` 和 `.tv-crossfade`，改为后期管线 display 阶段的 `transition` 效果：截帧和深度留在 GPU，每 4 CSS 像素一个网格点按深度重投影到飞行中的相机后溶解（`viewer.levelTransition.duration` / `reproject`）。WebGPU / WebGL2 下放慢截图对照、测开始过渡的同步耗时与过渡期间帧率；冒烟硬件 / 软件模式各 4 项通过（roadmap §0.2"P3.4 落地"）。P1.7 仍搁置 |

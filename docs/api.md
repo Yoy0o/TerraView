@@ -141,7 +141,7 @@ viewer.events.on('idle', () => {
 | 什么算"有变化" | 相机运动（手势、飞行、动画、惯性、环绕，包括从代码发起的）；加载未完成（`loadState.idle` 为 false）；地球影像淡入、地形渐变、3D Tiles 细节层级淡入淡出、注记淡入淡出；层级切换、选中、悬停；图层增删；尺寸变化；场景开关（`lighting` 等）、`viewer.date` 改变、调色；`timeMultiplier` 不为 0、云层漂移、闪烁的描边（这几样一直在动，画面永远不静止）。从代码做的改动也算，在下一个动画帧（约 16 ms）就恢复：实体的 `setStyle` / `visible` / `levelOpacity` / `refreshTransform()`、建筑模型加载完成或卸载、`indoor.showLabels` / `expandFloors`、`clouds.set()`、3D Tiles 图层的 `visible` / `heightOffset`、GeoJSON 图层的 `visible` / `setStyle` / `setLabelStyle`、叠加图层（`viewer.overlays`）的增删和属性、点位图层的 `visible` / `setStyle` / `setCluster`、`viewer.effects` 与 `entity.effects`。另外每次更新都直接比较相机矩阵、画布尺寸、地球瓦片、色调映射和瓦片调试开关，绕过控制器改了相机也能发现 |
 | 输入本身不算变化 | 容器上的指针、滚轮、键盘只让 viewer 按全帧率更新 1 秒（及时响应），不丢掉已超采样的画面：鼠标在静止画面上移动、点在空白处都不会让画面先变糙再变细。输入引起的变化（相机动了、悬停换了对象、选中）照常算变化 |
 | 分几帧做完的工作 | 点位顶牌每帧最多建 200 个、顶牌放置：做完之前保持全帧率更新（它们是 DOM，不影响画面是否静止） |
-| 云层 | 可见且在漂移时画面一直在变，不做超采样；按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画 |
+| 云层 | 可见且在漂移时画面一直在变，不做超采样；按它在屏幕上的漂移速度决定帧率（每帧移动不超过约 1.5 px）：整球视角仍是 10 帧，离地 1500 km 左右约 30 帧，更低时每帧都画。体积云（§1.13）同理按风速和最近的云的距离：6 m/s 时云底下 1 km 约 4 帧/秒、云层里约 14 帧/秒；`windSpeed: 0` 时云不动，画面可以静止 |
 | `viewer.requestRender()` | 立刻按实时画面重画，并保持全帧率至少 1 秒，之后重新超采样。经 SDK API 做的改动 viewer 都能发现（见上）；**绕过 SDK 直接改 three 对象时必须调用**，例如往 `viewer.scene` 加了对象、改了其中对象的位置或材质、直接改了 `renderer` 的设置：画面已静止时，不调用的话改动要等下一次别的变化才出现（关掉超采样时最多晚 100 ms） |
 | 自己做动画的宿主 | 在 `viewer.scene` 里有自己逐帧变化的对象（风扇转动、自定义着色器动画）时，在自己的动画循环里每帧调用 `requestRender()`，或设 `idleFrameRate: 0` |
 | 截图 | `captureFrame()`、`navigation.screenshot()` 在画面已超采样且之后没有变化时，直接输出超采样的画面（不重画场景）；否则画一帧实时画面 |
@@ -265,6 +265,34 @@ await viewer.localScene.exit(); // 默认飞回进入前的视点
 
 局部场景中：拾取（含拾取缓冲）、`surfaceHeight`、防入地在区域外分别落空、返回侧壁底面高度；锚点在区域外的顶牌、注记、建筑隐藏；双击区域外回到总览（`interaction` 上 `tag: 'local-scene'`），`navigation.home()` 回到总览；云层隐藏。相机的活动范围是通用的 `controller.bounds`（`CameraBounds`，高级），不开局部场景也能用。
 
+### 1.13 体积云
+
+`viewer.clouds` 远看是覆盖全球的云壳，相机降到约 300 km 以下时过渡到体积云：立体的积云层，可以从地面仰望、飞进云里、从云上俯瞰，云被山体和建筑挡住；开光照时在地面、建筑、3D Tiles 上投下云影。两者共用 `visible` 和 `coverage`，体积云的天气跟随云壳的密度（从太空看到的云团处，底下是成片的积云）。规范见 [volumetric-clouds.md](agents/volumetric-clouds.md)。
+
+```ts
+viewer.clouds.set({ visible: true, coverage: 0.55 });
+viewer.clouds.set({ volumetric: { bottom: 1200, thickness: 3000, windSpeed: 10, windHeading: 90 } });
+viewer.clouds.set({ volumetric: false }); // 只要云壳
+```
+
+`CloudOptions.volumetric`（`true` / `false` 是 `{ enabled }` 的简写，或 `VolumetricCloudOptions`；默认值 `VOLUMETRIC_CLOUD_DEFAULTS`，`clouds.getOptions().volumetric` 读当前值）：
+
+| 项 | 默认 | 说明 |
+| --- | --- | --- |
+| `enabled` | 按档位（`low` 关） | 近地时画体积云 |
+| `bottom` | 1500 | 云底，米（椭球高，0–15,000） |
+| `thickness` | 2500 | 云层厚度，米（200–10,000） |
+| `windSpeed` | 6 | 风速，米/秒（0–60）；0 时云静止，画面可以静止并做超采样 |
+| `windHeading` | 60 | 云移动的方向，度，自北顺时针 |
+| `density` | 1 | 光学密度倍数（0.1–4） |
+| `shadows` | true | 开光照时投下云影（只削弱直射阳光，与日照阴影同一个接收节点）；开启时太阳光的 `castShadow` 打开，带光照的材质重编一次 |
+| `fadeHeights` | [100 km, 300 km] | 相机高度 [以下全显, 以上隐藏]；云壳在 60–500 km 之间淡入 |
+| `maxDistance` | 80,000 | 视线进入云层后最多走多远，米（10–200 km），远处逐渐变薄 |
+
+不合法的值被丢弃或夹紧（`normalizeVolumetricOptions`）。进入局部场景、或建筑周围什么都不画（展台背景）时不画体积云；拾取不受云影响。
+
+代价：后期里的光线步进，分辨率至多画布的一半（按档位 16 万–100 万像素，见 `GpuProfile.clouds`），每帧只追其中四分之一的像素，其余靠按云距离、相机运动和风重投影的历史补齐。实测（WebGPU、RTX 40 系，1920×1080）追踪每帧约 0.6 ms（`high`）/ 0.16 ms（`medium`），时域合成、云影图不到 0.05 ms（[volumetric-clouds.md](agents/volumetric-clouds.md) §10）。显存在第一次显示时分配：噪声 1 MB、天气图 1 MB、云影图 0.25–4 MB、历史与追踪目标（1080p 约 16 MB），计入 `viewer.memory.framebuffers`。噪声体在一个 Worker 里生成（约 0.5 s，整页一次，生成完即关闭），之前不画体积云。有风时画面一直在变：按最近的云在屏幕上的移动速度要最低帧率（§1.8）。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -377,10 +405,10 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 | 导出 | 级别 |
 | --- | --- |
-| `CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS` | 稳定 |
+| `CloudLayer`（`viewer.clouds`）、`CloudOptions`、`CLOUD_DEFAULTS`、`ResolvedCloudOptions`；体积云的 `VolumetricCloudOptions`、`VOLUMETRIC_CLOUD_DEFAULTS` | 稳定 |
 | `Ellipsoid`、`cartographic`、`WGS84_A` / `WGS84_B`、`geodeticToEcef`、`geodeticNormal`、`sunDirectionECEF` | 稳定 |
 | `EventEmitter`；`DEG2RAD`、`RAD2DEG`、`clamp`、`formatDegrees`、`formatDistance` | 稳定 |
-| `GpuTier`、`GpuProfile`（含 `shadows`、`orderIndependentTransparency`）、`TilesQuality`、`IndoorQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
+| `GpuTier`、`GpuProfile`（含 `shadows`、`orderIndependentTransparency`、`clouds`）、`TilesQuality`、`IndoorQuality`、`CloudQuality`（`viewer.gpu`、`GeoViewerOptions.gpuTier` 的类型） | 稳定 |
 | `gpuProfile`、`classifyGpu`、`parseGpuTier`、`GPU_TIERS`、`GpuHints` | 高级 |
 | 语言与错误（§1.6）：`LocaleId`、`DEFAULT_LOCALE`、`MESSAGES`、`ViewerMessages`、`ViewerMessageOverrides`、`resolveMessages`、`LocalizedText`、`localize`；`TerraViewError`、`TerraViewErrorCode`、`TerraViewErrorDetails`、`isTerraViewError` | 稳定 |
 
@@ -388,7 +416,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 2026-11-13 从入口移除（CHANGELOG）：`FrameCrossfade`（2026-11-18 起由 `LevelTransition` 取代，类型经 `viewer.levelTransition` 可见）、`decodeImage`、`isQuantizedMesh`、`WebMercatorTilingScheme` / `MERCATOR_MAX_LATITUDE` / `GeoRect`、`greenwichMeanSiderealTime`、`geoidUndulation`（EGM96 网格只在瓦片 Worker 里用，不再进主入口）、聚合树（`buildClusterTree` / `clusterLeaves` / `ClusterSelector` / `ClusterTree*` / `ClusterView`）、`createClusterCard` / `setClusterCount`。
 
-公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`skyProbe`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`viewer.indoor.ambientOcclusion` 的 `update`、`pending`、`forget`、`dispose`；`viewer.shadows` 的 `update`、`bind`、`render`；`viewer.postProcessing` 的 `oitEnabled`、`oitSupported`、`oitTest`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`、`floorContentChanged`、`shadowBounds`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
+公开对象上的内部成员（不在类型声明里）：`viewer` 的 `stars`、`sunLight`、`skyLight`、`skyProbe`、`labels`、`vectors`、`markerOcclusion`、`backdrop`、`pickReferenceSurface`；`viewer.globe` 的 `group`、`scheme`、`surfaceSignature`、`setOverlaySource`、`update`、`releaseHidden`、`sampleHeight`、`raycast`、`dispose`；`viewer.indoor.culling` 的 `update`、`forget`；`viewer.indoor.ambientOcclusion` 的 `update`、`pending`、`forget`、`dispose`；`viewer.shadows` 的 `update`、`bind`、`render`；`viewer.postProcessing` 的 `oitEnabled`、`oitSupported`、`oitTest`；`viewer.clouds` 的 `onChange`、`densityNode`、`densityVersion`、`volumetricOptions`、`weatherState`；`Building` 的 `updateModels`、`unloadableModels`、`unloadFloorModel`、`floorContentChanged`、`shadowBounds`，`BimEntity` 的 `releaseMeshes`、`highlight`、`resolvedEffects`、`collectDrawables`、`onEffects`；`viewer.indoor.markedEntities`；`Tiles3DLayer` 的 `highlighted`、`setHighlight`（用 `viewer.highlightTileFeature`）；`Marker` 的放置与测量方法。
 
 ## 4. 多个 viewer
 
@@ -407,6 +435,8 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 | 空气透视的 `outputNode` | `atmosphere/AtmosphereNodes`（`aerialPerspectiveOutputNode`） | 只读节点图，读的是上面的大气 uniform（渲染前按 viewer 重写） |
 | 楼层 AO 的 `colorNode` | `indoor/FloorOcclusion` | 只读节点图；贴图、范围、强度是材质属性，楼层坐标是逐对象 uniform（取自网格的 `userData`），都不跨 viewer |
 | 日照阴影的接收节点（`sunShadowFactor`、无光照材质的 `unlitShadowOutputNode`）和它的 uniform：阴影图纹理、阴影矩阵、太阳方向、强度、纹素、柔化 | `lighting/SunShadows` | 每个 viewer 渲染前用 `shadows.bind()` 重写全部值（在 `updateEnvironment` 里，帧外渲染也先调用）；阴影图是各 viewer 自己的渲染目标，没有阴影时绑定自己的 1×1 空图。逐对象的阴影坐标矩阵在绘制时用当前值现算 |
+| 云影的接收节点（`cloudShadowFactor`，乘在 `sunShadowFactor` 里）和它的 uniform：云影图纹理、世界到云影图的矩阵、强度、云层高度 | `lighting/cloudShadows` | 每个 viewer 渲染前绑定自己的（帧内在场景 pass 之前，帧外渲染也先绑定）；没有体积云或没开光照的 viewer 把强度置 0，接收方什么都不取样。逐对象矩阵在绘制时用当前值现算 |
+| 体积云的噪声体（64³ RGBA8 数据）和生成它的 Worker | `atmosphere/VolumetricClouds` | 只读数据，整页生成一次；每个 viewer 各自建纹理上传。Worker 生成完立即关闭；还在生成时最后一个使用者销毁，Worker 随之关闭 |
 | 局部场景的裁剪遮罩节点、瓦片裁剪基础材质 `GlobeTileClipped`、3D Tiles 的遮罩组合节点 | `local/regionMask`、`globe/TileMaterial`、`tiles3d/nodeMaterials` | 区域参数按渲染器存（`setRegionGpuState`，WeakMap），节点在每次渲染 / 每次绘制时读当前渲染器的状态，没开局部场景的 viewer 遮罩恒为真；不需要渲染前重写。地球瓦片只有跨区域边界时才用裁剪材质，别的 viewer 的瓦片不受影响 |
 | 设备的几何与材质池 | `indoor/StylePool`（`sharedStylePool`） | 按键共享、引用计数：最后一个使用者释放后才 `dispose` |
 | 选择器编译缓存 | `indoor/selector` | 纯函数结果 |

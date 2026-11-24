@@ -4,6 +4,29 @@
 
 ## [未发布]
 
+### 体积云（近地）（2026-11-24）
+
+相机降到约 300 km 以下时，云从覆盖全球的云壳过渡到立体的积云层：可以从地面仰望、飞进云里、从云上俯瞰，云被山体和建筑挡住，开光照时在地面、建筑和 3D Tiles 上投下随风移动的云影。思路参考 [yisky/hillaire-sky-webgpu](https://github.com/yisky/hillaire-sky-webgpu)（该仓库没有许可证，未复制代码和数据）与 Schneider 2015、Hillaire 2016。说明见 [docs/api.md](docs/api.md) §1.13，规范见 [docs/agents/volumetric-clouds.md](docs/agents/volumetric-clouds.md)。
+
+**新增**
+
+- `CloudOptions.volumetric`（`boolean` 或 `VolumetricCloudOptions`：`enabled`、`bottom`、`thickness`、`windSpeed`、`windHeading`、`density`、`shadows`、`fadeHeights`、`maxDistance`），`VOLUMETRIC_CLOUD_DEFAULTS`，`ResolvedCloudOptions`（`clouds.getOptions()` 的类型，含 `volumetric`）。与云壳共用 `visible`、`coverage`；天气跟随云壳的密度，从太空看到的云团处底下是成片的积云。默认按显存档位开（`low` 关）。
+- 云影：开光照、太阳在地平线以上时，沿太阳光线穿过云层的透射率图乘进日照阴影的接收节点，只削弱直射阳光；地球地面、3D Tiles（含倾斜摄影）、建筑、设备、展台背景都接收。
+- `GpuProfile.clouds`（`CloudQuality`：默认开关、历史像素上限、步数、朝太阳步数、云影图边长）。
+- 演示应用："云层"下的"体积云（近地）"开关、云底高度、风速；URL 参数 `?cloudVolumetric=0|1`、`?cloudBase`、`?cloudThickness`、`?cloudWind`、`?cloudWindHeading`、`?cloudDensity`、`?cloudShadows=0|1`。
+
+**变更**
+
+- 云壳的漂移只在云壳可见时（相机高于约 60 km）推进；近地时天气不动，体积云按自己的风移动。云壳可见时它的漂移被体积云当作风。
+- 有云影时太阳平行光的 `castShadow` 也打开（即使建筑阴影关着），开关体积云云影时带光照的材质重编一次着色器。
+- 有风时体积云一直在动，画面不算静止：按最近的云在屏幕上的移动速度要最低帧率（每帧 ≤ 1.5 px）；`windSpeed: 0` 时画面可以静止并做超采样。
+- 包体积预算 `terraview.js` 从 800 KiB 调到 860 KiB（本次 +57 KiB 未压缩 / +17 KiB gzip，库构建保留注释）；新增 `assets/cloudNoise.worker` 预算。
+
+**工程**
+
+- `atmosphere/VolumetricClouds.ts`（linear 阶段的后期效果：天气图、云影图、半分辨率以内 2×2 交错追踪、按云距离 / 相机运动 / 风的时域重投影、按场景深度上采样的合成；全部 TSL 片元 pass，WebGPU 与 WebGL 2 相同）、`atmosphere/volumetricCloudMath.ts`（纯函数：选项、淡出、与着色器同公式的球壳求交与云层区间、步长增长、历史尺寸、天气图范围）、`atmosphere/cloudNoise.ts` + `cloudNoise.worker.ts`（可平铺的 64³ Perlin-Worley / Worley 噪声，Worker 生成，整页共享）、`lighting/cloudShadows.ts`（云影接收节点）。`CloudLayer.densityNode`（云壳密度节点，天气复用）、`AtmosphereNodes.aerialScatteringAlong`（沿给定方向和距离的空气透视）。
+- 测试：`tests/volumetricClouds.test.ts`（20 项）、`tests/intro.test.ts` 补 URL 参数；冒烟新增"近地体积云、云影、销毁"（WebGL / WebGPU，硬件与软件模式都通过）。
+
 ### 日照阴影、透明顺序无关混合（2026-11-19，路线图 §0.2 P3.6：M3.9）
 
 打开真实光照时，建筑和设备在自身、地面、3D Tiles 上投下随时间变化的阴影；玻璃幕墙和半透明房间可以改用与绘制顺序无关的混合。说明见 [docs/api.md](docs/api.md) §1.11。

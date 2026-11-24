@@ -16,6 +16,7 @@
 | 显存盘点、硬件档位与配置建议、3D Tiles 显存 / 缓存预算（新增占显存的功能前先看） | [docs/agents/gpu-memory.md](docs/agents/gpu-memory.md) |
 | 可借鉴与复用路线图（分阶段落地计划，开始新功能前先看） | [docs/agents/roadmap.md](docs/agents/roadmap.md) |
 | 局部场景 / 沙盘模式（区域裁剪地形与 3D Tiles、侧壁、展台背景、相机活动范围） | [docs/agents/local-scene.md](docs/agents/local-scene.md) |
+| 体积云（近地积云、天气跟随云壳、低分辨率交错追踪与时域重投影、云影） | [docs/agents/volumetric-clouds.md](docs/agents/volumetric-clouds.md) |
 | 改造记录与计划（时间线、Hub 任务对应、待办清单；每个任务合并后更新） | [docs/agents/progress-log.md](docs/agents/progress-log.md) |
 | ThingJS 示例分析与能力对照（本地资料，不入库） | `temp/thingjs/thingjs-reference.md` |
 | ThingJS 运行时源码分析、可借鉴的实现与落地清单（改层级、拾取、事件、样式前先看；本地资料，不入库） | `temp/thingjs/thingjs-runtime-analysis.md` |
@@ -43,7 +44,7 @@
 
 - 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
 
-- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
+- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
 
 ## 2. 目录与职责
@@ -58,9 +59,12 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 │               tileMeshLayout（网格索引布局，Worker 与象限填充共用）、TileMaterial（TSL）、Worker 构网、影像源、地形源
 │  └─ terrain/  地形源描述、quantized-mesh 解码、terrainTiling（主线程与 Worker 共用的分块 / 插值规则）
 ├─ atmosphere/  大气散射 TSL 节点（含建筑与 3D Tiles 的空气透视 `aerialPerspectiveOutputNode`）、大气的 CPU 版（atmosphereModel：透射率、天空、SH，常数两边共用）、
-│               AtmosphereLighting（光照跟随大气：太阳颜色、天光探针）、星空、云层（CloudLayer）
+│               AtmosphereLighting（光照跟随大气：太阳颜色、天光探针）、星空、云层（CloudLayer，远看的云壳）、
+│               体积云（VolumetricClouds：天气图、云影图、追踪、时域重投影、合成的后期效果；volumetricCloudMath 纯函数；
+│               cloudNoise 可平铺 3D 噪声 + Worker）
 ├─ lighting/    日照阴影：shadowFit（阴影图范围适配：包围盒足迹 ∩ 视锥足迹、纹素对齐、分档，纯函数）、
-│               SunShadows（viewer.shadows：自管的仅深度阴影图、共享接收节点 sunShadowFactor / unlitShadowOutputNode）
+│               SunShadows（viewer.shadows：自管的仅深度阴影图、共享接收节点 sunShadowFactor / unlitShadowOutputNode）、
+│               cloudShadows（体积云的云影接收节点，乘进 sunShadowFactor）
 ├─ tiles3d/     3D Tiles 图层（含档位预算）；nodeMaterials（节点材质转换 + WebGPU 渐显 + 纹理过滤策略）；
 │               lodPolicy（远处放宽、缓存满时自适应降精度，纯函数）；tileFeatures（要素编号与属性、高亮叠加网格）
 ├─ vector/      GeoJSON 图层、矢量 Worker、注记（LabelManager）
@@ -91,7 +95,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
 docs/agents/    子系统规范（本文档的展开）
 ```
@@ -197,6 +201,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **帧率与静止超采样**：画面安静 1 秒后先做静止超采样（默认 16 / 32 个亚像素抖动样本，P3.3），画完就**不再画帧**，只按 `idleFrameRate`（默认 10）更新状态；关掉超采样时按 `idleFrameRate` 重画。有变化立刻恢复实时画面（docs/api.md §1.8，规则在 `viewer/framePacing.ts`）。两种信号：**变化**（`requestRender()`，画面可能不同了，丢掉超采样）和**唤醒**（`GeoViewer.wake()`，输入或 DOM 上的工作，只要求全帧率更新，不丢画面）；新信号先想清楚是哪一种，输入本身只能是唤醒，否则鼠标一动静止画面就先变糙再变细。画面静止后漏接一个变化，改动要等下一次别的变化才出现（不再是"晚 100 ms"），所以新增会随时间自己变化的效果（动画、渐变、轮询）时，要让 viewer 知道它在动：返回"有变化"并在帧循环里 `requestRender()`（如 `labels.update`、`Globe.animating`、`Tiles3DLayer.animating`），或像云层那样给出最低帧率（大于 0 就永远不算静止）；能廉价读到的状态放进 `GeoViewer.pictureChanged()` 每帧比较。公共 API 上会改变画面的 setter 要通知 viewer：实体经 `BimEntity.onChange`（建筑根上，由 `IndoorManager` 转给 viewer，几何变化还会让拾取缓冲和贡献剔除失效），图层发 `change` 事件，云层用 `onChange`，或者在 `GeoViewer.checkPendingWork()` 里轮询（每个动画帧都查，降帧时也查）。分几帧做完的工作（每帧预算，如点位每帧建 200 个顶牌）报告 `busy`，做完前保持全帧率；不要为了降帧把每帧预算改成按时间算。"每 N 帧一次"的逻辑只有在它的输入能在静止时、且没有任何通知的情况下变化时才需要改成按时间（2026-11-14 评估，roadmap P2.1a）。
 - **光照跟随大气与空气透视**（M3.5）：开光照时，建筑和 3D Tiles 的平行光颜色、天光探针（`viewer.skyProbe`，内部）由大气的 CPU 版（`atmosphere/atmosphereModel.ts`）在视点处算出，和着色器用同一套常数（改大气常数只改那里）。建筑、设备、3D Tiles 的材质挂共享的 `aerialPerspectiveOutputNode()` 作为 `outputNode`（与地球瓦片相同的空气透视，逐像素，100 m 内跳过）；新增这类材质时照样挂上，不要用 `scene.fog` / `scene.fogNode`（会作用到注记、云、展台等所有材质）。见 docs/api.md §1.10。
 - **日照阴影与透明混合**（M3.9）：开光照时一张自管的平行光阴影图（`viewer.shadows`，`lighting/SunShadows`），每帧按"建筑包围盒 ∩ 视锥"适配，只把建筑树（`indoor.root`）画进去，只在范围或建筑内容变化时重画。接收方读共享的 `sunShadowFactor()`：光照材质经太阳光的 `shadow.shadowNode`（只削弱直射），地球瓦片乘在直射项上，无光照的 3D Tiles 和展台背景用 `unlitShadowOutputNode` / 直接乘。新建的建筑网格要 `castShadow` / `receiveShadow`（`Building` 的 `shadowed()`、`BatchMesh` 构造里已设）；透明材质不投影。不要用 three 的 `SunLight` / `CSMShadowNode`（float32 世界坐标乘阴影矩阵，ECEF 下差半米），也不要给太阳光开 three 自己的阴影图。直接改建筑网格后调用 `viewer.shadows.invalidate()`。透明顺序无关混合（`viewer.transparency`，WebGPU，默认只在 `ultra`）只处理建筑实体网格和设备批次（`postProcessing.oitTest`）。见 docs/api.md §1.11。
+- **体积云**：近地（300 km 以下）的积云层是 linear 阶段的后期效果（`atmosphere/VolumetricClouds`），设置在 `viewer.clouds.set({ volumetric })`。天气图（512²，随风滑动、只在锚点 / 风 / 设置变化时重画）跟随云壳的 `densityNode`；追踪每帧只画历史四分之一的像素（2×2 交错），其余按云距离、相机运动和风重投影；合成按场景深度上采样。云影乘进 `sunShadowFactor()`（只削弱直射光），有云影时太阳光 `castShadow` 打开。体纹理没有 mip：噪声通道是单八度，着色器按像素足迹逐八度淡出，新增噪声查找照此处理。云壳的漂移被当作风（不触发重画天气图）。见 [volumetric-clouds.md](docs/agents/volumetric-clouds.md)。
 - **开场动画、云层、导航控制**：核心 API 是 `viewer.playIntro()`、`viewer.clouds`、`viewer.navigation`，演示界面（`ui/NavigationBar`、面板开关、URL 参数）只调用它们。脚本化的相机运动走 `controller.playAnimation`，程序缩放 / 环绕走 `zoomBy` / `orbitBy`，不要直接改相机位姿，否则手势打断不了。见 [intro-and-navigation.md](docs/agents/intro-and-navigation.md)。
 
 ## 5. 常见任务
@@ -279,6 +284,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **放大已绑定的渲染目标，材质仍读旧纹理**（2026-11-19，M3.9）：阴影图起初以 1×1 创建、开阴影时再 `setSize` 到 2048，结果材质采样到的一直是旧的 1×1 清空值（深度全是 0，影子完全不出现，没有任何报错）。被材质长期绑定的渲染目标纹理不要改尺寸；要换尺寸就新建一个目标，让纹理对象本身变（节点的 `value` 换成新纹理，绑定会跟着更新）。
 - **MRT 的输出按纹理名对应**（2026-11-19，M3.9）：`mrt({ accum, revealage })` 的名字要和渲染目标各纹理的 `name` 一致，对不上时生成的 WGSL 输出结构是空的（`structures must have at least one member`），整帧提交失败。
 - **粗网格的面片中部在椭球面以下**（2026-11-19，P3.5 空气透视）：远处的 3D Tiles（全球视角下的 Google 3D Tiles）是几百个平面拼成的，面片中部比椭球面低几十公里。逐像素的空气透视原来沿视线积分到片元，不做地面求交，地下的样本密度是 exp(深度 / 标高)（Mie 在 73 km 深处约 e^60），每块瓦片都成了带彩色圆环的暗斑。现在积分到椭球面下 `AERIAL_GROUND_DEPTH_KM`（0.5 km）为止。逐像素按位置积分大气的效果都要做地面求交，不要假设片元在地面以上；地球瓦片是逐顶点、顶点在地面上，所以以前没暴露。
+- **TSL `If` 的回调不要写成表达式箭头函数**（2026-11-24，体积云）：`If(c, () => x.assign(y))` 把赋值节点当成返回值，three 生成一条被注释掉的 `return`，并警告 "Return statement used in an inline Fn()"。回调一律写成块 `() => { x.assign(y); }`。
 - **统计要取场景 pass 的**：后期管线和描边遮罩也会增加 `renderer.info` 的绘制数。拾取缓冲的签名和 `stats` 用 `scene.onAfterRender` 时记下的数，否则悬停改变描边就会让拾取缓冲失效。
 - **MSAA 下按像素 discard 会漏出侧视的竖直面**（2026-11-18，局部场景）：片元丢弃对整个像素生效，像素横跨裁剪边界时，它覆盖的、其实在边界外的采样点也会画出来。朝向相机的面只差半个像素看不出，但被侧视成一条线的竖直面（瓦片裙边穿过边界），一个像素沿面能跨几十米，在侧壁上显出白色竖向点线。把侧壁外移、改 centroid 插值都没用；现在的遮罩只保留"到边界的距离 > 像素在区域坐标里覆盖范围的一半（`fwidth`）"的片元。新增按位置 discard 的遮罩时同样处理。
 - **约束相机时沿直线拉回会让相机下沉**（2026-11-18，局部场景）：把相机朝地面上的中心点、或沿某点切平面拉回，每帧都会低一点，持续往外拖时一路滑到地面；绕地心平移到别的纬度，椭球半径不同，高度也会变。约束和受约束的平移都要保持椭球高（`holdInBounds`）。

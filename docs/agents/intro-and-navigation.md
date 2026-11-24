@@ -40,7 +40,7 @@
 
 ## 3. 云层
 
-**效果**：影像上方约 10 km 处的一层云，向东漂移，形状缓慢变化；开启太阳光照时夜半球变暗、晨昏线附近偏暖；相机降到约 500 km 以下开始淡出，60 km 以下完全不画（省掉整层的片元开销）。
+**效果**：影像上方约 10 km 处的一层云，向东漂移，形状缓慢变化；开启太阳光照时夜半球变暗、晨昏线附近偏暖；相机降到约 500 km 以下开始淡出，60 km 以下完全不画（省掉整层的片元开销）。近地由体积云接手（300 km 以下淡入，规范见 [volumetric-clouds.md](volumetric-clouds.md)）：体积云的天气跟随本层的密度（`densityNode`），本层的漂移只在本层可见时推进，并被体积云当作风。
 
 **做法**：
 - 网格：经纬网格单位球（+Z 北极，面朝外），`mesh.scale` 设为椭球半径加云层高度。顶点是单位长度的 float32，放大由 float64 的模型矩阵完成（`highPrecision`），误差约 0.4 m。
@@ -61,6 +61,7 @@
 | `height` | 10,000 | 米，云层椭球高（0–100 km） |
 | `fadeHeights` | [60 km, 500 km] | 米，相机高度低于前者隐藏、高于后者完全显示 |
 | `textureUrl` | null | 等距圆柱云图 URL；null = 程序云 |
+| `volumetric` | 按档位 | 近地的体积云（`VolumetricCloudOptions` 或 `true` / `false`），见 [volumetric-clouds.md](volumetric-clouds.md)、[api.md](../api.md) §1.13 |
 
 非法值（NaN、越界、空字符串）被丢弃或夹紧（`normalizeCloudOptions`）。`clouds.visible` 是 `set({ visible })` 的简写，`clouds.getOptions()` 返回当前设置的副本。
 
@@ -117,6 +118,10 @@
 | `?cloudSpeed` | -90–90 度/秒 | 漂移速度 |
 | `?cloudHeight` | 0–100000 米 | 云层高度 |
 | `?cloudTexture` | http(s)、相对路径或 `data:image/` URL | 等距圆柱云图 |
+| `?cloudVolumetric` | `0` / `1` | 本次关闭 / 开启体积云（默认按档位，`low` 关） |
+| `?cloudBase` / `?cloudThickness` | 0–15000 / 200–10000 米 | 体积云的云底高度 / 厚度 |
+| `?cloudWind` / `?cloudWindHeading` | 0–60 米/秒 / 度（自北顺时针） | 体积云的风速 / 移动方向 |
+| `?cloudDensity` / `?cloudShadows` | 0.1–4 / `0`、`1` | 体积云的光学密度倍数 / 云影开关 |
 
 越界或无法解析的值被忽略，不影响启动。例：`?intro=1&introDuration=8&introSpeed=60&clouds=1&cloudCoverage=0.65`。
 
@@ -141,6 +146,6 @@
 
 ## 8. 已知限制
 
-- 云层没有投影到地面、没有体积感，也不参与空气透视；从侧面贴近地平线看时只是一层贴图。
+- 云壳本身没有投影、没有体积感，也不参与空气透视；近地由体积云接手（有云影、空气透视，见 [volumetric-clouds.md](volumetric-clouds.md)）。60–300 km 之间两者叠加显示，图案不完全一致（体积云的云格比云壳细）。
 - 截图不含 HTML 顶牌和注记 DOM。
 - 自动化浏览器窗口被遮挡时帧率很低，控制器把每帧 dt 限制在 0.1 s，开场动画会按真实时间变慢；判断效果请在前台窗口看。

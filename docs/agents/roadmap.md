@@ -47,6 +47,7 @@
 | 插入项：无地表时的手势与背景 | 2026-11-06 | 参考地面兜底手势、展台背景 | [camera-controller.md](camera-controller.md) §3.4、[indoor-bim.md](indoor-bim.md) §7.1 |
 | 插入项：开场动画、云层、基础导航控制 | 2026-11-09 | 开场自转（停在初始视角）、程序云 / 云图漂移、`viewer.navigation` 导航命令与按钮条；核心 API 与 UI 分离，为 §10 SDK 打包铺路 | [intro-and-navigation.md](intro-and-navigation.md) |
 | 插入项：缩放抖动排查与自动旋转按视角 | 2026-11-09 | 云层噪声按像素限带，修复缩放时云边闪烁；自动旋转按视角选地球自转 / 环绕 / 先倾斜再环绕 | [intro-and-navigation.md](intro-and-navigation.md) |
+| 插入项：体积云（近地） | 2026-11-24 | 300 km 以下由云壳过渡到积云层：天气跟随云壳密度、Worker 生成的可平铺噪声、低分辨率交错追踪与时域重投影、按场景深度合成、云影接进日照阴影的接收节点；按档位（`low` 默认关） | [volumetric-clouds.md](volumetric-clouds.md) |
 | 插入项：GPU 显存盘点与硬件档位 | 2026-11-10 | `low / medium / high / ultra` 档位（按适配器猜测或 `?gpu=` 指定）；3D Tiles 远处放宽、缓存满时自适应降精度、纹理过滤策略；隐藏地球超时释放缓存；`viewer.gpu` / `viewer.memory`。Hub 任务 T261110-npf | [gpu-memory.md](gpu-memory.md) |
 | 插入项：建筑数据制作手册 | 2026-11-06 | 中文手册 + 有单测校验的样例；门洞、构件校验 | [building-data-manual.md](../building-data-manual.md) |
 | P2.2 楼层模型按需加载（M3.8） | 2026-11-17 | 楼层第一次显示时才加载整层模型和设备模型；隐藏楼层的模型超出预算（按档位 64–512 MB）时按最近显示先后卸载；`viewer.memory.buildings`；顺带修复移除建筑不释放纹理 | §0.2 P2.2、[indoor-bim.md](indoor-bim.md) §5.4 |
