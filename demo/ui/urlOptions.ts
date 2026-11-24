@@ -10,6 +10,9 @@
  *   ?clouds=0|1           hide / show the cloud layer
  *   ?cloudCoverage=0..1   ?cloudOpacity=0..1   ?cloudSpeed=<deg/s>
  *   ?cloudHeight=<m>      ?cloudTexture=<url of an equirectangular cloud map>
+ *   ?cloudVolumetric=0|1  volumetric clouds near the ground off / on (default: the GPU tier's)
+ *   ?cloudBase=<m>        ?cloudThickness=<m>   ?cloudWind=<m/s>   ?cloudWindHeading=<deg>
+ *   ?cloudDensity=0.1..4  ?cloudShadows=0|1
  *   ?cull=0|1             contribution culling of small devices / components off / on
  *   ?cullThreshold=0..1   share of the viewport below which they are culled (0.005 = 0.5 %)
  *   ?cullHysteresis=0..1  ?cullInterval=<frames>   ?cullSelector=<entity selector, e.g. .thing>
@@ -23,7 +26,7 @@
  * sun shadows off / on and ?oit=0|1 order-independent transparency (docs/api.md §1.11; defaults
  * from the GPU tier).
  */
-import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions } from 'terra-view';
+import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions, type VolumetricCloudOptions } from 'terra-view';
 
 /** '1' / 'true' / 'on' / '' (bare flag) → true, '0' / 'false' / 'off' → false, absent or other → undefined. */
 export function parseFlag(params: URLSearchParams, name: string): boolean | undefined {
@@ -78,6 +81,19 @@ export function parseCloudParams(params: URLSearchParams): CloudParams {
   if (height !== undefined) options.height = height;
   const tex = params.get('cloudTexture')?.trim();
   if (tex && /^(https?:|\/|\.{0,2}\/|data:image\/)/i.test(tex)) options.textureUrl = tex;
+  // Volumetric clouds near the ground: only the parameters that are present.
+  const volumetric: VolumetricCloudOptions = {};
+  const set = <K extends keyof VolumetricCloudOptions>(key: K, value: VolumetricCloudOptions[K] | undefined) => {
+    if (value !== undefined) volumetric[key] = value;
+  };
+  set('enabled', parseFlag(params, 'cloudVolumetric'));
+  set('bottom', parseNumber(params, 'cloudBase', 0, 15_000));
+  set('thickness', parseNumber(params, 'cloudThickness', 200, 10_000));
+  set('windSpeed', parseNumber(params, 'cloudWind', 0, 60));
+  set('windHeading', parseNumber(params, 'cloudWindHeading', -360, 360));
+  set('density', parseNumber(params, 'cloudDensity', 0.1, 4));
+  set('shadows', parseFlag(params, 'cloudShadows'));
+  if (Object.keys(volumetric).length > 0) options.volumetric = volumetric;
   return { visible: parseFlag(params, 'clouds'), options };
 }
 

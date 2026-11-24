@@ -72,6 +72,13 @@ async function main(): Promise<void> {
         coverage: settings.cloudCoverage,
         speed: settings.cloudSpeed,
         ...cloudParams.options,
+        // Volumetric clouds: saved panel settings (on / off only when chosen there), then ?cloudVolumetric / ?cloudBase / ….
+        volumetric: {
+          ...(settings.cloudVolumetric === null ? {} : { enabled: settings.cloudVolumetric }),
+          bottom: settings.cloudBase,
+          windSpeed: settings.cloudWind,
+          ...(typeof cloudParams.options.volumetric === 'object' ? cloudParams.options.volumetric : {}),
+        },
       },
       contributionCulling: { ...cullParams.options, enabled: cullParams.enabled ?? false },
       // ?ao=0|1 floor ambient occlusion off / on (default on), ?aoIntensity=0..1 its strength.

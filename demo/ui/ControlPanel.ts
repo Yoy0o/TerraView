@@ -334,7 +334,32 @@ export class ControlPanel {
       clouds.set({ speed: x });
       this.save();
     });
-    const detail = h('div', { class: 'stack' }, coverage.root, speed.root);
+    // Volumetric clouds near the ground (they share the layer's switch and coverage).
+    const v = o.volumetric;
+    const base = slider('云底高度', { min: 300, max: 6000, step: 100, value: v.bottom, format: (x) => `${Math.round(x)} m` }, (x) => {
+      s.cloudBase = x;
+      clouds.set({ volumetric: { bottom: x } });
+      this.save();
+    });
+    const wind = slider('风速', { min: 0, max: 30, step: 1, value: v.windSpeed, format: (x) => `${Math.round(x)} m/s` }, (x) => {
+      s.cloudWind = x;
+      clouds.set({ volumetric: { windSpeed: x } });
+      this.save();
+    });
+    const volumetricDetail = h('div', { class: 'stack' }, base.root, wind.root);
+    volumetricDetail.hidden = !v.enabled;
+    const volumetric = toggle(
+      '体积云（近地）',
+      v.enabled,
+      (on) => {
+        s.cloudVolumetric = on;
+        clouds.set({ volumetric: { enabled: on } });
+        volumetricDetail.hidden = !on;
+        this.save();
+      },
+      '相机在约 300 km 以下时显示立体积云：可飞入云中、从云上俯瞰；开“太阳光照”时在地面、建筑和倾斜摄影上投下云影。风速为 0 时云静止，画面才能静止并做超采样',
+    );
+    const detail = h('div', { class: 'stack' }, coverage.root, speed.root, volumetric, volumetricDetail);
     detail.hidden = !clouds.visible;
     const show = toggle(
       '云层',
@@ -345,7 +370,7 @@ export class ControlPanel {
         detail.hidden = !on;
         this.save();
       },
-      '在影像上方叠加动态云层；相机降到约 500 km 以下逐渐淡出',
+      '远看是覆盖全球的动态云层（约 500 km 以下淡出），近地是体积云（可在下方关闭）',
     );
     return [show, detail];
   }

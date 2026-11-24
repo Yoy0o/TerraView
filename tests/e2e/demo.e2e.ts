@@ -79,6 +79,51 @@ test('demo: globe, building levels, dispose', async ({ page, baseURL }, info) =>
   expect(w.errors).toEqual([]);
 });
 
+test('demo: volumetric clouds near the ground, cloud shadows, dispose', async ({ page, baseURL }, info) => {
+  const w = await watch(page, baseURL!);
+  const backend = backendOf(info);
+  // 800 m above Beijing looking at the horizon, clouds on (volumetric forced on: the tier may be low).
+  await page.goto(`/?imagery=debug&noterrain&intro=0&clouds=1&cloudVolumetric=1${backend === 'WebGL2' ? '&webgl' : ''}#116.39,39.9,800,0,5`);
+  const { software } = await probeBackend(page, info);
+  await waitForViewer(page, 'viewer', backend);
+  await waitForGlobe(page, ['viewer'], { drained: !software });
+
+  // Sun lighting at mid-morning: cloud shadows go into every lit material's shadow node.
+  await page.evaluate(() => {
+    const v = (window as unknown as SmokeWindow).viewer!;
+    v.date = new Date('2026-06-21T02:00:00Z');
+    v.lighting = true;
+  });
+  // The noise volume comes from a Worker; the effect takes part once it is there.
+  await page.waitForFunction(() => (window as unknown as SmokeWindow).viewer!.postProcessing.get('volumetric-clouds')?.active === true, undefined, {
+    timeout: 60_000,
+  });
+  await framesOf(page, 'viewer', 6);
+  const state = await page.evaluate(() => {
+    const v = (window as unknown as SmokeWindow).viewer!;
+    const fx = v.postProcessing.get('volumetric-clouds')!;
+    return { gpuBytes: fx.gpuBytes ?? 0, castShadow: v.sunLight.castShadow, volumetric: v.clouds.getOptions().volumetric.enabled };
+  });
+  expect(state.volumetric).toBe(true);
+  expect(state.castShadow).toBe(true);
+  expect(state.gpuBytes).toBeGreaterThan(1_000_000);
+
+  // Up through the fade: the clouds stop taking part, the shell shows.
+  await page.evaluate(() => {
+    const v = (window as unknown as SmokeWindow).viewer!;
+    v.setView({ ...v.getView(), height: 2_000_000, pitch: -90 });
+  });
+  await framesOf(page, 'viewer', 3);
+  expect(await page.evaluate(() => (window as unknown as SmokeWindow).viewer!.postProcessing.get('volumetric-clouds')!.active)).toBe(false);
+
+  // The noise Worker is gone once its volume arrived; dispose closes the rest.
+  await page.evaluate(() => (window as unknown as SmokeWindow).viewer!.dispose());
+  await expect.poll(() => liveWorkers(page)).toBe(0);
+
+  expect(w.blocked, 'requests to other origins').toEqual([]);
+  expect(w.errors).toEqual([]);
+});
+
 test('demo: local scene (sandbox) enter, pick, exit', async ({ page, baseURL }, info) => {
   const w = await watch(page, baseURL!);
   const backend = backendOf(info);

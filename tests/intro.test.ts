@@ -325,6 +325,15 @@ describe('URL options', () => {
     expect(parseCloudParams(q('cloudTexture=https://example.com/c.png')).options.textureUrl).toBe('https://example.com/c.png');
   });
 
+  it('builds volumetric cloud options from the parameters present', () => {
+    const p = parseCloudParams(q('cloudVolumetric=1&cloudBase=2000&cloudThickness=3000&cloudWind=12&cloudWindHeading=-90&cloudDensity=1.5&cloudShadows=0'));
+    expect(p.options.volumetric).toEqual({ enabled: true, bottom: 2000, thickness: 3000, windSpeed: 12, windHeading: -90, density: 1.5, shadows: false });
+    expect(parseCloudParams(q('cloudVolumetric=0')).options.volumetric).toEqual({ enabled: false });
+    // Out of range or absent: nothing (the saved settings and the tier stay in charge).
+    expect(parseCloudParams(q('cloudBase=99999&cloudWind=-1&cloudDensity=0')).options.volumetric).toBeUndefined();
+    expect(parseCloudParams(q('clouds=1')).options.volumetric).toBeUndefined();
+  });
+
   it('detects startup data that flies the camera', () => {
     expect(hasStartupFlight(q('demo'))).toBe(true);
     expect(hasStartupFlight(q('tileset=https://x/tileset.json'))).toBe(true);

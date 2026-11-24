@@ -27,6 +27,12 @@ export interface Settings {
   cloudCoverage: number;
   /** Cloud drift, degrees of longitude per second. */
   cloudSpeed: number;
+  /** Volumetric clouds near the ground; null = the GPU tier's default. */
+  cloudVolumetric: boolean | null;
+  /** Base of the volumetric clouds, meters. */
+  cloudBase: number;
+  /** Wind of the volumetric clouds, meters per second. */
+  cloudWind: number;
   /** Play the opening spin on startup. */
   intro: boolean;
   /** Refine still views (viewer.supersampling). */
@@ -59,6 +65,9 @@ export const DEFAULT_SETTINGS: Settings = {
   clouds: true,
   cloudCoverage: 0.5,
   cloudSpeed: 0.5,
+  cloudVolumetric: null,
+  cloudBase: 1500,
+  cloudWind: 6,
   intro: true,
   supersampling: true,
   grading: 'neutral',
