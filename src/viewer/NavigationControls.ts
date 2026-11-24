@@ -9,12 +9,29 @@
  * heading and pitch, orbiting never passes over the pivot) and any gesture
  * interrupts a running command.
  */
-import { Quaternion, Vector2, Vector3 } from 'three';
+import { Quaternion, Vector2, Vector3, type PerspectiveCamera } from 'three';
+import type { Ellipsoid } from '../core/Ellipsoid';
 import { DEG2RAD } from '../core/math';
+import type { LocalScene } from '../local/LocalScene';
 import { rotateCameraAboutCenter } from './cameraMath';
-import type { GeoViewer } from './GeoViewer';
-import type { ViewPosition } from './viewerTypes';
+import type { AutoOrbitOptions, GlobeCameraController } from './GlobeCameraController';
 import { playIntroSpin, type IntroSpinOptions } from './IntroAnimation';
+import type { SurfacePick, ViewPosition } from './viewerTypes';
+
+/** What the navigation commands use of the viewer (`GeoViewer` passes itself). */
+export interface NavigationHost {
+  readonly controller: GlobeCameraController;
+  readonly ellipsoid: Ellipsoid;
+  readonly camera: PerspectiveCamera;
+  readonly localScene: Pick<LocalScene, 'active' | 'fit'>;
+  getView(): Required<ViewPosition>;
+  flyTo(view: ViewPosition, duration?: number): Promise<void>;
+  resetNorth(): void;
+  startAutoOrbit(options?: AutoOrbitOptions): Promise<void>;
+  pick(ndc: Vector2): SurfacePick | null;
+  pickReferenceSurface(ndc: Vector2): Vector3 | null;
+  captureFrame(): HTMLCanvasElement;
+}
 
 /** Pitch (degrees) the "tilt" toggle goes to from a top-down view. */
 const TILTED_PITCH = -45;
@@ -95,7 +112,7 @@ export function globeSpinRate(degreesPerSecond: number, height: number): number 
 }
 
 /** Spins the globe about the polar axis (the camera moves west) until interrupted; keeps latitude, heading and pitch. */
-function spinGlobe(viewer: GeoViewer, degreesPerSecond: number): Promise<boolean> {
+function spinGlobe(viewer: NavigationHost, degreesPerSecond: number): Promise<boolean> {
   const q = new Quaternion();
   return viewer.controller.playAnimation((dt, camera) => {
     const height = viewer.ellipsoid.cartesianToCartographic(camera.position)?.height ?? 1e7;
@@ -121,7 +138,7 @@ export class NavigationControls {
   private introPlaying = false;
 
   constructor(
-    private readonly viewer: GeoViewer,
+    private readonly viewer: NavigationHost,
     private readonly container: HTMLElement,
     homeView: ViewPosition,
   ) {

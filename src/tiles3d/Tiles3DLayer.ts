@@ -1,4 +1,4 @@
-import { Box3, DoubleSide, Matrix4, Mesh, Sphere, Vector3, type Material, type Object3D } from 'three';
+import { Box3, DoubleSide, Matrix4, Mesh, Sphere, Vector3, type Intersection, type Material, type Object3D } from 'three';
 import { TilesRenderer } from '3d-tiles-renderer';
 import { CesiumIonAuthPlugin, GLTFExtensionsPlugin, GoogleCloudAuthPlugin, TilesFadePlugin, UnloadTilesPlugin } from '3d-tiles-renderer/plugins';
 import { EventEmitter } from '../core/EventEmitter';
@@ -9,7 +9,37 @@ import { createAdaptiveErrorState, stepAdaptiveError, tilesFalloffDensity } from
 import type { ResolvedRegion } from '../region/region';
 import { applyTexturePolicy, NodeFadeMaterialManager, NodeMaterialPlugin, setObjectClipped, type NodeMaterialLibrary } from './nodeMaterials';
 import { RegionMaskPlugin } from './regionMaskPlugin';
-import { createFeatureHighlight, disposeFeatureHighlight, type FeatureHighlightStyle, type TileFeature } from './tileFeatures';
+import { createFeatureHighlight, disposeFeatureHighlight, readTileFeature, type FeatureHighlightStyle } from './tileFeatures';
+
+
+/** A feature of a 3D Tiles layer, picked under the pointer (`viewer.pickTileFeature`, `event.tileFeature()`). */
+export interface TileFeature {
+  /** The 3D Tiles layer the feature belongs to. */
+  readonly layer: Tiles3DLayer;
+  /**
+   * Feature ID within its tile content: the `EXT_mesh_features` feature ID, or
+   * the batch ID (b3dm, i3dm). IDs are only unique inside one tile's content.
+   */
+  readonly id: number;
+  /**
+   * Where the properties come from: the property table name (or its class)
+   * of `EXT_structural_metadata`, 'batch' for a batch table, null when the
+   * content has no properties for the feature.
+   */
+  readonly table: string | null;
+  /** Properties of the feature (property table row or batch table entry); empty when there are none. */
+  readonly properties: Record<string, unknown>;
+  /** World (ECEF) position that was picked. */
+  readonly point: Vector3;
+  /** @advanced The tile mesh the feature was picked on; a highlight covers the feature in this mesh. */
+  readonly object: Object3D;
+}
+
+/** Resolves a ray hit on a layer's tile mesh to a feature; null when the mesh has no readable feature IDs there. */
+export function resolveTileFeature(layer: Tiles3DLayer, hit: Intersection): TileFeature | null {
+  const feature = readTileFeature(hit);
+  return feature && { layer, ...feature };
+}
 
 export type TilesetSource =
   | { type: 'url'; url: string }

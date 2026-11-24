@@ -26,11 +26,9 @@ import {
   featureIdSource,
   featureProperties,
   featureTriangleVertices,
-  resolveTileFeature,
-  type TileFeature,
 } from '../src/tiles3d/tileFeatures';
 import { Ellipsoid } from '../src/core/Ellipsoid';
-import { Tiles3DLayer } from '../src/tiles3d/Tiles3DLayer';
+import { resolveTileFeature, Tiles3DLayer, type TileFeature } from '../src/tiles3d/Tiles3DLayer';
 import { InteractionManager, type InteractionEvent, type PickInfo } from '../src/viewer/InteractionManager';
 
 const LAYER = { name: 'test' } as unknown as Tiles3DLayer;

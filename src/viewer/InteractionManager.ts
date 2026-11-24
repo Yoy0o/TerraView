@@ -8,7 +8,7 @@ import type { Vector3 } from 'three';
 import type { Cartographic } from '../core/Ellipsoid';
 import { selectorPredicate, type BimEntity, type EntitySelector } from '../indoor/BimEntity';
 import type { Marker } from '../markers/MarkerManager';
-import type { TileFeature } from '../tiles3d/tileFeatures';
+import type { TileFeature } from '../tiles3d/Tiles3DLayer';
 import type { Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
 
 const noTileFeature = (): TileFeature | null => null;

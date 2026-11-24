@@ -27,28 +27,19 @@ import {
   type Vector3,
 } from 'three';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
-import type { Tiles3DLayer } from './Tiles3DLayer';
 
-/** A feature of a 3D Tiles layer, picked under the pointer (`viewer.pickTileFeature`, `event.tileFeature()`). */
-export interface TileFeature {
-  /** The 3D Tiles layer the feature belongs to. */
-  readonly layer: Tiles3DLayer;
-  /**
-   * Feature ID within its tile content: the `EXT_mesh_features` feature ID, or
-   * the batch ID (b3dm, i3dm). IDs are only unique inside one tile's content.
-   */
+/**
+ * What a ray hit on tile content tells about a feature: `TileFeature` without its layer
+ * (`Tiles3DLayer` adds it, see `resolveTileFeature`).
+ */
+export interface TileFeatureData {
+  /** Feature ID within its tile content (see `TileFeature.id`). */
   readonly id: number;
-  /**
-   * Where the properties come from: the property table name (or its class)
-   * of `EXT_structural_metadata`, 'batch' for a batch table, null when the
-   * content has no properties for the feature.
-   */
   readonly table: string | null;
-  /** Properties of the feature (property table row or batch table entry); empty when there are none. */
   readonly properties: Record<string, unknown>;
   /** World (ECEF) position that was picked. */
   readonly point: Vector3;
-  /** @advanced The tile mesh the feature was picked on; a highlight covers the feature in this mesh. */
+  /** The tile mesh the feature was picked on. */
   readonly object: Object3D;
 }
 
@@ -160,14 +151,14 @@ export function featureProperties(object: Object3D, source: FeatureIdSource, id:
   return { table: null, properties: {} };
 }
 
-/** Resolves a ray hit on a tile mesh to a feature; null when the mesh has no readable feature IDs there. */
-export function resolveTileFeature(layer: Tiles3DLayer, hit: Intersection): TileFeature | null {
+/** Reads the feature of a ray hit on a tile mesh; null when the mesh has no readable feature IDs there. */
+export function readTileFeature(hit: Intersection): TileFeatureData | null {
   const source = featureIdSource(hit.object);
   if (!source) return null;
   const id = featureIdAt(source, hit);
   if (id === null) return null;
   const { table, properties } = featureProperties(hit.object, source, id);
-  return { layer, id, table, properties, point: hit.point.clone(), object: hit.object };
+  return { id, table, properties, point: hit.point.clone(), object: hit.object };
 }
 
 /** Vertex indices (three per triangle) of the triangles of a feature: those with at least one vertex of the feature. */
@@ -227,7 +218,7 @@ const DEFAULT_HIGHLIGHT = '#ffd23f';
  * rays, so picking still resolves the tile mesh. Null when the feature has no
  * triangles in that mesh (e.g. points, or IDs that only exist on vertices).
  */
-export function createFeatureHighlight(feature: TileFeature, style: FeatureHighlightStyle = {}): Mesh | null {
+export function createFeatureHighlight<F extends Pick<TileFeatureData, 'id' | 'object'>>(feature: F, style: FeatureHighlightStyle = {}): Mesh | null {
   const object = feature.object as Mesh;
   const source = featureIdSource(object);
   if (!source || !(object as Mesh).isMesh) return null;

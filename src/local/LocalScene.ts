@@ -13,12 +13,12 @@
  */
 import { Box3, Color, Matrix4, Sphere, Vector3, type ColorRepresentation, type PerspectiveCamera } from 'three';
 import { uniform } from 'three/tsl';
+import type { CameraBounds } from '../core/cameraBounds';
 import type { Ellipsoid } from '../core/Ellipsoid';
 import { EventEmitter } from '../core/EventEmitter';
 import { DEG2RAD, RAD2DEG } from '../core/math';
 import type { Globe } from '../globe/Globe';
 import type { Tiles3DLayer } from '../tiles3d/Tiles3DLayer';
-import type { CameraBounds, GlobeCameraController } from '../viewer/GlobeCameraController';
 import { RegionDimEffect } from './RegionDimEffect';
 import { RegionWalls } from './RegionWalls';
 import { boxFootprint, resolveRegion, type LocalRegion, type ResolvedRegion } from '../region/region';
@@ -91,7 +91,8 @@ export interface LocalSceneHost {
   readonly renderer: object;
   readonly camera: PerspectiveCamera;
   readonly globe: Globe;
-  readonly controller: GlobeCameraController;
+  /** The camera controller: the scene sets and clears its `bounds`. */
+  readonly controller: { bounds: CameraBounds | null };
   readonly walls: RegionWalls;
   readonly dim: RegionDimEffect;
   tilesets(): readonly Tiles3DLayer[];
