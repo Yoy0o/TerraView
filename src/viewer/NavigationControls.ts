@@ -12,7 +12,8 @@
 import { Quaternion, Vector2, Vector3 } from 'three';
 import { DEG2RAD } from '../core/math';
 import { rotateCameraAboutCenter } from './cameraMath';
-import type { GeoViewer, ViewPosition } from './GeoViewer';
+import type { GeoViewer } from './GeoViewer';
+import type { ViewPosition } from './viewerTypes';
 import { playIntroSpin, type IntroSpinOptions } from './IntroAnimation';
 
 /** Pitch (degrees) the "tilt" toggle goes to from a top-down view. */

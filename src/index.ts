@@ -44,7 +44,7 @@ export type {
   ViewerEvents,
   ViewerSnapshot,
   ViewPosition,
-} from './viewer/GeoViewer';
+} from './viewer/viewerTypes';
 export type { LoadState } from './viewer/loadState';
 export { GlobeCameraController } from './viewer/GlobeCameraController';
 export type { AutoOrbitOptions, CameraAnimationStep, CameraBounds, ControllerEvents, FlyToOptions } from './viewer/GlobeCameraController';

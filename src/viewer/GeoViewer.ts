@@ -1,15 +1,23 @@
+/**
+ * The viewer (`GeoViewer`): creates the renderer, the scene and every subsystem, wires them
+ * together and exposes the public API. The work is in its parts, which get what they need
+ * through narrow host interfaces and never import this file:
+ *
+ *   ViewerEnvironment  sun, atmosphere and star uniforms, lights, shadow fit, cloud frame state
+ *   FrameLoop          per-frame update and draw, idle pacing, renders outside the loop, stats
+ *   ViewerPicking      picks under the cursor, along view rays and for camera gestures
+ *   ViewerLayers       3D Tiles / GeoJSON / point layers, glTF loading, ground heights
+ *   diagnostics        memory estimate, snapshot, GPU detection
+ *   viewerState        the state they share; viewerTypes: the public types
+ */
 import {
   Color,
   DirectionalLight,
   HemisphereLight,
   LightProbe,
-  LinearSRGBColorSpace,
-  Matrix4,
   NeutralToneMapping,
   PerspectiveCamera,
   Quaternion,
-  Raycaster,
-  type Ray,
   Scene,
   Sphere,
   Vector2,
@@ -18,365 +26,80 @@ import {
 } from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { mix, positionWorldDirection, vec3 } from 'three/tsl';
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
-import { AtmosphereLighting, type AtmosphereLight } from '../atmosphere/AtmosphereLighting';
-import { atmosphereUniforms, skyColorNode, Z_SCALE } from '../atmosphere/AtmosphereNodes';
-import { CloudLayer, type CloudOptions } from '../clouds/CloudLayer';
+import { atmosphereUniforms, skyColorNode } from '../atmosphere/AtmosphereNodes';
 import { StarField } from '../atmosphere/Stars';
+import { CloudLayer } from '../clouds/CloudLayer';
 import { VolumetricClouds } from '../clouds/VolumetricClouds';
 import { cartographic, Ellipsoid, type Cartographic } from '../core/Ellipsoid';
 import { EventEmitter } from '../core/EventEmitter';
-import { classifyGpu, effectivePixelRatio, estimateFramebufferBytes, gpuProfile, type GpuHints, type GpuProfile, type GpuTier } from '../core/gpuProfile';
-import { clamp, DEG2RAD, smoothstep } from '../core/math';
-import { greenwichMeanSiderealTime, sunDirectionECEF } from '../core/SunPosition';
-import { DEFAULT_LOCALE, resolveMessages, type LocaleId, type ViewerMessageOverrides, type ViewerMessages } from '../core/i18n';
-import { Globe, type GlobeOptions, type GlobeStats } from '../globe/Globe';
+import { classifyGpu, effectivePixelRatio, gpuProfile, type GpuProfile } from '../core/gpuProfile';
+import { DEG2RAD } from '../core/math';
+import { DEFAULT_LOCALE, resolveMessages, type LocaleId, type ViewerMessages } from '../core/i18n';
+import { Globe } from '../globe/Globe';
 import { OverlayCompositor } from '../globe/OverlayCompositor';
 import { BimEntity } from '../indoor/BimEntity';
-import type { Building } from '../indoor/Building';
-import type { ContributionCullingOptions } from '../indoor/ContributionCulling';
-import { FloorOcclusionBaker, type FloorOcclusionOptions } from '../indoor/FloorOcclusion';
+import { FloorOcclusionBaker } from '../indoor/FloorOcclusion';
 import { IndoorManager } from '../indoor/IndoorManager';
-import { MarkerManager, type MarkerStats } from '../markers/MarkerManager';
-import { PointLayer, type PointLayerOptions } from '../markers/PointLayer';
-import type { PointRecord } from '../markers/points';
-import { Tiles3DLayer, type LoaderKit, type Tiles3DLayerOptions, type TilesMemoryStats, type TilesViewState } from '../tiles3d/Tiles3DLayer';
-import type { NodeMaterialLibrary } from '../tiles3d/nodeMaterials';
-import { resolveTileFeature, type FeatureHighlightStyle, type TileFeature } from '../tiles3d/tileFeatures';
-import { GeoJsonLayer, type GeoJsonLayerOptions } from '../vector/GeoJsonLayer';
-import { lonLatToMerc } from '../vector/geometry';
-import { LabelManager } from '../vector/LabelManager';
-import { SunShadows, sunShadowFactor, type ShadowCaster, type SunShadowOptions } from '../lighting/SunShadows';
-import type { FeatureHit } from '../vector/types';
-import { VectorService } from '../vector/VectorService';
-import { cameraDirection, getHeadingPitch, lookAtHeadingPitchRange } from './cameraMath';
-import { GlobeCameraController, type AutoOrbitOptions, type ControllerHost } from './GlobeCameraController';
+import { SunShadows, sunShadowFactor } from '../lighting/SunShadows';
+import { LocalScene } from '../local/LocalScene';
+import { RegionDimEffect } from '../local/RegionDimEffect';
+import { RegionWalls } from '../local/RegionWalls';
+import { MarkerManager } from '../markers/MarkerManager';
+import type { PointLayer, PointLayerOptions } from '../markers/PointLayer';
 import { ColorGrading, ColorGradingEffect } from '../post/ColorGrading';
 import { EffectMarks } from '../post/EffectMarks';
 import { GlowEffect } from '../post/GlowEffect';
 import { LevelTransition } from '../post/LevelTransition';
 import { OutlineEffect } from '../post/OutlineEffect';
-import type { ColorGradingOptions } from '../post/postMath';
-import { PostPipeline, type PostStage } from '../post/PostPipeline';
-import { Supersampling, type SupersamplingOptions } from '../post/Supersampling';
-import { Transparency, type TransparencyOptions } from '../post/Transparency';
+import { PostPipeline } from '../post/PostPipeline';
+import { Supersampling } from '../post/Supersampling';
+import { Transparency } from '../post/Transparency';
 import { ViewerEffects } from '../post/ViewerEffects';
-import { tileDebugUniforms } from '../globe/TileMaterial';
+import type { Tiles3DLayer, Tiles3DLayerOptions } from '../tiles3d/Tiles3DLayer';
+import type { FeatureHighlightStyle, TileFeature } from '../tiles3d/tileFeatures';
+import type { GeoJsonLayer, GeoJsonLayerOptions } from '../vector/GeoJsonLayer';
+import { LabelManager } from '../vector/LabelManager';
+import type { FeatureHit } from '../vector/types';
+import { VectorService } from '../vector/VectorService';
+import { getHeadingPitch, lookAtHeadingPitchRange } from './cameraMath';
+import { describeAdapter, detectGpuHints, memoryReport, viewerSnapshot } from './diagnostics';
+import { FrameLoop } from './FrameLoop';
+import { DEFAULT_IDLE_FRAME_RATE, FramePacer, normalizeIdleFrameRate } from './framePacing';
+import { GlobeCameraController, type AutoOrbitOptions, type ControllerHost } from './GlobeCameraController';
 import { IndoorBackdrop, studioSkyNode } from './IndoorBackdrop';
-import { LocalScene } from '../local/LocalScene';
-import { RegionDimEffect } from '../local/RegionDimEffect';
-import { RegionWalls } from '../local/RegionWalls';
+import { installIndoorBehaviors } from './indoorBehaviors';
 import { InteractionManager, type PickInfo } from './InteractionManager';
 import type { IntroSpinOptions } from './IntroAnimation';
+import type { LoadState } from './loadState';
 import { NavigationControls } from './NavigationControls';
 import { OcclusionProxies } from './OcclusionProxies';
-import { PickBuffer, type PickTarget } from './PickBuffer';
+import { PickBuffer } from './PickBuffer';
+import type { SurfaceHeight, SurfaceHeightOptions } from './SurfaceHeight';
+import { ViewerEnvironment } from './ViewerEnvironment';
+import { ViewerLayers } from './ViewerLayers';
 import { checkViewerOptions } from './viewerOptions';
-import { SurfaceHeightQuery, type SurfaceHeight, type SurfaceHeightOptions, type SurfaceSample } from './SurfaceHeight';
-import { LoadTracker, summarizeLoad, type LoadState } from './loadState';
-import { cloudFrameRate, DEFAULT_IDLE_FRAME_RATE, drawMode, FramePacer, MAX_IDLE_FRAME_RATE, normalizeIdleFrameRate, volumetricCloudFrameRate } from './framePacing';
-
-export interface ViewPosition {
-  /** Degrees. */
-  longitude: number;
-  /** Degrees. */
-  latitude: number;
-  /** Meters above the ellipsoid. */
-  height: number;
-  /** Degrees, clockwise from north. */
-  heading?: number;
-  /** Degrees, negative looks down. */
-  pitch?: number;
-}
-
-/** Look at a point from a heading / pitch / range (ThingJS `flyTo({ target, horzAngle, vertAngle })`). */
-export interface TargetView {
-  /** Degrees / meters, or a world (ECEF) point. */
-  target: { longitude: number; latitude: number; height?: number } | Vector3;
-  /** Degrees clockwise from north (default: keep the current heading). */
-  heading?: number;
-  /** Degrees, negative looks down (default -45). */
-  pitch?: number;
-  /** Meters from the target (default 500). */
-  range?: number;
-  /** Seconds (default: automatic). */
-  duration?: number;
-}
-
-export interface SphereFlightOptions {
-  /** Multiplies the distance that fits the sphere in view. */
-  rangeScale?: number;
-  /** Closest distance in meters (default 50). */
-  minRange?: number;
-}
-
-export interface GeoViewerOptions extends GlobeOptions {
-  container: HTMLElement;
-  /** Skip WebGPU and use the WebGL 2 backend. */
-  forceWebGL?: boolean;
-  /**
-   * GPU tier deciding the memory budgets and default quality (frame buffers,
-   * globe cache, 3D Tiles; see `core/gpuProfile.ts`). Default: guessed from
-   * the adapter, never `ultra`.
-   */
-  gpuTier?: GpuTier;
-  /** 4x MSAA (default from the GPU tier: off on `low`). */
-  antialias?: boolean;
-  initialView?: ViewPosition;
-  /** View `navigation.home()` returns to (default: `initialView`). */
-  homeView?: ViewPosition;
-  /** Cloud layer settings; clouds stay hidden unless `visible: true`. */
-  clouds?: CloudOptions;
-  /**
-   * Contribution culling of small devices and components (M2.3); off unless
-   * `enabled: true`. Change later with `viewer.indoor.culling.configure()`.
-   */
-  contributionCulling?: ContributionCullingOptions;
-  /**
-   * Floor ambient occlusion (M3.4, default on): floors darken softly along walls and under
-   * devices. Change later with `viewer.indoor.ambientOcclusion.configure()`.
-   */
-  ambientOcclusion?: FloorOcclusionOptions;
-  /** Upper bound of the canvas pixel ratio (default from the GPU tier: 1 / 1.5 / 2 / 2). */
-  maxPixelRatio?: number;
-  /**
-   * Folder URL (ending with `/`) of the Draco glTF decoder files (`draco_decoder.js`,
-   * `draco_wasm_wrapper.js`, `draco_decoder.wasm`), e.g. on a CDN or in the host's public
-   * folder. Default: the copy shipped with three.js, which the host's bundler picks up.
-   */
-  decoderPath?: string;
-  /**
-   * Folder URL (ending with `/`) of the Basis transcoder files for KTX2 textures
-   * (`basis_transcoder.js`, `basis_transcoder.wasm`). Default: the copy shipped with three.js.
-   */
-  transcoderPath?: string;
-  /**
-   * Language of the text the SDK shows by itself (default `'zh-CN'`): property names added to
-   * BIM entities, default point layer names. Error messages are always English with a `code`
-   * (`TerraViewError`).
-   */
-  locale?: LocaleId;
-  /** Overrides individual texts of `locale`. */
-  messages?: ViewerMessageOverrides;
-  /**
-   * Frames per second once the view has been quiet for a second (default 10): nothing loading,
-   * no camera motion, input or transition. Saves most of the CPU and GPU time a static view
-   * costs (docs/api.md §1.8). 0 draws every animation frame; other values are kept within
-   * 10–60 (below 10 the saving is unreliable and time-based motion would slow down).
-   */
-  idleFrameRate?: number;
-  /**
-   * Still supersampling (default on): once the view has been still for a second, the next
-   * frames are drawn with sub-pixel camera offsets and averaged (16 samples with MSAA, 32
-   * without), then nothing is drawn until something changes (docs/api.md §1.8). `false`: still
-   * views are drawn at `idleFrameRate` instead. Change later through `viewer.supersampling`.
-   */
-  supersampling?: boolean | SupersamplingOptions;
-  /** Exposure, contrast and saturation (default neutral); change later through `viewer.colorGrading`. */
-  colorGrading?: ColorGradingOptions;
-  /**
-   * Sun shadows of buildings and devices while `lighting` is on (M3.9; default from the GPU
-   * tier: on, off on `low`). `false` turns them off; change later through `viewer.shadows`.
-   */
-  shadows?: boolean | SunShadowOptions;
-  /** Order-independent transparency of buildings (M3.9, WebGPU; default from the GPU tier: `ultra` only); change later through `viewer.transparency`. */
-  transparency?: TransparencyOptions;
-}
+import { ViewerPicking } from './ViewerPicking';
+import { createViewerState } from './viewerState';
+import type {
+  FeaturePick,
+  FrameStats,
+  GeoViewerOptions,
+  MemoryReport,
+  RendererInfo,
+  SphereFlightOptions,
+  SurfacePick,
+  TargetView,
+  ViewerEvents,
+  ViewerSnapshot,
+  ViewPosition,
+} from './viewerTypes';
 
 const DEFAULT_VIEW: ViewPosition = { longitude: 110, latitude: 28, height: 1.8e7 };
 
-export interface RendererInfo {
-  backend: 'WebGPU' | 'WebGL2';
-  reversedDepth: boolean;
-  highPrecision: boolean;
-  timestampQuery: boolean;
-  adapter: string;
-  /** GPU tier in effect, and whether it was guessed from the adapter or given (`gpuTier`). */
-  tier: GpuTier;
-  tierSource: 'auto' | 'option';
-  /** MSAA samples of the canvas (1 = none) and its pixel ratio. */
-  samples: number;
-  pixelRatio: number;
-}
-
-/**
- * Estimated memory use in bytes (`viewer.memory`). Browsers report neither
- * the video memory in use nor its size: these are sums over what the viewer
- * itself allocated, good for comparing settings, not exact.
- */
-export interface MemoryReport {
-  /** Canvas color / depth targets (with MSAA) and the pick buffer. */
-  framebuffers: number;
-  /** Globe tiles: imagery and overlay textures, meshes. */
-  globe: number;
-  /** 3D Tiles content uploaded to the GPU. */
-  tilesGpu: number;
-  /**
-   * Buildings: glTF models (floor, device and exterior models; `indoor.modelBytes`) and the
-   * floor ambient occlusion textures (`indoor.ambientOcclusion.bytes`).
-   */
-  buildings: number;
-  /** Sun shadow map (`shadows.bytes`; allocated the first time shadows are drawn). */
-  shadows: number;
-  /** Sum of the above: the viewer's video memory, without generated building geometry, labels and the browser's own share. */
-  gpuTotal: number;
-  /** Decoded 3D Tiles content in the tile cache (mostly system memory; includes what is on the GPU) and its limit. */
-  tilesCache: number;
-  tilesCacheMax: number;
-}
-
-/**
- * @advanced Diagnostics of a viewer at one moment (`viewer.snapshot()`, roadmap M5.1): plain
- * JSON-serializable values to attach to a bug report or hand to a tool. The shape may grow
- * between minor versions.
- */
-export interface ViewerSnapshot {
-  /** When it was taken (ISO 8601) and the simulated date driving the sun. */
-  time: string;
-  date: string;
-  info: RendererInfo;
-  stats: FrameStats;
-  memory: MemoryReport;
-  load: LoadState;
-  view: Required<ViewPosition>;
-  scene: { lighting: boolean; atmosphere: boolean; showGlobe: boolean; showStars: boolean; clouds: boolean; timeMultiplier: number };
-  globe: GlobeStats & { shown: boolean };
-  tilesets: { id: number; name: string; visible: boolean; active: boolean; pending: number; errorScale: number; memory: TilesMemoryStats }[];
-  layers: { vector: number; points: number; markers: MarkerStats };
-  indoor: {
-    buildings: number;
-    /** Entered level (id and type), null on the globe. */
-    current: { id: string; type: string } | null;
-    selected: string | null;
-    modelBytes: number;
-    ambientOcclusion: { enabled: boolean; floors: number; bytes: number };
-    culling: { enabled: boolean; candidates: number; culled: number };
-  };
-  post: {
-    effects: { name: string; stage: PostStage; active: boolean }[];
-    samples: number;
-    supersampling: boolean;
-    transitionMs: number;
-    /** Order-independent transparency: wanted, possible on this backend, drawn in the last frame. */
-    transparency: { orderIndependent: boolean; supported: boolean; active: boolean };
-  };
-  /** Lights of buildings and 3D Tiles: sun color (linear RGB) and intensity, hemisphere and sky probe intensities. */
-  lights: { sunColor: [number, number, number]; sunIntensity: number; hemisphere: number; skyProbe: number };
-  /** Sun shadows: settings, whether they were drawn, meters per shadow map texel (0 while not drawn). */
-  shadows: { enabled: boolean; active: boolean; mapSize: number; texelSize: number; maxDistance: number };
-}
-
-export interface FrameStats {
-  /** Frames drawn per second (the idle frame rate while `throttled`, 0 while `still`). */
-  fps: number;
-  /** CPU time of a frame, ms (smoothed; frames that draw nothing count too). */
-  frameMs: number;
-  gpuMs: number | null;
-  /** Draw calls and triangles of the last scene pass drawn. */
-  drawCalls: number;
-  triangles: number;
-  /** Frames are currently updated at `idleFrameRate` because the view has been quiet. */
-  throttled: boolean;
-  /**
-   * The view is still and its picture is final (supersampled): frames keep updating the viewer
-   * at the idle rate but draw nothing (`frame` events continue). False with supersampling off.
-   */
-  still: boolean;
-  /** Supersampling samples averaged in the picture on the canvas (0 while frames are drawn live). */
-  samples: number;
-}
-
-export interface ViewerEvents extends Record<string, unknown> {
-  /** After every frame update, also those of a still view that draw nothing (`stats.still`). */
-  frame: FrameStats;
-  'tilesets-changed': Tiles3DLayer[];
-  'vectors-changed': GeoJsonLayer[];
-  'points-changed': PointLayer[];
-  /** A point marker of a point layer was clicked. */
-  'point-click': { point: PointRecord; layer: PointLayer; event: MouseEvent };
-  /** Something failed to load (one event per failure the SDK reports, see `ViewerError`). */
-  error: ViewerError;
-  /** `loadState` changed: emitted at most once per frame, after the frame's loads were scheduled. */
-  'load-progress': LoadState;
-  /**
-   * `loadState.idle` became true: everything for the current view has loaded. Emitted again
-   * after each later burst of loading (camera moves, new layers), and once at startup even
-   * when there was nothing to load.
-   */
-  idle: LoadState;
-}
-
-/** Where a `ViewerError` comes from. */
-export type ViewerErrorSource = 'imagery' | 'terrain' | 'tileset' | 'geojson' | 'points';
-
-/**
- * A load failure, on `viewer.events` 'error'. One place to listen for what otherwise arrives
- * per layer (their own `error` events, which still fire) or per globe channel.
- *
- * - `imagery`: the base imagery keeps failing (`imagery-unreachable`, once per provider).
- * - `terrain`: terrain tiles keep failing (`terrain-unreachable`, once per terrain source).
- * - `tileset`: a 3D Tiles root tileset failed to load (`tileset-load-failed`); `layer` is set.
- * - `geojson`, `points`: a layer's data could not be loaded or parsed; `layer` is set.
- */
-export interface ViewerError {
-  source: ViewerErrorSource;
-  /** A `TerraViewError` with a `code` when the SDK raised it, else the original error (network, parsing). */
-  error: Error;
-  layer?: Tiles3DLayer | GeoJsonLayer | PointLayer;
-}
-
-export interface FeaturePick {
-  hit: FeatureHit;
-  layer: GeoJsonLayer;
-  /** Picked ground position (radians / meters), null when picked through a label. */
-  position: Cartographic | null;
-}
-
-export interface SurfacePick {
-  point: Vector3;
-  source: 'globe' | 'tiles' | 'entity';
-  distance: number;
-  entity?: BimEntity;
-  tileset?: Tiles3DLayer;
-  /** World unit normal facing the camera (GPU pick buffer only; flat per triangle). */
-  normal?: Vector3;
-  /** How the pick was answered: the GPU pick buffer or a CPU ray. */
-  via?: 'buffer' | 'ray';
-}
-
-const EARTH_CIRCUMFERENCE = 2 * Math.PI * 6378137;
-
-const _ndc = new Vector2();
-const _v = new Vector3();
-const _dir = new Vector3();
-const _carto = cartographic();
-const _lightPoint = new Vector3();
-const _shadowOrigin = new Vector3();
-const _shadowUp = new Vector3();
-const _drawingBuffer = new Vector2();
 const _localPoint = new Vector3();
 const CENTER_NDC = new Vector2(0, 0);
-/**
- * Hemisphere light kept at night with `lighting` on (fades out by day): the sky alone lights
- * buildings to almost nothing then, and interiors should stay readable.
- */
-const NIGHT_FILL = 0.25;
-/** Vertical surface rays start this high above the ellipsoid (meters; above any building or photogrammetry)… */
-const SURFACE_RAY_TOP = 10_000;
-/** …and reach this far below it (Dead Sea shore, ellipsoid below the geoid). */
-const SURFACE_RAY_BOTTOM = 1_000;
 /** Input on the container that wakes the frame loop up (passive listeners; the camera and interaction handle the input itself). */
 const INPUT_EVENTS = ['pointerdown', 'pointermove', 'wheel', 'keydown'] as const;
-/** How long suppressed 3D Tiles keep loading for a building still waiting for ground, after the last loading activity, ms. */
-const GROUND_PROBE_MS = 15_000;
-/**
- * A gap between animation frames longer than this means they were paused (hidden page, sleep): the
- * view is drawn again. Above the roughly 1 s rAF interval of occluded windows in automated browsers.
- */
-const RESUME_GAP_MS = 2000;
 
 /**
  * WebGPU-first 3D globe viewer.
@@ -497,82 +220,29 @@ export class GeoViewer {
   readonly locale: LocaleId;
   /** The SDK's own display text in effect: `locale` with `GeoViewerOptions.messages` merged over it. */
   readonly messages: ViewerMessages;
-  /**
-   * Show the studio backdrop (ground grid, gradient sky) inside a building
-   * when nothing else is drawn around it: globe hidden and no active 3D Tiles.
-   */
-  indoorBackdrop = true;
 
-  /** Simulated date driving the sun and star positions. */
-  date = new Date();
-  /** Simulated seconds per real second (0 = paused). */
-  timeMultiplier = 0;
-
-  private _lighting = false;
-  private _atmosphere = true;
-  /** Sun color and sky light at the view from the CPU atmosphere model (M3.5). */
-  private readonly atmosphereLight = new AtmosphereLighting();
-  /** Buildings casting sun shadows this frame (reused). */
-  private readonly shadowCasters: (ShadowCaster & { matrix: Matrix4 })[] = [];
-  private _showGlobe = true;
-  private _showStars = true;
+  /** Scene switches, simulated time and per-frame camera facts shared by the viewer's parts. */
+  private readonly state = createViewerState();
   private readonly container: HTMLElement;
-  private readonly raycaster = new Raycaster();
-  /** Vertical rays onto 3D Tiles for `surfaceHeight` (separate from the pointer raycaster). */
-  private readonly surfaceRaycaster = new Raycaster();
-  /** Unified ground height: terrain with the globe, 3D Tiles without it (`surfaceHeight`). */
-  private readonly surface: SurfaceHeightQuery;
-  private readonly cameraCarto: Cartographic = cartographic();
-  /** Ground height under the camera from the last collision query (meters above the ellipsoid; 0 until known). */
-  private viewGround = 0;
-  /** Seconds the globe has been hidden, and whether its tile cache was released for it. */
-  private globeHiddenFor = 0;
-  private globeReleased = false;
-  private loaders: LoaderKit | null = null;
-  private decoderPath = '';
-  private transcoderPath = '';
   /** What `adoptContainer` changed on the host's element, undone by `dispose()`. */
   private containerRestore: (() => void) | null = null;
-  private gltfLoader: GLTFLoader | null = null;
-  private tilesetsSuppressed = false;
-  /** Until when suppressed 3D Tiles keep loading for buildings still waiting for ground (`performance.now()` ms). */
-  private probeUntil = 0;
-  private _loadState: LoadState = { globe: 0, tilesets: 0, layers: 0, pending: 0, idle: false };
-  private readonly loadTracker = new LoadTracker();
-  private lastTime = -1;
-  private fpsFrames = 0;
-  private fpsTime = 0;
   private resizeObserver: ResizeObserver;
-  private disposed = false;
-  private timestampPending = false;
   /** Idle frame-rate throttling (P2.1a). */
   private readonly pacer: FramePacer;
-  /** Whether the container intersects the viewport; frames stop while it does not. */
-  private onScreen = true;
   private intersectionObserver: IntersectionObserver | null = null;
   /** Objects and entities drawn with outlines or glow. */
   private readonly marks: EffectMarks;
-  /** Draw calls and triangles of the last scene pass (not the post-processing or pick passes). */
-  private sceneDrawCalls = 0;
-  private sceneTriangles = 0;
-  /** Overlay version seen by the last tick: raster overlays or GeoJSON changed when it moves. */
-  private overlayVersion = -1;
-  /**
-   * What the last frame saw of things that change the picture without telling the viewer
-   * (`pictureChanged`): camera matrices, drawing buffer size, globe surface, simulated date,
-   * tone mapping, tile debug switches.
-   */
-  private readonly lastPicture = new Float64Array(32 + 8);
-  /** `performance.now()` of the last frame drawn (live or sample). */
-  private lastDrawAt = -Infinity;
-  /** Timestamp of the last animation frame (run or skipped), to notice that frames resumed after a pause. */
-  private lastAnimationFrame = -1;
   /**
    * Input on the container wakes the frame loop up to the full rate. It does not change the
    * picture by itself (what it leads to does: camera motion, hover, selection), so a still,
    * supersampled view stays as it is while the pointer moves over it.
    */
   private readonly onInput = () => this.wake();
+  /** The viewer's parts (see the file header). */
+  private readonly environment: ViewerEnvironment;
+  private readonly frameLoop: FrameLoop;
+  private readonly picking: ViewerPicking;
+  private readonly layers: ViewerLayers;
 
   static async create(options: GeoViewerOptions): Promise<GeoViewer> {
     // Fail fast (before any GPU work) on what plain JavaScript hosts can get wrong.
@@ -615,8 +285,6 @@ export class GeoViewer {
     renderer.domElement.classList.add('tv-canvas');
     renderer.domElement.tabIndex = 0;
     this.container.appendChild(renderer.domElement);
-    if (options.decoderPath) this.decoderPath = options.decoderPath;
-    if (options.transcoderPath) this.transcoderPath = options.transcoderPath;
 
     this.info = {
       backend: isWebGPU ? 'WebGPU' : 'WebGL2',
@@ -639,20 +307,10 @@ export class GeoViewer {
       maxAnisotropy: options.maxAnisotropy ?? profile.globe.maxAnisotropy,
     });
     this.globe.reportError = (source, error) => this.events.emit('error', { source, error });
-    this.surface = new SurfaceHeightQuery({
-      globeShown: () => this._showGlobe,
-      terrain: (lon, lat) => {
-        const s = this.globe.sampleHeight(lon, lat);
-        return s && { height: s.height, resolution: s.cellSize };
-      },
-      tilesActive: () => this.tilesets.some((l) => l.measurable),
-      raycastTiles: (lon, lat) => this.raycastTilesVertical(lon, lat),
-      now: () => performance.now(),
-    });
     this.globe.setOverlaySource(this.overlays);
     this.scene.add(this.globe.group);
     this.labels = new LabelManager(this.ellipsoid);
-    this.labels.heightProvider = (lon, lat) => (this._showGlobe ? this.globe.getHeight(lon, lat) : 0);
+    this.labels.heightProvider = (lon, lat) => (this.state.showGlobe ? this.globe.getHeight(lon, lat) : 0);
     this.scene.add(this.labels.group);
     this.scene.add(this.stars.mesh);
     this.clouds = new CloudLayer(this.ellipsoid, { volumetric: profile.clouds.volumetric });
@@ -689,20 +347,20 @@ export class GeoViewer {
       // detailed; otherwise null keeps the height they have (no floating on coarse estimates, no drop
       // to 0 m while the tiles are suppressed inside the building).
       groundHeight: (lon, lat) => {
-        const s = this.surface.query(lon, lat);
+        const s = this.layers.surface.query(lon, lat);
         return s.reliable ? s.height : null;
       },
       flyToView: (view, duration) => this.flyToTarget({ target: view.target, heading: view.heading, pitch: view.pitch, range: view.range, duration }),
       getCameraPose: () => {
         const { heading, pitch } = this.getView();
         // What the view is centered on, so flying back can keep it in frame.
-        const target = this.gesturePick(CENTER_NDC)?.clone();
+        const target = this.picking.gesturePick(CENTER_NDC)?.clone();
         return { position: this.camera.position.clone(), heading, pitch, target };
       },
       flyToPose: (pose, duration) =>
         this.controller.flyTo({ position: pose.position.clone(), heading: pose.heading * DEG2RAD, pitch: pose.pitch * DEG2RAD }, duration, { lookAt: pose.target }),
-      beginTransition: () => this.beginLevelTransition(),
-      setTilesetsVisible: (visible) => this.setTilesetsSuppressed(!visible),
+      beginTransition: () => this.frameLoop.beginLevelTransition(),
+      setTilesetsVisible: (visible) => this.layers.setTilesetsSuppressed(!visible),
       loadModel: (uri) => this.loadModel(uri),
       followMove: (delta) => this.controller.translate(delta),
       occlusionBaker: new FloorOcclusionBaker(renderer),
@@ -751,19 +409,12 @@ export class GeoViewer {
       { orderIndependent: profile.orderIndependentTransparency, supported: isWebGPU },
       options.transparency,
     );
-    // Statistics of the scene pass alone (the pick buffer's signature and `stats`); the pick pass renders the scene later.
-    this.scene.onAfterRender = (r) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const info = (r as any).info;
-      this.sceneDrawCalls = info.render?.drawCalls ?? info.render?.calls ?? 0;
-      this.sceneTriangles = info.render?.triangles ?? 0;
-    };
     this.indoor.modelBytesTarget = this.gpu.indoor.modelBytesTarget;
     this.indoor.modelUnloadDelayMs = this.gpu.indoor.unloadDelayMs;
     if (options.contributionCulling) this.indoor.culling.configure(options.contributionCulling);
     // Integer render targets and async read back: WebGPU only; WebGL keeps casting rays.
     this.pickBuffer =
-      this.info.backend === 'WebGPU' ? new PickBuffer<Tiles3DLayer>({ renderer, scene: this.scene, camera: this.camera, classify: (o) => this.classifyPick(o) }) : null;
+      this.info.backend === 'WebGPU' ? new PickBuffer<Tiles3DLayer>({ renderer, scene: this.scene, camera: this.camera, classify: (o) => this.picking.classifyPick(o) }) : null;
     // Level changes show and hide content without necessarily changing the draw statistics.
     for (const type of ['enterLevel', 'leaveLevel', 'buildings-changed'] as const)
       this.indoor.events.on(type, () => {
@@ -780,8 +431,8 @@ export class GeoViewer {
       ellipsoid: this.ellipsoid,
       domElement: renderer.domElement,
       keyboardTarget: this.container,
-      pick: (ndc) => this.gesturePick(ndc),
-      groundHeight: (lon, lat) => this.collisionGround(lon, lat),
+      pick: (ndc) => this.picking.gesturePick(ndc),
+      groundHeight: (lon, lat) => this.layers.collisionGround(lon, lat),
     };
     this.controller = new GlobeCameraController(host);
     this.interaction = new InteractionManager({
@@ -797,6 +448,56 @@ export class GeoViewer {
     const ls = this.localScene;
     const localSky = mix(studioSkyNode(positionWorldDirection, ls.skyUp), ls.backgroundColor, ls.backgroundSolid);
     this.scene.backgroundNode = mix(mix(sky, studioSky, this.backdrop.amount), localSky, ls.backgroundAmount);
+    // The parts: one object of references, each part takes what its host interface names.
+    const parts = {
+      state: this.state,
+      renderer,
+      scene: this.scene,
+      camera: this.camera,
+      ellipsoid: this.ellipsoid,
+      container: this.container,
+      info: this.info,
+      gpu: this.gpu,
+      messages: this.messages,
+      stats: this.stats,
+      events: this.events,
+      pacer: this.pacer,
+      globe: this.globe,
+      controller: this.controller,
+      clouds: this.clouds,
+      volumetricClouds: this.volumetricClouds,
+      stars: this.stars,
+      sunLight: this.sunLight,
+      skyLight: this.skyLight,
+      skyProbe: this.skyProbe,
+      shadows: this.shadows,
+      indoor: this.indoor,
+      backdrop: this.backdrop,
+      localScene: this.localScene,
+      interaction: this.interaction,
+      labels: this.labels,
+      vectors: this.vectors,
+      markers: this.markers,
+      marks: this.marks,
+      overlays: this.overlays,
+      postProcessing: this.postProcessing,
+      supersampling: this.supersampling,
+      levelTransition: this.levelTransition,
+      pickBuffer: this.pickBuffer,
+      tilesets: this.tilesets,
+      vectorLayers: this.vectorLayers,
+      pointLayers: this.pointLayers,
+      decoderPath: options.decoderPath ?? '',
+      transcoderPath: options.transcoderPath ?? '',
+      requestRender: () => this.requestRender(),
+      wake: () => this.wake(),
+      flyToBBox: (bbox: [number, number, number, number], duration?: number) => this.flyToBBox(bbox, duration),
+      updateBuildingsInRegion: () => this.updateBuildingsInRegion(),
+    };
+    this.layers = new ViewerLayers(parts);
+    this.picking = new ViewerPicking({ ...parts, surface: this.layers.surface });
+    this.environment = new ViewerEnvironment(parts);
+    this.frameLoop = new FrameLoop({ ...parts, surface: this.layers.surface, environment: this.environment, layers: this.layers });
     // Camera motion of any origin (gestures, flights, animations, inertia, auto-orbit) keeps the full frame rate.
     this.controller.events.on('change', () => this.requestRender());
     // A gesture starting changes nothing yet (a click without a drag must not discard a supersampled view).
@@ -810,7 +511,9 @@ export class GeoViewer {
       const point = typeof p === 'function' ? (p()?.clone() ?? null) : p.clone();
       this.interaction.dispatchProxy(type, entity, event, { marker, point });
     };
-    this.installIndoorBehaviors();
+    // Default indoor interactions; a building added restarts the ground probe of suppressed 3D Tiles.
+    this.indoor.events.on('buildings-changed', () => this.layers.extendGroundProbe());
+    installIndoorBehaviors(this.interaction, this.indoor);
 
     const v = options.initialView ?? DEFAULT_VIEW;
     this.setView(v);
@@ -827,70 +530,93 @@ export class GeoViewer {
     if (typeof IntersectionObserver !== 'undefined') {
       this.intersectionObserver = new IntersectionObserver((entries) => {
         const visible = entries[entries.length - 1]?.isIntersecting ?? true;
-        if (visible && !this.onScreen) this.requestRender();
-        this.onScreen = visible;
+        if (visible && !this.frameLoop.onScreen) this.requestRender();
+        this.frameLoop.onScreen = visible;
       });
       this.intersectionObserver.observe(this.container);
     }
-    void renderer.setAnimationLoop((t: number) => this.tick(t));
+    void renderer.setAnimationLoop((t: number) => this.frameLoop.tick(t));
   }
 
   // ---------------------------------------------------------------------------
   // Scene settings
 
   get lighting(): boolean {
-    return this._lighting;
+    return this.state.lighting;
   }
 
   /** Real sun position and day/night shading (otherwise imagery is shown unlit). */
   set lighting(v: boolean) {
-    this._lighting = v;
+    this.state.lighting = v;
     this.requestRender();
   }
 
   get atmosphere(): boolean {
-    return this._atmosphere;
+    return this.state.atmosphere;
   }
 
   set atmosphere(v: boolean) {
-    this._atmosphere = v;
+    this.state.atmosphere = v;
     this.requestRender();
   }
 
   get showGlobe(): boolean {
-    return this._showGlobe;
+    return this.state.showGlobe;
   }
 
   set showGlobe(v: boolean) {
-    this._showGlobe = v;
+    this.state.showGlobe = v;
     this.requestRender();
     this.globe.group.visible = v;
-    if (v) {
-      this.globeHiddenFor = 0;
-      this.globeReleased = false;
-    }
+    if (v) this.frameLoop.globeShown();
   }
+
+  get showStars(): boolean {
+    return this.state.showStars;
+  }
+
+  set showStars(v: boolean) {
+    this.state.showStars = v;
+    this.requestRender();
+    this.stars.mesh.visible = v;
+  }
+
+  /**
+   * Show the studio backdrop (ground grid, gradient sky) inside a building
+   * when nothing else is drawn around it: globe hidden and no active 3D Tiles.
+   */
+  get indoorBackdrop(): boolean {
+    return this.state.indoorBackdrop;
+  }
+
+  set indoorBackdrop(v: boolean) {
+    this.state.indoorBackdrop = v;
+  }
+
+  /** Simulated date driving the sun and star positions. */
+  get date(): Date {
+    return this.state.date;
+  }
+
+  set date(v: Date) {
+    this.state.date = v;
+  }
+
+  /** Simulated seconds per real second (0 = paused). */
+  get timeMultiplier(): number {
+    return this.state.timeMultiplier;
+  }
+
+  set timeMultiplier(v: number) {
+    this.state.timeMultiplier = v;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Diagnostics
 
   /** Estimated memory use of the viewer's own allocations, in bytes (see `MemoryReport`). */
   get memory(): MemoryReport {
-    const canvas = this.renderer.domElement;
-    const framebuffers = estimateFramebufferBytes({ width: canvas.width, height: canvas.height, samples: this.info.samples }) +
-      (this.pickBuffer?.gpuBytes ?? 0) +
-      this.postProcessing.gpuBytes;
-    const globe = this.globe.gpuBytes;
-    let tilesGpu = 0;
-    let tilesCache = 0;
-    let tilesCacheMax = 0;
-    for (const layer of this.tilesets) {
-      const m = layer.memory;
-      tilesGpu += m.gpuBytes;
-      // One cache for all tilesets.
-      tilesCache = m.cachedBytes;
-      tilesCacheMax = m.cacheMaxBytes;
-    }
-    const buildings = this.indoor.modelBytes + this.indoor.ambientOcclusion.bytes;
-    const shadows = this.shadows.bytes;
-    return { framebuffers, globe, tilesGpu, buildings, shadows, gpuTotal: framebuffers + globe + tilesGpu + buildings + shadows, tilesCache, tilesCacheMax };
+    return memoryReport(this);
   }
 
   /**
@@ -898,55 +624,7 @@ export class GeoViewer {
    * roadmap M5.1): `JSON.stringify(viewer.snapshot())` for a bug report.
    */
   snapshot(): ViewerSnapshot {
-    const indoor = this.indoor;
-    const c = this.sunLight.color;
-    return {
-      time: new Date().toISOString(),
-      date: this.date.toISOString(),
-      info: { ...this.info },
-      stats: { ...this.stats },
-      memory: this.memory,
-      load: { ...this._loadState },
-      view: this.getView(),
-      scene: {
-        lighting: this._lighting,
-        atmosphere: this._atmosphere,
-        showGlobe: this._showGlobe,
-        showStars: this._showStars,
-        clouds: this.clouds.mesh.visible,
-        timeMultiplier: this.timeMultiplier,
-      },
-      globe: { ...this.globe.stats, shown: this._showGlobe },
-      tilesets: this.tilesets.map((l) => ({ id: l.id, name: l.name, visible: l.visible, active: l.active, pending: l.pending, errorScale: l.errorScale, memory: { ...l.memory } })),
-      layers: { vector: this.vectorLayers.length, points: this.pointLayers.length, markers: { ...this.markers.stats } },
-      indoor: {
-        buildings: indoor.buildings.length,
-        current: indoor.current ? { id: indoor.current.id, type: indoor.current.type } : null,
-        selected: indoor.selected?.id ?? null,
-        modelBytes: indoor.modelBytes,
-        ambientOcclusion: { enabled: indoor.ambientOcclusion.enabled, floors: indoor.ambientOcclusion.bakedFloors, bytes: indoor.ambientOcclusion.bytes },
-        culling: { enabled: indoor.culling.enabled, ...indoor.culling.stats },
-      },
-      post: {
-        effects: this.postProcessing.effects.map((e) => ({ name: e.name, stage: e.stage, active: e.active })),
-        samples: this.postProcessing.samples,
-        supersampling: this.supersampling.enabled,
-        transitionMs: this.levelTransition.duration,
-        transparency: { orderIndependent: this.transparency.orderIndependent, supported: this.transparency.supported, active: this.transparency.active },
-      },
-      lights: { sunColor: [c.r, c.g, c.b], sunIntensity: this.sunLight.intensity, hemisphere: this.skyLight.intensity, skyProbe: this.skyProbe.intensity },
-      shadows: { enabled: this.shadows.enabled, active: this.shadows.active, mapSize: this.shadows.mapSize, texelSize: this.shadows.texelSize, maxDistance: this.shadows.maxDistance },
-    };
-  }
-
-  get showStars(): boolean {
-    return this._showStars;
-  }
-
-  set showStars(v: boolean) {
-    this._showStars = v;
-    this.requestRender();
-    this.stars.mesh.visible = v;
+    return viewerSnapshot(this);
   }
 
   // ---------------------------------------------------------------------------
@@ -1051,85 +729,12 @@ export class GeoViewer {
 
   /** Closest surface hit (buildings, 3D Tiles or globe) at normalized device coordinates. */
   pick(ndc: Vector2, options: { buffer?: boolean } = {}): SurfacePick | null {
-    if (options.buffer) {
-      const g = this.pickFromBuffer(ndc);
-      if (g !== undefined) return g;
-    }
-    this.camera.updateMatrixWorld();
-    this.raycaster.setFromCamera(ndc, this.camera);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (this.raycaster as any).firstHitOnly = true;
-    let best: SurfacePick | null = null;
-    // A local scene hiding its surroundings: what is clipped away cannot be hit either.
-    const ls = this.localScene;
-    const accept = ls.hidesOutside ? (p: Vector3) => ls.showsWorld(p) : undefined;
-    const entity = this.indoor.pick(this.raycaster);
-    if (entity) best = { point: entity.point.clone(), source: 'entity', distance: entity.distance, entity: entity.entity, via: 'ray' };
-    // All hits, not just the first: the first may be clipped away.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (accept) (this.raycaster as any).firstHitOnly = false;
-    for (const layer of this.tilesets) {
-      if (!layer.active || !layer.ready) continue;
-      const hit = this.raycaster.intersectObject(layer.group, true).find((h) => !accept || accept(h.point));
-      if (hit && hit.distance < (best?.distance ?? Infinity)) {
-        best = { point: hit.point.clone(), source: 'tiles', distance: hit.distance, tileset: layer, via: 'ray' };
-      }
-    }
-    if (this._showGlobe) {
-      const g = this.globe.raycast(this.raycaster.ray, accept);
-      if (g && g.distance < (best?.distance ?? Infinity)) best = { point: g.point, source: 'globe', distance: g.distance, via: 'ray' };
-    }
-    return best;
-  }
-
-  /**
-   * Pick from the GPU pick buffer; undefined when it cannot answer (no fresh
-   * buffer, or a sample it cannot resolve), so the caller casts a ray.
-   */
-  private pickFromBuffer(ndc: Vector2): SurfacePick | null | undefined {
-    const hit = this.pickBuffer?.lookup((ndc.x + 1) / 2, (1 - ndc.y) / 2);
-    if (hit === undefined) return undefined;
-    if (hit === null) return null;
-    const base = { point: hit.point, distance: hit.distance, normal: hit.normal, via: 'buffer' as const };
-    if (hit.target.kind === 'entity') {
-      const entity = this.indoor.entityForHit(hit.object, hit.instanceId);
-      return entity ? { ...base, source: 'entity', entity } : undefined;
-    }
-    if (hit.target.kind === 'tiles') return { ...base, source: 'tiles', tileset: hit.target.layer };
-    return { ...base, source: 'globe' };
-  }
-
-  /** What a mesh stands for in the pick buffer: buildings, 3D Tiles and globe tiles; nothing else is pickable. */
-  private classifyPick(object: Object3D): PickTarget<Tiles3DLayer> | null {
-    for (let x: Object3D | null = object; x; x = x.parent) {
-      if (x === this.indoor.root) return { kind: 'entity' };
-      if (x === this.globe.group) return { kind: 'globe' };
-      const layer = this.tilesets.find((l) => l.group === x);
-      if (layer) return { kind: 'tiles', layer };
-    }
-    return null;
+    return this.picking.pick(ndc, options);
   }
 
   /** What lies under a client-space pixel (used by the interaction manager). */
   pickAt(clientX: number, clientY: number): PickInfo {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    const hit = this.pick(_ndc, { buffer: true });
-    const layer = hit?.source === 'tiles' ? (hit.tileset ?? null) : null;
-    // Resolved on demand from the view ray of this pick: hovers that never ask cost no CPU ray.
-    let feature: TileFeature | null | undefined = layer ? undefined : null;
-    const ray = layer ? this.viewRay(_ndc).clone() : null;
-    return {
-      kind: hit ? hit.source : 'none',
-      entity: hit?.entity ?? null,
-      tileset: hit?.tileset ?? null,
-      point: hit?.point ?? null,
-      cartographic: hit ? this.ellipsoid.cartesianToCartographic(hit.point) : null,
-      clientX,
-      clientY,
-      marker: null,
-      tileFeature: () => (feature === undefined ? (feature = this.tileFeatureOnRay(ray!, layer!)) : feature),
-    };
+    return this.picking.pickAt(clientX, clientY);
   }
 
   /**
@@ -1140,7 +745,7 @@ export class GeoViewer {
    * In interaction listeners use `event.tileFeature()`, which reuses the event's pick.
    */
   pickTileFeature(clientX: number, clientY: number): TileFeature | null {
-    return this.pickAt(clientX, clientY).tileFeature?.() ?? null;
+    return this.picking.pickTileFeature(clientX, clientY);
   }
 
   /**
@@ -1150,45 +755,17 @@ export class GeoViewer {
    * that tile is unloaded or replaced by another level of detail; removing the layer clears it.
    */
   highlightTileFeature(feature: TileFeature | null, style?: FeatureHighlightStyle): void {
-    for (const layer of this.tilesets) if (layer !== feature?.layer && layer.highlighted) layer.setHighlight(null);
-    if (feature && this.tilesets.includes(feature.layer)) feature.layer.setHighlight(feature, style);
-    this.requestRender();
+    this.layers.highlightTileFeature(feature, style);
   }
 
   /** The feature set by `highlightTileFeature`, or null (also after its tile was unloaded). */
   get highlightedTileFeature(): TileFeature | null {
-    for (const layer of this.tilesets) if (layer.highlighted) return layer.highlighted;
-    return null;
-  }
-
-  /** The camera ray through normalized device coordinates (the shared raycaster's ray). */
-  private viewRay(ndc: Vector2): Ray {
-    this.camera.updateMatrixWorld();
-    this.raycaster.setFromCamera(ndc, this.camera);
-    return this.raycaster.ray;
-  }
-
-  /** First hit of a ray on a layer's tiles, resolved to a feature. */
-  private tileFeatureOnRay(ray: Ray, layer: Tiles3DLayer): TileFeature | null {
-    if (!layer.active || !layer.ready || !this.tilesets.includes(layer)) return null;
-    this.raycaster.ray.copy(ray);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (this.raycaster as any).firstHitOnly = true;
-    const hit = this.raycaster.intersectObject(layer.group, true)[0];
-    return hit ? resolveTileFeature(layer, hit) : null;
+    return this.layers.highlightedTileFeature;
   }
 
   /** Cartographic position (radians) under a client-space pixel. */
   pickCartographic(clientX: number, clientY: number): Cartographic | null {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-    const hit = this.pick(_ndc, { buffer: true });
-    return hit ? this.ellipsoid.cartesianToCartographic(hit.point) : null;
-  }
-
-  /** Building the indoor level is in, or null on the globe. */
-  private currentBuilding(): Building | null {
-    return (this.indoor.current?.closest('building') as Building | null) ?? null;
+    return this.picking.pickCartographic(clientX, clientY);
   }
 
   /**
@@ -1207,60 +784,7 @@ export class GeoViewer {
    * @param latitude Degrees north.
    */
   surfaceHeight(longitude: number, latitude: number, options?: SurfaceHeightOptions): SurfaceHeight {
-    const outside = this.groundOutsideRegion(longitude * DEG2RAD, latitude * DEG2RAD);
-    if (outside !== null) return outside;
-    return this.surface.query(longitude * DEG2RAD, latitude * DEG2RAD, options);
-  }
-
-  /** Outside a local scene that hides its surroundings, the ground is the base of its walls (radians in). */
-  private groundOutsideRegion(lon: number, lat: number): SurfaceHeight | null {
-    const ls = this.localScene;
-    if (!ls.hidesOutside) return null;
-    const p = this.ellipsoid.cartographicToCartesian(lon, lat, ls.groundOutside, _localPoint);
-    if (ls.showsWorld(p, 0)) return null;
-    return { height: ls.groundOutside, resolution: 0, source: 'ellipsoid', reliable: true, held: false };
-  }
-
-  /** Highest active 3D Tiles surface on the vertical through a position (radians), with the hit tile's geometric error. */
-  private raycastTilesVertical(lon: number, lat: number): SurfaceSample | null {
-    const rc = this.surfaceRaycaster;
-    const cosLat = Math.cos(lat);
-    _dir.set(cosLat * Math.cos(lon), cosLat * Math.sin(lon), Math.sin(lat));
-    // From well above the tallest buildings and photogrammetry, straight down.
-    this.ellipsoid.cartographicToCartesian(lon, lat, SURFACE_RAY_TOP, rc.ray.origin);
-    rc.ray.direction.copy(_dir).negate();
-    rc.near = 0;
-    rc.far = SURFACE_RAY_TOP + SURFACE_RAY_BOTTOM;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (rc as any).firstHitOnly = true;
-    let best: SurfaceSample | null = null;
-    let bestDistance = Infinity;
-    for (const layer of this.tilesets) {
-      if (!layer.measurable) continue;
-      const hit = rc.intersectObject(layer.group, true)[0];
-      if (!hit || hit.distance >= bestDistance) continue;
-      bestDistance = hit.distance;
-      const tile = hit.object.userData.tile as { geometricError?: number } | undefined;
-      const height = this.ellipsoid.cartesianToCartographic(hit.point, _carto)?.height;
-      if (height === undefined) continue;
-      best = { height, resolution: tile?.geometricError ?? Infinity };
-    }
-    return best;
-  }
-
-  /** Ellipsoidal height of the last 3D Tiles surface a gesture picked (reference ground without the globe). */
-  private lastSurfaceHeight = 0;
-
-  /** Surface under a gesture: the scene, else the reference ground when no globe is drawn. */
-  private gesturePick(ndc: Vector2): Vector3 | null {
-    const hit = this.pick(ndc);
-    // In a local scene, empty space is handled by the camera bounds (region center, reference ground).
-    if (this.localScene.hidesOutside) return hit?.point ?? null;
-    if (hit) {
-      if (hit.source === 'tiles' && !this._showGlobe) this.lastSurfaceHeight = this.ellipsoid.cartesianToCartographic(hit.point, _carto)?.height ?? this.lastSurfaceHeight;
-      return hit.point;
-    }
-    return this.pickReferenceSurface(ndc);
+    return this.layers.surfaceHeight(longitude, latitude, options);
   }
 
   /**
@@ -1275,102 +799,11 @@ export class GeoViewer {
    * camera, else the last 3D Tiles surface picked.
    */
   pickReferenceSurface(ndc: Vector2): Vector3 | null {
-    if (this._showGlobe) return null;
-    const c = this.ellipsoid.cartesianToCartographic(this.camera.position, _carto);
-    if (!c) return null;
-    let height = this.currentBuilding()?.groundHeight;
-    if (height === undefined) {
-      const s = this.surface.query(c.longitude, c.latitude);
-      height = s.reliable ? s.height : this.lastSurfaceHeight;
-    }
-    if (c.height <= height) return null;
-    this.camera.updateMatrixWorld();
-    this.raycaster.setFromCamera(ndc, this.camera);
-    const t = this.ellipsoid.intersectRay(this.raycaster.ray, height);
-    return t === null ? null : this.raycaster.ray.at(t, new Vector3());
-  }
-
-  /**
-   * Ground height for camera collision (`surfaceHeight`). Only data whose grid
-   * spacing / geometric error is fine relative to the camera's height counts:
-   * coarse or interpolated surfaces (common while streaming) would otherwise
-   * shove the camera up. Without the globe and without reliable 3D Tiles the
-   * floor is 0 m.
-   */
-  private collisionGround(lon: number, lat: number): number | null {
-    // Beside a local scene: no diving below the base of its walls.
-    const outside = this.groundOutsideRegion(lon, lat);
-    if (outside) return outside.height;
-    // Without the globe the entered building's ground is the floor of the world (no diving under the backdrop).
-    const building = this._showGlobe ? null : this.currentBuilding();
-    if (building) return building.groundHeight;
-    const unknown = this._showGlobe ? null : 0;
-    const coarse = this.surface.query(lon, lat, { maxCellSize: Infinity });
-    if (coarse.source === 'ellipsoid') return unknown;
-    this.viewGround = coarse.height;
-    const c = this.ellipsoid.cartesianToCartographic(this.camera.position, _carto);
-    const above = (c?.height ?? 0) - coarse.height;
-    const fine = this.surface.query(lon, lat, { maxCellSize: Math.max(50, above * 1.5) });
-    return fine.reliable ? fine.height : unknown;
+    return this.picking.pickReferenceSurface(ndc);
   }
 
   // ---------------------------------------------------------------------------
-  // Indoor defaults (ThingJS level behavior)
-
-  /**
-   * Double click enters the next level under the cursor (building → floor →
-   * room / thing), right click or Esc goes back, hovering highlights. What a
-   * pick acts on comes from the current level control (`indoor.filterObject`).
-   */
-  private installIndoorBehaviors(): void {
-    const indoor = this.indoor;
-    this.interaction.on(
-      'dblclick',
-      (e) => {
-        const next = e.entity ? indoor.nextLevel(e.entity) : null;
-        if (!next) return;
-        e.preventDefault();
-        void indoor.enter(next);
-      },
-      { tag: 'indoor' },
-    );
-    this.interaction.on(
-      'rightclick',
-      () => {
-        if (indoor.current) void indoor.back();
-      },
-      { tag: 'indoor' },
-    );
-    // A label click selects its own entity (e.g. an alarm card seen from the globe); scene picks select the level unit.
-    this.interaction.on('click', (e) => indoor.select(e.entity ? (e.marker ? e.entity : indoor.filterObject(e.entity)) : null), { tag: 'indoor' });
-    // Hover picking costs a ray cast per frame of pointer motion: only while buildings exist.
-    let hoverOn = false;
-    indoor.events.on('buildings-changed', () => this.extendGroundProbe());
-    indoor.events.on('buildings-changed', (buildings) => {
-      const want = buildings.length > 0;
-      if (want === hoverOn) return;
-      hoverOn = want;
-      if (want) {
-        this.interaction.on(
-          'mousemove',
-          (e) => {
-            const unit = e.entity ? indoor.filterObject(e.entity) : null;
-            // The level the camera is in is not highlighted, nor a building from inside.
-            indoor.setHovered(unit && unit !== indoor.current && !(unit.type === 'building' && indoor.current) ? unit : null);
-          },
-          { tag: 'indoor-hover' },
-        );
-        this.interaction.on('mouseleave', (e) => !e.entity && indoor.setHovered(null), { tag: 'indoor-hover' });
-      } else {
-        this.interaction.off('mousemove', 'indoor-hover');
-        this.interaction.off('mouseleave', 'indoor-hover');
-        indoor.setHovered(null);
-      }
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // 3D Tiles
+  // Local scene
 
   /** The local scene and what it needs from the viewer. */
   private createLocalScene(): LocalScene {
@@ -1383,17 +816,17 @@ export class GeoViewer {
       walls: this.regionWalls,
       dim: this.regionDim,
       tilesets: () => this.tilesets,
-      globeShown: () => this._showGlobe,
+      globeShown: () => this.state.showGlobe,
       setGlobeShown: (shown) => {
         this.showGlobe = shown;
       },
-      lighting: () => this._lighting,
+      lighting: () => this.state.lighting,
       sunDirection: () => atmosphereUniforms.lightDirection.value,
       groundHeight: (lon, lat) => {
-        const s = this.surface.query(lon, lat);
+        const s = this.layers.surface.query(lon, lat);
         return { height: s.height, reliable: s.reliable };
       },
-      tilesHeight: (lon, lat) => this.raycastTilesVertical(lon, lat)?.height ?? null,
+      tilesHeight: (lon, lat) => this.layers.raycastTilesVertical(lon, lat)?.height ?? null,
       getView: () => this.getView(),
       flyTo: (view, duration) => this.flyTo(view, duration),
       flyToSphere: (sphere, heading, pitch, duration, rangeScale) => this.flyToSphere(sphere, heading, pitch, duration, { rangeScale }),
@@ -1430,66 +863,26 @@ export class GeoViewer {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 3D Tiles
+
   addTileset(options: Tiles3DLayerOptions): Tiles3DLayer {
-    const layer = new Tiles3DLayer(options, this.getLoaders(), this.ellipsoid, this.gpu.tiles);
-    layer.tiles.setCamera(this.camera);
-    layer.tiles.setResolutionFromRenderer(this.camera, this.renderer as never);
-    layer.suppressed = this.tilesetsSuppressed;
-    layer.events.on('ready', () => this.extendGroundProbe());
-    layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'tileset', error, layer }));
-    // Tiles loaded, `visible` or `heightOffset` set.
-    layer.events.on('change', () => this.requestRender());
-    // Heights measured on a tileset that moved are out of date.
-    layer.events.on('moved', () => this.surface.clearHeld());
-    this.scene.add(layer.group);
-    this.tilesets.push(layer);
-    this.localScene.attachLayer(layer);
-    this.surface.clearHeld();
-    this.events.emit('tilesets-changed', this.tilesets);
-    return layer;
+    return this.layers.addTileset(options);
   }
 
   removeTileset(layer: Tiles3DLayer): void {
-    const i = this.tilesets.indexOf(layer);
-    if (i < 0) return;
-    this.tilesets.splice(i, 1);
-    this.surface.clearHeld();
-    layer.dispose();
-    this.events.emit('tilesets-changed', this.tilesets);
-  }
-
-  /** Restarts the window in which suppressed 3D Tiles keep loading for buildings without ground. */
-  private extendGroundProbe(): void {
-    this.probeUntil = performance.now() + GROUND_PROBE_MS;
-  }
-
-  private setTilesetsSuppressed(suppressed: boolean): void {
-    if (suppressed === this.tilesetsSuppressed) return;
-    this.tilesetsSuppressed = suppressed;
-    if (suppressed) this.extendGroundProbe();
-    for (const layer of this.tilesets) layer.suppressed = suppressed;
+    this.layers.removeTileset(layer);
   }
 
   // ---------------------------------------------------------------------------
   // GeoJSON / vector layers
 
   addGeoJson(options: GeoJsonLayerOptions): GeoJsonLayer {
-    const layer = new GeoJsonLayer(options, this.vectors, this.labels);
-    this.vectorLayers.push(layer);
-    layer.events.on('ready', () => this.events.emit('vectors-changed', this.vectorLayers));
-    layer.events.on('error', ({ error }) => this.events.emit('error', { source: 'geojson', error, layer }));
-    // Visibility, style and label style (labels are not part of the overlay version).
-    layer.events.on('change', () => this.requestRender());
-    this.events.emit('vectors-changed', this.vectorLayers);
-    return layer;
+    return this.layers.addGeoJson(options);
   }
 
   removeGeoJson(layer: GeoJsonLayer): void {
-    const i = this.vectorLayers.indexOf(layer);
-    if (i < 0) return;
-    this.vectorLayers.splice(i, 1);
-    layer.dispose();
-    this.events.emit('vectors-changed', this.vectorLayers);
+    this.layers.removeGeoJson(layer);
   }
 
   // ---------------------------------------------------------------------------
@@ -1500,34 +893,11 @@ export class GeoViewer {
    * `{ points, style, rules }` document (see docs/agents/markers.md).
    */
   addPoints(options: PointLayerOptions): PointLayer {
-    const layer = new PointLayer(options, {
-      messages: this.messages,
-      ellipsoid: this.ellipsoid,
-      markers: this.markers,
-      // Detailed queries need reliable data; the coarse one takes any estimate, but not the 0 m of "no data".
-      groundHeight: (lon, lat, maxCellSize) => {
-        const s = this.surface.query(lon, lat, { maxCellSize: maxCellSize ?? Infinity });
-        return s.reliable ? s.height : null;
-      },
-      flyToBBox: (bbox) => void this.flyToBBox(bbox),
-    });
-    this.pointLayers.push(layer);
-    layer.events.on('ready', () => this.events.emit('points-changed', this.pointLayers));
-    layer.events.on('error', ({ error }) => {
-      this.events.emit('points-changed', this.pointLayers);
-      this.events.emit('error', { source: 'points', error, layer });
-    });
-    layer.events.on('click', (e) => this.events.emit('point-click', e));
-    this.events.emit('points-changed', this.pointLayers);
-    return layer;
+    return this.layers.addPoints(options);
   }
 
   removePoints(layer: PointLayer): void {
-    const i = this.pointLayers.indexOf(layer);
-    if (i < 0) return;
-    this.pointLayers.splice(i, 1);
-    layer.dispose();
-    this.events.emit('points-changed', this.pointLayers);
+    this.layers.removePoints(layer);
   }
 
   /** Flies to fit a [west, south, east, north] box in degrees (top-down view). */
@@ -1548,34 +918,13 @@ export class GeoViewer {
    * Vector feature under a client-space pixel: labels first, then draped
    * geometry at the picked ground position.
    */
-  async pickFeature(clientX: number, clientY: number): Promise<FeaturePick | null> {
-    if (this.vectorLayers.length === 0) return null;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    let hit: FeatureHit | null = null;
-    let position: Cartographic | null = null;
-    const label = this.labels.hitTest(clientX - rect.left, clientY - rect.top);
-    if (label) hit = await this.vectors.getFeature(label.layerId, label.featureId);
-    if (!hit) {
-      _ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-      const p = this.pick(_ndc, { buffer: true });
-      if (!p) return null;
-      position = this.ellipsoid.cartesianToCartographic(p.point);
-      if (!position) return null;
-      const [u, v] = lonLatToMerc(position.longitude / DEG2RAD, position.latitude / DEG2RAD);
-      const sse = rect.height / (2 * Math.tan((this.camera.getEffectiveFOV() * DEG2RAD) / 2));
-      const metersPerPx = this.camera.position.distanceTo(p.point) / sse;
-      const pixelSize = metersPerPx / (EARTH_CIRCUMFERENCE * Math.max(Math.cos(position.latitude), 0.01));
-      hit = await this.vectors.query(u, v, pixelSize, 5);
-    }
-    if (!hit) return null;
-    const layer = this.vectorLayers.find((l) => l.id === hit.layerId);
-    return layer ? { hit, layer, position } : null;
+  pickFeature(clientX: number, clientY: number): Promise<FeaturePick | null> {
+    return this.picking.pickFeature(clientX, clientY);
   }
 
   /** Highlights a picked feature (null clears). */
   highlightFeature(hit: FeatureHit | null): void {
-    this.vectors.setHighlight(hit);
-    this.requestRender();
+    this.layers.highlightFeature(hit);
   }
 
   /**
@@ -1583,26 +932,7 @@ export class GeoViewer {
    * `GeoJsonLayer.id`; removing that layer clears the highlight.
    */
   get highlightedFeature(): { layerId: number; featureId: number } | null {
-    return this.vectors.highlighted;
-  }
-
-  private getLoaders(): LoaderKit {
-    if (!this.loaders) {
-      // Decoder binaries ship with three.js; its loaders reference them relative to their own
-      // module, so the host's bundler copies them. `decoderPath` / `transcoderPath` point elsewhere.
-      const dracoLoader = new DRACOLoader();
-      if (this.decoderPath) dracoLoader.setDecoderPath(this.decoderPath);
-      const ktxLoader = new KTX2Loader();
-      if (this.transcoderPath) ktxLoader.setTranscoderPath(this.transcoderPath);
-      ktxLoader.detectSupport(this.renderer as never);
-      this.loaders = {
-        dracoLoader,
-        ktxLoader,
-        meshoptDecoder: MeshoptDecoder,
-        nodeLibrary: (this.renderer as unknown as { library: NodeMaterialLibrary }).library,
-      };
-    }
-    return this.loaders;
+    return this.layers.highlightedFeature;
   }
 
   /** The canvas the viewer draws into, inside the container. Focus it (or the container) to enable the camera keys. */
@@ -1611,17 +941,8 @@ export class GeoViewer {
   }
 
   /** Loads a glTF / GLB (Draco, KTX2 and meshopt supported) for building and equipment models. */
-  async loadModel(uri: string): Promise<Object3D> {
-    if (!this.gltfLoader) {
-      const kit = this.getLoaders();
-      const loader = new GLTFLoader();
-      loader.setDRACOLoader(kit.dracoLoader);
-      loader.setKTX2Loader(kit.ktxLoader);
-      loader.setMeshoptDecoder(kit.meshoptDecoder);
-      this.gltfLoader = loader;
-    }
-    const gltf = await this.gltfLoader.loadAsync(uri);
-    return gltf.scene;
+  loadModel(uri: string): Promise<Object3D> {
+    return this.layers.loadModel(uri);
   }
 
   /**
@@ -1631,7 +952,7 @@ export class GeoViewer {
    */
   captureFrame(): HTMLCanvasElement {
     const source = this.renderer.domElement;
-    this.renderOutsideFrame();
+    this.frameLoop.renderOutsideFrame();
     const out = document.createElement('canvas');
     out.width = source.width;
     out.height = source.height;
@@ -1684,335 +1005,9 @@ export class GeoViewer {
     this.pacer.markWake(performance.now());
   }
 
-  /** Per animation frame: update and draw, unless the view is quiet and throttled, or the container is off screen. */
-  private tick(time: number): void {
-    if (this.disposed) return;
-    // Animation frames stop while the page is hidden (or the computer sleeps): draw again when they
-    // resume rather than rely on the canvas still holding a still picture.
-    if (this.lastAnimationFrame >= 0 && time - this.lastAnimationFrame > RESUME_GAP_MS) this.requestRender();
-    this.lastAnimationFrame = time;
-    if (!this.onScreen) return;
-    this.checkPendingWork();
-    const floor = this.idleFloorRate();
-    // A still view being supersampled takes its samples at the full rate.
-    const refining = this.supersampling.enabled && !this.supersampling.converged && this.pacer.isStill(performance.now(), floor);
-    if (!this.pacer.shouldTick(time, floor, refining)) return;
-    this.pacer.ticked(time);
-    this.frame(time);
-  }
-
-  /**
-   * Work left for the next frames although the camera may stand still, also when started from
-   * code between two frames: overlays to composite again (the picture changes), markers to
-   * place, point markers to create (per-frame budget) or select again (DOM only: a wake).
-   * Checked on every animation frame, so such work starts at once and finishes at the full
-   * frame rate instead of at the idle rate.
-   */
-  private checkPendingWork(): void {
-    const version = this.overlays.version;
-    if (version !== this.overlayVersion) this.requestRender();
-    this.overlayVersion = version;
-    if (this.markers.busy || this.pointLayers.some((l) => l.busy)) this.wake();
-  }
-
-  /**
-   * Whether something changed the picture since the last frame without telling the viewer:
-   * the camera (also moved or reshaped behind the controller's back), the drawing buffer size
-   * (a resized canvas is cleared), the globe's tiles (a new selection, morphs, the wireframe
-   * switch), the simulated date (sun and stars), tone mapping and the tile debug switches.
-   * Cheap reads, so that a still view is not held on a picture that is out of date.
-   */
-  private pictureChanged(): boolean {
-    const v = this.lastPicture;
-    const cam = this.camera;
-    const canvas = this.renderer.domElement;
-    let changed = false;
-    let i = 0;
-    const put = (x: number) => {
-      if (v[i] !== x) {
-        v[i] = x;
-        changed = true;
-      }
-      i++;
-    };
-    for (const x of cam.matrixWorld.elements) put(x);
-    for (const x of cam.projectionMatrix.elements) put(x);
-    put(canvas.width);
-    put(canvas.height);
-    put(this._showGlobe ? this.globe.surfaceSignature : 0);
-    put(this.date.getTime());
-    put(this.renderer.toneMapping);
-    put(this.renderer.toneMappingExposure);
-    put(tileDebugUniforms.showTileBorders.value as number);
-    put(tileDebugUniforms.levelTint.value as number);
-    return changed;
-  }
-
-  /** Frames per second that what still moves on its own needs while quiet: simulated time, cloud drift. */
-  private idleFloorRate(): number {
-    // Motion started from code since the last frame (flyTo, zoomBy, playAnimation...) shows at once.
-    if (this.timeMultiplier !== 0 || this.controller.inMotion || this.postProcessing.animating) return MAX_IDLE_FRAME_RATE;
-    let rate = 0;
-    if (this.clouds.mesh.visible) {
-      const o = this.clouds.getOptions();
-      rate = cloudFrameRate({
-        speedDegPerSec: o.speed,
-        layerRadius: this.ellipsoid.radii.x + o.height,
-        distance: this.cameraCarto.height - o.height,
-        fovDeg: this.camera.fov,
-        viewportHeight: this.container.clientHeight,
-      });
-    }
-    if (this.volumetricClouds.visible) {
-      // The wind moves the volumetric clouds (0 m/s: they hold still and the view can be still).
-      const v = this.clouds.volumetricOptions;
-      rate = Math.max(
-        rate,
-        volumetricCloudFrameRate({
-          windSpeed: v.windSpeed,
-          cameraHeight: this.cameraCarto.height,
-          bottom: v.bottom,
-          top: v.bottom + v.thickness,
-          fovDeg: this.camera.fov,
-          viewportHeight: this.container.clientHeight,
-        }),
-      );
-    }
-    return rate;
-  }
-
-  private frame(time: number): void {
-    if (this.disposed) return;
-    const dt = this.lastTime < 0 ? 1 / 60 : Math.min((time - this.lastTime) / 1000, 0.25);
-    this.lastTime = time;
-    if (this.timeMultiplier !== 0) this.date = new Date(this.date.getTime() + dt * 1000 * this.timeMultiplier);
-
-    // Camera collision queries the ground first thing in the frame.
-    this.surface.beginFrame();
-    this.controller.update(dt);
-    this.updateClipPlanes();
-    this.camera.updateMatrixWorld();
-    this.updateEnvironment();
-    // cameraCarto was refreshed by updateClipPlanes.
-    this.clouds.update(dt, this.cameraCarto.height);
-
-    const t0 = performance.now();
-    if (this._showGlobe) this.globe.update(this.camera, this.container.clientHeight);
-    else this.releaseHiddenGlobe(dt);
-    const tilesView = this.tilesets.length > 0 ? this.tilesViewState() : undefined;
-    // Entered a building before the 3D Tiles loaded (e.g. ?demo): keep them loading, undrawn, until it has ground.
-    const probe = this.tilesetsSuppressed && !this._showGlobe && performance.now() < this.probeUntil && this.indoor.awaitingGround;
-    for (const layer of this.tilesets) {
-      layer.probe = probe;
-      layer.update(dt, tilesView);
-      // The window counts from the last loading activity, not from when the tiles were suppressed.
-      if (probe && layer.tiles.loadProgress < 1) this.extendGroundProbe();
-    }
-    // The local scene's transition and walls follow this frame's globe and tiles.
-    if (this.localScene.update(dt)) {
-      // Clip and outside fade change what is drawn without changing the draw statistics.
-      this.pickBuffer?.invalidate();
-      this.requestRender();
-    }
-    if (this.localScene.engaged) {
-      this.clouds.mesh.visible = false;
-      this.updateBuildingsInRegion();
-    }
-    // Floor expansion and re-grounding move content without changing the draw statistics.
-    if (this.indoor.update(dt)) {
-      this.pickBuffer?.invalidate();
-      this.shadows.invalidate();
-      this.requestRender();
-    }
-    const building = this.currentBuilding();
-    const bare = this.indoorBackdrop && building !== null && !this._showGlobe && !this.tilesets.some((l) => l.active);
-    if (this.backdrop.update(bare ? building : null, dt)) this.requestRender();
-    this.interaction.update();
-    if (this.labels.update(this.camera, this.container.clientWidth, this.container.clientHeight, dt)) this.requestRender();
-    // Changes nothing reported: fades and morphs in progress, and what `pictureChanged` compares.
-    const globeAnimating = this._showGlobe && !this.globe.freeze && this.globe.animating;
-    if (globeAnimating || this.tilesets.some((l) => l.animating) || this.pictureChanged()) this.requestRender();
-
-    this.marks.refresh();
-    // Live, one more supersampling sample of a still view, or nothing (the still picture is complete).
-    const now = performance.now();
-    const mode = drawMode(this.pacer.isStill(now, this.idleFloorRate()), this.supersampling.enabled, this.postProcessing.samples, this.supersampling.samples);
-    // The shadow map is drawn again only when its fit moved or the buildings changed.
-    if (mode !== 'hold') {
-      this.shadows.render(this.indoor.root);
-      // Weather and cloud shadow maps, and this viewer's cloud shadows bound for the receivers.
-      this.updateVolumetricClouds(dt);
-      this.volumetricClouds.renderMaps();
-    }
-    if (mode === 'live') this.postProcessing.render();
-    else if (mode === 'sample') this.postProcessing.renderSample();
-    if (mode !== 'hold') this.lastDrawAt = now;
-    // Point layers clamp to the terrain and cluster before the markers are placed.
-    for (const layer of this.pointLayers) layer.update(this.camera, this.container.clientWidth, this.container.clientHeight);
-    this.markers.update(this.camera, this.container.clientWidth, this.container.clientHeight);
-    const drawCalls = this.sceneDrawCalls;
-    const triangles = this.sceneTriangles;
-    // After the main render, whose statistics are part of the pick buffer's scene signature; counted in the frame time.
-    this.pickBuffer?.update(performance.now(), drawCalls, triangles, this._showGlobe ? this.globe.surfaceSignature : 0);
-    this.updateStats(dt, performance.now() - t0, drawCalls, triangles, mode === 'hold');
-    this.updateLoadState();
-  }
-
   /** What is still loading, as of the last frame (see `LoadState`; the 'load-progress' and 'idle' events). */
   get loadState(): Readonly<LoadState> {
-    return this._loadState;
-  }
-
-  private updateLoadState(): void {
-    let tilesets = 0;
-    for (const layer of this.tilesets) tilesets += layer.pending;
-    let layers = 0;
-    for (const layer of this.vectorLayers) if (!layer.ready && layer.error === null) layers++;
-    for (const layer of this.pointLayers) if (!layer.ready && layer.error === null) layers++;
-    const state = summarizeLoad({
-      globe: this._showGlobe ? this.globe.stats : null,
-      imageryUnreachable: this.globe.imageryError !== null,
-      tilesets,
-      layers,
-    });
-    this._loadState = state;
-    if (!state.idle) this.requestRender();
-    const { progress, idle } = this.loadTracker.step(state);
-    if (progress) this.events.emit('load-progress', state);
-    if (idle) this.events.emit('idle', state);
-  }
-
-  /**
-   * A hidden globe is not updated, so its cache would keep its textures and
-   * meshes on the GPU for as long as it stays hidden (typically under Google
-   * 3D Tiles, which need that memory). Release it after a while; a quick
-   * toggle keeps everything.
-   */
-  private releaseHiddenGlobe(dt: number): void {
-    if (this.globeReleased) return;
-    this.globeHiddenFor += dt;
-    if (this.globeHiddenFor < this.gpu.globe.hiddenReleaseSeconds) return;
-    this.globeReleased = true;
-    this.globe.releaseHidden(this.gpu.globe.hiddenKeepTiles);
-  }
-
-  /** Camera height above the ground and tilt, for the distance falloff of 3D Tiles (cameraCarto is current). */
-  private tilesViewState(): TilesViewState {
-    const cam = this.camera;
-    const up = this.ellipsoid.geodeticNormal(cam.position, _v);
-    cameraDirection(cam.quaternion, _dir);
-    const ground = this._showGlobe ? (this.globe.getHeight(this.cameraCarto.longitude, this.cameraCarto.latitude) ?? 0) : this.viewGround;
-    return { altitude: Math.max(1, this.cameraCarto.height - ground), viewDotUp: _dir.dot(up) };
-  }
-
-  private updateClipPlanes(): void {
-    const cam = this.camera;
-    const c = this.ellipsoid.cartesianToCartographic(cam.position, this.cameraCarto);
-    const ground = c && this._showGlobe ? (this.globe.getHeight(c.longitude, c.latitude) ?? 0) : 0;
-    const altitude = Math.max(1, (c?.height ?? 0) - ground);
-    const r = cam.position.length();
-    const rMin = this.ellipsoid.minimumRadius - 500;
-    const horizon = Math.sqrt(Math.max(r * r - rMin * rMin, 0));
-    // Mountains and tall 3D tiles stay visible a little past the geometric horizon.
-    const far = horizon + 400_000 + altitude * 0.5;
-    const near = this.info.reversedDepth ? clamp(altitude * 0.002, 0.05, 5_000) : clamp(altitude * 0.05, 0.5, 200_000);
-    if (Math.abs(cam.near - near) > near * 0.01 || Math.abs(cam.far - far) > far * 0.01) {
-      cam.near = near;
-      cam.far = far;
-      cam.updateProjectionMatrix();
-    }
-  }
-
-  /**
-   * Renders outside the frame loop (screenshots, transition captures). The atmosphere and label
-   * uniforms are shared by every viewer on the page and hold whatever the last viewer to render
-   * wrote: put this viewer's camera and settings back first.
-   */
-  /**
-   * A level change is about to alter what is shown: capture the picture on screen (the
-   * supersampled one when the view was still and nothing changed since) for the transition.
-   */
-  private beginLevelTransition(): void {
-    if (this.disposed || !(this.levelTransition.duration > 0) || document.visibilityState === 'hidden') return;
-    const fromHistory = this.postProcessing.samples > 0 && this.pacer.changedAt < this.lastDrawAt;
-    if (!fromHistory) {
-      // Drawn outside the frame loop: this viewer's shared uniforms first (see renderOutsideFrame).
-      this.updateEnvironment();
-      this.shadows.render(this.indoor.root);
-      this.volumetricClouds.bind();
-      this.labels.syncCamera(this.camera);
-      this.marks.refresh();
-    }
-    this.levelTransition.begin(fromHistory);
-    this.requestRender();
-  }
-
-  private renderOutsideFrame(): void {
-    // A supersampled picture that nothing has changed since is the view as it is: show it again
-    // (better, and no scene pass). Otherwise draw live.
-    if (this.postProcessing.samples > 0 && this.pacer.changedAt < this.lastDrawAt && this.postProcessing.present()) return;
-    this.updateEnvironment();
-    this.shadows.render(this.indoor.root);
-    this.volumetricClouds.bind();
-    this.labels.syncCamera(this.camera);
-    this.marks.refresh();
-    this.postProcessing.render();
-  }
-
-  private updateEnvironment(): void {
-    const u = atmosphereUniforms;
-    const cam = this.camera;
-    const sun = sunDirectionECEF(this.date, _v);
-    u.lightDirection.value.copy(sun);
-    const up = this.ellipsoid.geodeticNormal(cam.position, new Vector3());
-    if (this._lighting) {
-      u.sunDirection.value.copy(sun);
-    } else {
-      // "Studio" lighting: a virtual sun above the camera so the whole visible hemisphere glows.
-      u.sunDirection.value.copy(cam.position).normalize();
-    }
-    u.cameraPositionKm.value.set(cam.position.x, cam.position.y, cam.position.z * Z_SCALE).multiplyScalar(0.001);
-    const height = this.cameraCarto.height;
-    u.cameraAltitudeKm.value = Math.max(height, 0) / 1000;
-    u.lightingEnabled.value = this._lighting ? 1 : 0;
-    u.uniformLighting.value = this._lighting ? 0 : 1;
-    // A local scene on its studio background has no sky to haze the ground towards.
-    u.atmosphereEnabled.value = this._atmosphere && !(this.localScene.backgroundAmount.value > 0.5) ? 1 : 0;
-    u.groundHaze.value = this._lighting ? 0.7 : 0.5;
-
-    // Stars: rotate with sidereal time, fade in when the sky is dark.
-    this.stars.uniforms.siderealAngle.value = greenwichMeanSiderealTime(this.date);
-    const space = smoothstep(30_000, 120_000, height);
-    const sunAltitude = up.dot(sun);
-    const night = this._lighting ? smoothstep(0.05, -0.2, sunAltitude) : 0;
-    this.stars.uniforms.visibility.value = (this._atmosphere ? Math.max(space, night) : 1) * (1 - this.localScene.backgroundAmount.value);
-
-    // Lights for 3D Tiles and buildings (globe tiles shade themselves).
-    if (this._lighting) {
-      // The sun's color and the sky light where the view is (the entered building, else the
-      // ground under the camera), from the same atmosphere the globe is drawn with (M3.5).
-      this.sunLight.position.copy(sun);
-      const light = this.updateAtmosphereLight(sun);
-      this.sunLight.color.setRGB(light.sunColor[0], light.sunColor[1], light.sunColor[2], LinearSRGBColorSpace);
-      this.sunLight.intensity = light.sunIntensity;
-      this.skyProbe.intensity = 1;
-      // A little fill at night so interiors stay readable (the sky alone gives next to nothing).
-      this.skyLight.intensity = NIGHT_FILL * (1 - smoothstep(-0.15, 0.2, sunAltitude));
-    } else {
-      // Head light from above and behind the viewer.
-      cameraDirection(cam.quaternion, _dir);
-      this.sunLight.position.copy(up).addScaledVector(_dir, -0.7).normalize();
-      this.sunLight.color.setRGB(1, 1, 1);
-      this.sunLight.intensity = 2.4;
-      this.skyLight.intensity = 1.2;
-      this.skyProbe.intensity = 0;
-    }
-    this.sunLight.target.position.set(0, 0, 0);
-    this.sunLight.updateMatrixWorld();
-    this.sunLight.target.updateMatrixWorld();
-    this.skyLight.position.copy(up);
-    this.skyLight.updateMatrixWorld();
-    this.updateShadows(sun);
+    return this.frameLoop.loadState;
   }
 
   /**
@@ -2026,118 +1021,8 @@ export class GeoViewer {
     this.sunLight.castShadow = shadows.enabled || (this.volumetricClouds?.wantsShadows ?? false);
   }
 
-  /** Visibility, wind and light of the volumetric clouds for this frame (cameraCarto and the environment are current). */
-  private updateVolumetricClouds(dt: number): void {
-    const size = this.renderer.getDrawingBufferSize(_drawingBuffer);
-    const light = this._lighting ? this.atmosphereLight.current : null;
-    this.volumetricClouds.update({
-      dt,
-      camera: this.camera,
-      cameraHeight: this.cameraCarto.height,
-      lighting: this._lighting,
-      sun: atmosphereUniforms.lightDirection.value as Vector3,
-      sunColor: light?.sunColor ?? null,
-      sh: light?.sh ?? null,
-      // No sky to draw clouds against: a local scene, or a building on the studio backdrop.
-      suppressed: this.localScene.engaged || (this.backdrop.amount.value as number) > 0.5,
-      width: size.x,
-      height: size.y,
-    });
-  }
-
-  /**
-   * Fits the sun shadow map to the buildings in view (M3.9) and writes this viewer's shadow
-   * uniforms (shared by the viewers on the page). The map itself is drawn just before the scene.
-   */
-  private updateShadows(sun: Vector3): void {
-    const casters = this.shadowCasters;
-    const entered = this.currentBuilding();
-    let focus: Building | null = entered;
-    let nearest = Infinity;
-    let n = 0;
-    for (const b of this.indoor.buildings) {
-      if (!b.root.visible || !b.visible) continue;
-      const c = casters[n] ?? (casters[n] = { matrix: new Matrix4(), min: new Vector3(), max: new Vector3() });
-      c.matrix.copy(b.root.matrixWorld);
-      b.shadowBounds(c.min, c.max);
-      n++;
-      // The light frame hangs on the entered building, else on the nearest one (texels are snapped to it).
-      if (!entered) {
-        const d = _lightPoint.setFromMatrixPosition(c.matrix).distanceToSquared(this.camera.position);
-        if (d < nearest) {
-          nearest = d;
-          focus = b;
-        }
-      }
-    }
-    casters.length = n;
-    const origin = focus ? _shadowOrigin.setFromMatrixPosition(focus.root.matrixWorld) : _shadowOrigin.set(0, 0, 0);
-    const cam = this.camera;
-    const tanY = Math.tan((cam.fov * DEG2RAD) / 2) / cam.zoom;
-    this.shadows.update({
-      sun,
-      lighting: this._lighting,
-      casters,
-      origin,
-      up: this.ellipsoid.geodeticNormal(origin, _shadowUp),
-      view: { matrixWorld: cam.matrixWorld, tanX: tanY * cam.aspect, tanY, near: cam.near },
-    });
-    this.shadows.bind();
-  }
-
-  /**
-   * Sun color and sky light (SH) at the point the view is about (the entered building, else
-   * the ground under the camera), recomputed when the sun or the point moved noticeably; the
-   * SH goes into the light probe when it changed.
-   */
-  private updateAtmosphereLight(sun: Vector3): AtmosphereLight {
-    const building = this.currentBuilding();
-    const c = this.cameraCarto;
-    let p: Vector3;
-    if (building) {
-      p = building.group.getWorldPosition(_lightPoint);
-    } else {
-      const ground = this._showGlobe ? (this.globe.getHeight(c.longitude, c.latitude) ?? 0) : this.viewGround;
-      p = this.ellipsoid.cartographicToCartesian(c.longitude, c.latitude, Math.max(ground, 0), _lightPoint);
-    }
-    if (this.atmosphereLight.update([p.x, p.y, p.z], [sun.x, sun.y, sun.z])) {
-      this.atmosphereLight.current!.sh.forEach((rgb, i) => this.skyProbe.sh.coefficients[i].set(rgb[0], rgb[1], rgb[2]));
-    }
-    return this.atmosphereLight.current!;
-  }
-
-  /** Frame statistics; draw calls and triangles are those of the scene pass (not the post-processing or pick passes). */
-  private updateStats(dt: number, cpuMs: number, drawCalls: number, triangles: number, held: boolean): void {
-    if (!held) this.fpsFrames++;
-    this.fpsTime += dt;
-    this.stats.drawCalls = drawCalls;
-    this.stats.triangles = triangles;
-    this.stats.throttled = this.pacer.throttled;
-    this.stats.still = held;
-    this.stats.samples = this.supersampling.sampleCount;
-    this.stats.frameMs = this.stats.frameMs * 0.9 + cpuMs * 0.1;
-    if (this.fpsTime >= 0.5) {
-      this.stats.fps = this.fpsFrames / this.fpsTime;
-      this.fpsFrames = 0;
-      this.fpsTime = 0;
-      if (this.info.timestampQuery && !this.timestampPending) {
-        this.timestampPending = true;
-        this.renderer
-          .resolveTimestampsAsync('render')
-          .then((ms) => {
-            if (typeof ms === 'number' && ms > 0) this.stats.gpuMs = ms;
-          })
-          .catch(() => undefined)
-          .finally(() => {
-            this.timestampPending = false;
-          });
-      }
-    }
-    this.events.emit('frame', this.stats);
-  }
-
   dispose(): void {
-    this.disposed = true;
+    this.frameLoop.dispose();
     void this.renderer.setAnimationLoop(null);
     this.resizeObserver.disconnect();
     this.intersectionObserver?.disconnect();
@@ -2196,53 +1081,4 @@ export class GeoViewer {
     }
     this.containerRestore = () => undo.forEach((fn) => fn());
   }
-}
-
-/**
- * What the browser tells about the graphics hardware, read from a WebGPU
- * adapter requested the same way the renderer will request its own. Without
- * WebGPU only the CPU-side hints are filled in.
- */
-async function detectGpuHints(): Promise<GpuHints> {
-  const nav = navigator as Navigator & { deviceMemory?: number };
-  const hints: GpuHints = {
-    webgpu: false,
-    vendor: '',
-    architecture: '',
-    fallbackAdapter: false,
-    maxTextureSize: 0,
-    deviceMemoryGB: typeof nav.deviceMemory === 'number' ? nav.deviceMemory : null,
-    cores: typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : null,
-    mobile: /Android|iPhone|iPad|iPod|Mobile/i.test(nav.userAgent ?? ''),
-  };
-  try {
-    const adapter = await nav.gpu?.requestAdapter({ powerPreference: 'high-performance' });
-    if (adapter) {
-      const info: Partial<GPUAdapterInfo> & { isFallbackAdapter?: boolean } = adapter.info ?? {};
-      hints.webgpu = true;
-      hints.vendor = String(info.vendor ?? '').toLowerCase();
-      hints.architecture = String(info.architecture ?? '').toLowerCase();
-      hints.fallbackAdapter = (info.isFallbackAdapter ?? (adapter as { isFallbackAdapter?: boolean }).isFallbackAdapter) === true;
-      hints.maxTextureSize = Number(adapter.limits?.maxTextureDimension2D ?? 0);
-    }
-  } catch {
-    /* no adapter: the renderer falls back to WebGL 2 */
-  }
-  return hints;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function describeAdapter(backend: any): string {
-  try {
-    const info = backend.device?.adapterInfo ?? backend.adapter?.info;
-    if (info) return [info.vendor, info.architecture, info.description].filter(Boolean).join(' ').trim() || 'WebGPU adapter';
-    const gl = backend.gl as WebGL2RenderingContext | undefined;
-    if (gl) {
-      const ext = gl.getExtension('WEBGL_debug_renderer_info');
-      return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
-    }
-  } catch {
-    /* ignore */
-  }
-  return 'unknown';
 }
