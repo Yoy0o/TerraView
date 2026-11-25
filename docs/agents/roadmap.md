@@ -110,8 +110,8 @@
 | P1.3 | 打包工具兼容余项（S6） | ✅ 2026-11-12。**EGM96 评估 ✅ 2026-11-12**：瓦片 Worker 197 KiB（gzip 102）里网格占 170 KiB（gzip 93），去掉后 Worker 只剩 27 KiB。结论：Worker 里保持内嵌（Worker 只下载一次并缓存；AWS Terrarium、Mapbox、MapTiler 等海拔类地形都要用它，改按需加载只对无地形或只用 quantized-mesh 的宿主有利，还要让首块地形多等一次请求）。另发现**主入口里也有一份网格**（170 KiB，只因 `src/index.ts` 导出了 `geoidUndulation`，演示应用和宿主都没用）：Vite 生产构建的宿主会摇树去掉（实测宿主产物里只有 Worker 那份），但开发服务器和不经打包的 CDN 用法会多下载这一份；改成按需加载的异步 API 或不再导出，归入 P1.1 决定。**Webpack 实测 ✅**：Webpack 5 宿主实测（2026-11-12，webpack 5.112、webpack-cli 6、style-loader / css-loader，装入打好的 tarball，生产构建，Chrome WebGPU）：用 three.js r187 示例里的 `ferrari.glb`（`KHR_draco_mesh_compression`）和 `facecap.glb`（`KHR_texture_basisu` + `EXT_meshopt_compression`）经 `viewer.loadModel()` 加载，Draco 解出 51 个网格、33.8 万顶点，KTX2 转码成 GPU 压缩纹理（BC7，1024²，11 级 mip），meshopt 正常；没有设 `decoderPath` / `transcoderPath`，解码器文件由 webpack 按 three 的 `new URL(..., import.meta.url)` 作为资源输出，请求全部 200，控制台无任何消息（测试工程和模型只在临时目录，不入库） | Vite、Webpack 两种宿主都能加载压缩模型；EGM96 有结论 |
 | P1.4 | 多实例余项（S5） | ✅ 2026-11-12：逐项核对模块级共享状态（结论表在 [api.md](../api.md) §4）。发现并修复一个问题：大气和注记的相机 uniform 是共享的，`captureFrame()` 和层级切换截帧在帧外渲染时没有重写，同页两个 viewer 时会画出另一个 viewer 的相机和大气；现在走 `renderOutsideFrame()`。浏览器实测：WebGL viewer 与演示应用的 WebGPU viewer 共用同一栋建筑的材质后销毁，再轮流以两种后端创建、销毁 6 个 viewer，无错误，演示应用的建筑照常渲染 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
 | P1.5 | 浏览器冒烟测试进 CI | ✅ 2026-11-12。新增开发依赖 `@playwright/test` 1.65.0（约 19 MB，本机不下载浏览器，用已装的 Chrome；CI 用 Playwright 的 Chromium）。`playwright.config.ts` + `tests/e2e/`：**演示应用**（`?imagery=debug&noterrain&intro=0&clouds=0&demo`：瓦片就绪、建筑 → 楼层 → 房间 → 逐级返回地球并核对 13 个层级事件的顺序、房间顶牌、销毁后画布移除且 Worker 归零）；**打包宿主**（`check:package --keep-host .smoke/host` 保留的 host-fixture 构建：两个 viewer、影像和地形由本地替身瓦片应答、顶牌留在容器内、销毁左边后右边继续出帧、容器类名和 `tabindex` 还原、全部销毁后 Worker 归零、只有一份 three）。每个目标 WebGL / WebGPU 各一遍，无 WebGPU 适配器时自动跳过；页面错误、控制台错误、请求外部域名都算失败。实测：本机 Chrome 4 项全过（约 40 秒）；`SMOKE_NO_GPU=1` 模拟无 GPU，WebGL 两项过（宿主约 1.5 分钟）、WebGPU 两项跳过。CI 新增 `smoke` job。2026-11-13 修正：远端首跑宿主测试超时（软件渲染下等加载队列排空，2 核 runner 150 s 不够）；软件渲染改为只等屏幕就绪（有 GPU 仍要求排空），WebGL / WebGPU 都走 SwiftShader（CI 上 WebGPU 不再跳过），不重试，打包检查与冒烟合并为 CI 的 `package` job；本机软件模式 4 项全过（1.7 分钟）。合并后的 CI 远端首跑待推送后确认。原计划：**有条件时用真实浏览器 MCP**（如 Claude in Chrome，驱动本机真实 Chrome）做冒烟；**Playwright 兜底**（CI 和没有浏览器 MCP 时用，同意新增为开发依赖）。现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零 | CI 上有浏览器 job |
-| P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变。2026-11-22：高斯泼溅图层让入口从 745 增到 780 KiB（gzip 229 → 239，预算 800 / 270 未动），新增 `splat.worker`（30.4 / 9.6 KiB，预算 34 / 11）；入口离预算只剩约 2.5%，下一个进入口的功能要么调高预算、要么先做子入口。2026-11-23：层级绑定（泼溅图层的实体坐标系与懒加载、`levelBinding`、文档 `splats` 的校验）让入口到 800.4 KiB（gzip 243.1），超出 0.4 KiB；属于有意增加的功能，入口预算调到 880（当前大小的 110%，gzip 预算 270 不变）。两天里入口从 745 涨到 800：泼溅（`src/splats/` 加层级绑定约 55 KiB）是做 `terra-view/splats` 子入口的第一候选，等首发前收紧预算时一并评估。2026-11-24：泼溅与层级绑定从分支合并到 main（main 上体积云已把预算调到 860），合并后入口 874.7 KiB（gzip 265.6），880 / 270 仍够，但原始大小只剩约 0.6%、gzip 约 1.7% 的余量：下一个进入口的功能必须先定是调预算还是做子入口 | 超过预算时 CI 失败 |
-| P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间。2026-11-17：**暂时搁置**，先完成 P2，之后再推进。2026-11-25：**0.2.0 准备完成**，停在打标签之前，见下面的首发准备清单） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
+| P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-viewer/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变。2026-11-22：高斯泼溅图层让入口从 745 增到 780 KiB（gzip 229 → 239，预算 800 / 270 未动），新增 `splat.worker`（30.4 / 9.6 KiB，预算 34 / 11）；入口离预算只剩约 2.5%，下一个进入口的功能要么调高预算、要么先做子入口。2026-11-23：层级绑定（泼溅图层的实体坐标系与懒加载、`levelBinding`、文档 `splats` 的校验）让入口到 800.4 KiB（gzip 243.1），超出 0.4 KiB；属于有意增加的功能，入口预算调到 880（当前大小的 110%，gzip 预算 270 不变）。两天里入口从 745 涨到 800：泼溅（`src/splats/` 加层级绑定约 55 KiB）是做 `terra-viewer/splats` 子入口的第一候选，等首发前收紧预算时一并评估。2026-11-24：泼溅与层级绑定从分支合并到 main（main 上体积云已把预算调到 860），合并后入口 874.7 KiB（gzip 265.6），880 / 270 仍够，但原始大小只剩约 0.6%、gzip 约 1.7% 的余量：下一个进入口的功能必须先定是调预算还是做子入口 | 超过预算时 CI 失败 |
+| P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间。2026-11-17：**暂时搁置**，先完成 P2，之后再推进。2026-11-25：**0.2.0 发布**，包名改为 `terra-viewer`，见下面的首发准备清单） | 首发前确认 npm 包名（✅ 2026-11-25：`terra-view` 会撞相似名规则，改为 `terra-viewer`）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
 
 **P1.1 公共 API 分级**（2026-11-12 草案，2026-11-13 修正并确认；依据：`src/index.ts` 227 个导出、`GeoViewer` / `Globe` 的公开成员，以及演示应用和宿主工程实际用到的 56 个导出）
 
@@ -142,16 +142,16 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 包名 `terra-view` | npm 上仍未注册（2026-11-12 再查，404）。相似名规则只有真正发布时才能确认，被拒就改带 scope 的名字（§10.0） |
+| 包名 | ✅ 2026-11-25：改为 `terra-viewer`（原 `terra-view` 去掉连字符后与 npm 上的 `terraview` 相同，会被拒；`terra-viewer` / `terraviewer` 都没有人注册） |
 | `package.json` 的 `repository` / `homepage` / `bugs` / `keywords` | ✅ 2026-11-12 补上。`release.yml` 在公开仓库里带 `--provenance` 发布，npm 会核对 `repository` 与 GitHub 仓库是否一致，缺了会发布失败 |
 | 版本号与 CHANGELOG | ✅ 2026-11-25：`0.2.0`（`package.json`、`package-lock.json`），CHANGELOG「未发布」整理成 `[0.2.0]`，日期在打标签当天填写 |
 | 发布说明与 README | ✅ 2026-11-25：`docs/releases/v0.2.0.md`（`release.yml` 用它作 GitHub Release 正文）；README 重写，含宿主接入示例（最小接入、加载状态与错误、室内、多 viewer）。详细的使用文档之后单独补 |
 | 体积预算 | ✅ P1.6；2026-11-25 收紧：入口后来涨回 874.7 / 265.6（预算 880 / 270，不变），样式和三个小 Worker 收到当前大小的约 110%（见 CHANGELOG 0.2.0「发布准备」） |
-| 发布流程演练 | 待做：在 GitHub Actions 页面手动运行 Release 工作流（演练模式：验证、打包自检、打包，不建 Release、不发布） |
-| 仓库密钥 `NPM_TOKEN` | 待配置（npm 自动化令牌，发布前加到仓库密钥） |
-| GitHub 仓库是否公开 | 待决定：公开仓库才会带 provenance；包里的 `repository` 链接对私有仓库的使用者打不开 |
+| 发布流程演练 | 发版当天做：在 GitHub Actions 页面手动运行 Release 工作流（演练模式：验证、打包自检、打包，不建 Release、不发布） |
+| 仓库密钥 `NPM_TOKEN` | ✅ 2026-11-25 已配置 |
+| GitHub 仓库是否公开 | ✅ 2026-11-25 公开（发布带 provenance） |
 | 首发前的代码项 | 无（P1.1–P1.6 ✅） |
-| 发版当天 | CHANGELOG `[0.2.0]` 填日期 →（要发 npm 时）去掉 `private`、配好 `NPM_TOKEN` → 手动演练 Release → 打标签 `v0.2.0` 推送（AGENTS.md §8.5）。只发 GitHub Release、暂不上 npm 时保留 `private` 即可 |
+| 发版当天 | ✅ 2026-11-25：CHANGELOG `[0.2.0]` 填日期 →（要发 npm 时）去掉 `private`、配好 `NPM_TOKEN` → 手动演练 Release → 打标签 `v0.2.0` 推送（AGENTS.md §8.5）。只发 GitHub Release、暂不上 npm 时保留 `private` 即可 |
 
 **P2 嵌入体验与性能**（P1 之后；P2.1 可与 P1 并行）
 
@@ -957,7 +957,7 @@ flowchart LR
 
 | 编号 | 状态 | 落地情况 |
 | --- | --- | --- |
-| S1 | 完成 | `src/index.ts`；Vite 库模式 + `tsconfig.build.json`；`package.json` 的 `exports` / `types` / `files` / `sideEffects`；演示应用移到 `demo/`，从 `terra-view` 引用。`npm pack` 的 tgz 在空的 Vite 8 工程里实测（开发与生产构建） |
+| S1 | 完成 | `src/index.ts`；Vite 库模式 + `tsconfig.build.json`；`package.json` 的 `exports` / `types` / `files` / `sideEffects`；演示应用移到 `demo/`，从 `terra-viewer` 引用。`npm pack` 的 tgz 在空的 Vite 8 工程里实测（开发与生产构建） |
 | S2 | 完成 | `three`、`3d-tiles-renderer` 及子路径 external，peer 范围 `>=0.187.0 <0.188.0` / `>=0.5.4 <0.6.0`；产物 668 KB（未压缩，不含 three），宿主页面只有一份 three |
 | S3 | 完成 | `src/style.css` 只含 SDK 元素，类名前缀 `tv-`，主题变量 `--tv-*`；演示样式在 `demo/style.css`。顺带把顶牌层从 `position: fixed` 改成相对容器定位 |
 | S4 | 完成 | 键盘监听 viewer 容器（`ControllerHost.keyboardTarget`），容器设 `tabindex`；`tests/keyboard.test.ts` |
@@ -967,7 +967,7 @@ flowchart LR
 | CI/CD | 完成 | `.github/workflows/ci.yml`（typecheck、test、库与演示构建，Node 22 / 24；打包后装进宿主工程自检）和 `release.yml`（标签 `v<版本>` 触发：GitHub Release 附 tgz；`package.json` 去掉 `private` 后才发布到 npm）。本机用 `npm run check:package` 跑同一个自检。远端第 1 次运行（`441a82c`）三个 job 全部通过（2026-11-12 确认） |
 | S8 | 大部分完成 | Apache-2.0（`LICENSE`，`check:package` 检查它在包里）；包里带 `THIRD_PARTY_NOTICES.md`，示例数据和凭证不进包。three、3d-tiles-renderer 是 peer 依赖、不打进产物，不需要在包里附它们的声明。CesiumJS 改写部分与 EGM96 数据来源的声明、`package-lock.json` 根包 `license` 已于 2026-11-12 补齐（§0.2 P0.2、P0.3） |
 
-§10.4 的决定（2026-11-11 全部定下）：包名 `terra-view`（无 scope，用户 2026-11-11 指定）。`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。产品名、产物文件名（`dist/terraview.js`）和类名前缀不变。单包单入口加 `terra-view/style.css`；类名前缀 `tv-`；演示面板只留在示例里；没有引入 api-extractor；许可证 Apache-2.0。
+§10.4 的决定（2026-11-11 全部定下）：包名 `terra-view`（无 scope，用户 2026-11-11 指定）；2026-11-25 发布前改为 `terra-viewer`：`terra-view` 去掉连字符后与 npm 上已有的 `terraview`（npm 官方的安全占位包）相同，npm 不允许发布。产品名、产物文件名（`dist/terraview.js`）和类名前缀不变。单包单入口加 `terra-viewer/style.css`；类名前缀 `tv-`；演示面板只留在示例里；没有引入 api-extractor；许可证 Apache-2.0。
 
 **目标**：以 npm 包的形式交给第三方应用嵌入。宿主只需提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。演示应用（`main.ts`、`ui/` 面板、URL 参数、hash 同步、Esc 返回）保留为示例，不进包。
 
@@ -1004,9 +1004,9 @@ flowchart LR
 
 | 事项 | 结论 |
 | --- | --- |
-| 包名、npm scope | `terra-view`，无 scope；首发被拒时改用 `@<scope>/terra-view` |
+| 包名、npm scope | `terra-viewer`，无 scope（2026-11-25 由 `terra-view` 改来） |
 | 许可证 | Apache-2.0 |
-| 单包还是拆包 | 单包，主入口加 `terra-view/style.css`；子入口等体积真成问题再做（§0.2 P1.6） |
+| 单包还是拆包 | 单包，主入口加 `terra-viewer/style.css`；子入口等体积真成问题再做（§0.2 P1.6） |
 | monorepo（2026-11-24 评估） | **暂不改**。monorepo 划分的是包和发布单元，解决不了文件过大（大文件集中在 `GeoViewer`、`Globe` 等少数总装类）；`GeoViewer` 会创建所有子系统，拆包也不能让宿主少带代码（要省体积，应在单包内把可选子系统改为按需加载）；3.1 万行、单测加构建不到 1 分钟，没有规模压力；包还没发布，也没有外部使用者按模块取用的需求。先在单包内重构（progress-log G 组，约 4–5 人日）。出现以下任一情况再评估：对外发布后有用户要单独使用某个子系统；仓库里出现第二、第三个独立应用（编辑器、数据工具等）；多个团队分别负责不同子系统；CI 超过约 15 分钟。届时先做轻量 monorepo（npm workspaces：SDK、演示、宿主工程，约 2–3 人日），按子系统拆多个包（约 3–5 周）要先解决 14 项模块级共享状态的多副本风险和 96 处跨目录的 `@internal` 成员 |
 | 演示面板 | 不进包，留在 `demo/` |
 | 样式类名前缀 | `tv-`，变量 `--tv-*` |
@@ -1021,7 +1021,7 @@ flowchart LR
 | 项 | 结果 |
 | --- | --- |
 | SDK 源码（`src/` 下 core、globe、atmosphere、tiles3d、vector、indoor、markers、viewer） | 全部迁入。忽略换行符后，只有 7 个文件有改动，都是 SDK 化的预期改动：`GeoViewer`（`adoptContainer`、`decoderPath` / `transcoderPath`、`canvas`、键盘目标）、`GlobeCameraController`（键盘监听改容器、组合键放行、`focusout` 释放）、`MarkerManager` / `cards` / `PointLayer` / `FrameCrossfade`（`tv-` 类名、`--tv-accent`；`PointLayer` 另加聚合 Worker 引用计数）、`style.css`（拆分） |
-| 演示应用（`main.ts`、`index.html`、`ui/*`、示例数据） | 全部迁入 `demo/`；改动只有 import 改走 `terra-view`、产品名、启动时聚焦 canvas、设置键迁移（读旧键兜底） |
+| 演示应用（`main.ts`、`index.html`、`ui/*`、示例数据） | 全部迁入 `demo/`；改动只有 import 改走 `terra-viewer`、产品名、启动时聚焦 canvas、设置键迁移（读旧键兜底） |
 | 测试 | 源仓库 23 个测试文件全部迁入，另增 `keyboard.test.ts`；改动只有 3 处 import 路径和 1 处类名。`npm run verify` 通过：24 个文件、291 个测试，库构建与演示构建正常（2026-11-12） |
 | `scripts/generate-egm96.mjs`、`docs/examples`、`docs/images` | 迁入，内容一致；README 引用的图片都在 |
 | 本地参考资料（`temp/thingjs/`） | 两份分析文档已在本仓库 `temp/` 下；源仓库 `temp/m3.6-plan.md` 没有带过来，M3.6 已完成，不需要 |

@@ -3,7 +3,7 @@
  * and a stable `code` + `details`; the host decides what users read. Keyed by every code, so a
  * new code without a translation fails the type check.
  */
-import { isTerraViewError, type TerraViewError, type TerraViewErrorCode } from 'terra-view';
+import { isTerraViewError, type TerraViewError, type TerraViewErrorCode } from 'terra-viewer';
 
 const ZH: Record<TerraViewErrorCode, (e: TerraViewError) => string> = {
   'imagery-unreachable': (e) => `${e.details.provider} 无法访问（${e.details.reason}）`,

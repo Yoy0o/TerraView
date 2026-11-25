@@ -1,4 +1,4 @@
-import { polygonCentroid, type BimEntity, type Building, type BuildingDoc, type GeoViewer } from 'terra-view';
+import { polygonCentroid, type BimEntity, type Building, type BuildingDoc, type GeoViewer } from 'terra-viewer';
 import { createDemoBuilding } from '../data/demoBuilding';
 import { createDemoPlantSplat } from '../data/demoSplats';
 import { describeError } from './errors';

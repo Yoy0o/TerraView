@@ -2,9 +2,9 @@
 
 基于 three.js 的 **WebGPU 优先** 三维地球 SDK。从全球视角到街道，再无缝进入建筑、楼层、房间：WGS84 椭球、四叉树影像与全球地形、物理大气与体积云、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌与点位、室内 / BIM 层级浏览，都由同一个 `GeoViewer` 提供。
 
-以 npm 包 `terra-view` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
+以 npm 包 `terra-viewer` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
 
-> **状态**：0.2.0，首个对外版本（发布说明见 [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)）。`package.json` 仍是 `"private": true`，发布到 npm 之前用 GitHub Release 附带的 tgz 安装。0.x 阶段次版本号可以有破坏性变更，记在 [CHANGELOG](CHANGELOG.md)。许可证 Apache-2.0（[LICENSE](LICENSE)）。
+> **状态**：0.2.0，首个对外版本（发布说明见 [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)）。已发布到 npm（`terra-viewer`），GitHub Release 也附带同一个 tgz。0.x 阶段次版本号可以有破坏性变更，记在 [CHANGELOG](CHANGELOG.md)。许可证 Apache-2.0（[LICENSE](LICENSE)）。
 >
 > 参与开发（人或 AI 代理）请先读 [AGENTS.md](AGENTS.md)。
 
@@ -134,18 +134,18 @@
 ## 快速开始
 
 ```bash
-npm install terra-view three@0.187.0 3d-tiles-renderer@0.5.4
+npm install terra-viewer three@0.187.0 3d-tiles-renderer@0.5.4
 npm install -D @types/three@0.187.0        # 用 TypeScript 时
 ```
 
-发布到 npm 之前，从 GitHub Release 下载 `terra-view-0.2.0.tgz`，或在本仓库自己打包：
+也可以从 GitHub Release 下载 `terra-viewer-0.2.0.tgz`，或在本仓库自己打包：
 
 ```bash
 # 在本仓库
-npm install && npm run build && npm pack    # 得到 terra-view-0.2.0.tgz
+npm install && npm run build && npm pack    # 得到 terra-viewer-0.2.0.tgz
 
 # 在宿主工程
-npm install /path/to/terra-view-0.2.0.tgz three@0.187.0 3d-tiles-renderer@0.5.4
+npm install /path/to/terra-viewer-0.2.0.tgz three@0.187.0 3d-tiles-renderer@0.5.4
 ```
 
 `three` 和 `3d-tiles-renderer` 是 peer 依赖，不打进包里：宿主自己也用 three 时页面上只有一份。three 不按 semver 发布，版本范围锁在 0.187.x。
@@ -153,8 +153,8 @@ npm install /path/to/terra-view-0.2.0.tgz three@0.187.0 3d-tiles-renderer@0.5.4
 最小接入：
 
 ```ts
-import 'terra-view/style.css';
-import { AWS_TERRARIUM, GeoViewer, IMAGERY_PRESETS } from 'terra-view';
+import 'terra-viewer/style.css';
+import { AWS_TERRARIUM, GeoViewer, IMAGERY_PRESETS } from 'terra-viewer';
 
 const viewer = await GeoViewer.create({
   container: document.getElementById('map')!, // 任意有尺寸的元素，不必铺满窗口
@@ -202,7 +202,7 @@ viewer.interaction.on('click', (e) => {
 ### 加载状态与错误
 
 ```ts
-import { isTerraViewError } from 'terra-view';
+import { isTerraViewError } from 'terra-viewer';
 
 viewer.events.on('idle', () => console.log('当前视图已加载完'));
 viewer.events.on('error', ({ source, error, layer }) => {
@@ -255,7 +255,7 @@ right.dispose();
 
 细节见 [docs/api.md](docs/api.md) §1。
 
-- **样式**：`terra-view/style.css` 只包含 SDK 自己创建的元素（canvas、顶牌），类名全部以 `tv-` 开头；主题用 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg` / `--tv-accent` 调。面板、状态栏等界面由宿主自己做（可以参考 `demo/ui/`）。
+- **样式**：`terra-viewer/style.css` 只包含 SDK 自己创建的元素（canvas、顶牌），类名全部以 `tv-` 开头；主题用 `--tv-font` / `--tv-text` / `--tv-muted` / `--tv-card-bg` / `--tv-accent` 调。面板、状态栏等界面由宿主自己做（可以参考 `demo/ui/`）。
 - **容器**：`GeoViewer` 给容器加 `tv-viewer` 类；容器是 `position: static` 时改成 `relative`，没有 `tabindex` 时设为 `-1`（为了接收键盘）。`dispose()` 时恢复。
 - **键盘**：相机快捷键（WASD / 方向键 / QERF）只在 viewer 有焦点时生效，不监听 `window`；要一打开就能用键盘，调用 `viewer.canvas.focus()`。
 - **按需绘制**：画面静止后 viewer 不再画帧。经 SDK API 做的改动会自动唤醒；**绕过 SDK 直接改 `viewer.scene` 里的 three 对象、材质后，调用 `viewer.requestRender()`**。
@@ -366,7 +366,7 @@ flowchart LR
 ```
 src/            SDK 源码，打成 npm 包
 ├─ index.ts     包入口：公共 API 只从这里导出
-├─ style.css    SDK 样式（terra-view/style.css，类名前缀 tv-）
+├─ style.css    SDK 样式（terra-viewer/style.css，类名前缀 tv-）
 ├─ core/        椭球、测地学、EGM96、太阳位置、事件、语言、错误、显存档位
 ├─ globe/       四叉树地球、加载调度、影像源、地形源（terrain/）、瓦片材质、Worker 构网
 ├─ atmosphere/  大气散射节点与 CPU 版、光照跟随大气、星空
@@ -452,8 +452,8 @@ npm run smoke:build && npm run smoke   # Playwright 浏览器冒烟（演示应�
 ### 持续集成与发布
 
 - **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都在 Node 22、24 上跑 typecheck、分层检查、单测、库构建、演示构建；再把打出的包装进宿主工程检查（含体积预算），并用 Playwright 跑浏览器冒烟。
-- **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.2.0`）时，验证后创建 GitHub Release，正文取 `docs/releases/v<版本>.md`，附上 tgz。发布到 npm 的步骤只在 `package.json` 去掉 `"private": true` 之后才执行，并且需要仓库密钥 `NPM_TOKEN`。在 Actions 页面手动运行是演练，不创建 Release 也不发布。发版步骤见 [AGENTS.md](AGENTS.md) §8.5。
-- **包名**：`terra-view` 在 npm 上没有注册（2026-11-12 查询），但 npm 不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包（`terraview`）相同，首次发布有可能被拒；被拒时改用带 scope 的 `@<scope>/terra-view`。
+- **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.2.0`）时，验证后创建 GitHub Release，正文取 `docs/releases/v<版本>.md`，附上 tgz。标签推送时还会发布到 npm（需要仓库密钥 `NPM_TOKEN`；`package.json` 带 `"private": true` 时跳过这一步）。在 Actions 页面手动运行是演练，不创建 Release 也不发布。发版步骤见 [AGENTS.md](AGENTS.md) §8.5。
+- **包名**：`terra-viewer`。原名 `terra-view` 去掉连字符后与 npm 上已有的 `terraview` 相同，npm 不允许发布，2026-11-25 改名。
 
 ## 许可与致谢
 

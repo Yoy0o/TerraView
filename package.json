@@ -1,6 +1,5 @@
 {
-  "name": "terra-view",
-  "private": true,
+  "name": "terra-viewer",
   "version": "0.2.0",
   "type": "module",
   "description": "WebGPU-first 3D globe SDK built on three.js: quadtree imagery and terrain, physical atmosphere and volumetric clouds, OGC 3D Tiles, Gaussian splats, GeoJSON, HTML markers, and seamless globe-to-building indoor / BIM navigation.",

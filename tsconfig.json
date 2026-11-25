@@ -17,7 +17,7 @@
     "allowJs": false,
     "noEmit": true,
     "paths": {
-      "terra-view": ["./src/index.ts"]
+      "terra-viewer": ["./src/index.ts"]
     }
   },
   "include": ["src", "demo", "tests"]

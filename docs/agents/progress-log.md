@@ -28,7 +28,7 @@
 | Hub 之前完成的大块改造 | 约 10 块（§2 的 11-04 至 11-06） |
 | SDK（roadmap §10） | S1–S4 完成；S5、S6、S8 大部分完成；S7 部分完成 |
 | roadmap 里未开始的里程碑项 | M3.7、M4.1–M4.7、M4.8 除高斯泼溅以外的项（全景、粒子、假室内、天气）、M5.2、M5.3（M5.1 只做了 JSON 快照）；其余 M0–M3 项都已完成（2026-11-19，含 M3.9）；M4.8 的高斯泼溅第一期完成（2026-11-22） |
-| 当前执行顺序 | roadmap §0.2：P0、P1 代码项、P2、P3.1–P3.6 已完成；P1.7 发布准备完成、待确认打标签（2026-11-25）；P3 余项（M3.7）、P4、P5 按需求 |
+| 当前执行顺序 | roadmap §0.2：P0、P1 代码项、P2、P3.1–P3.6 已完成；P1.7 完成（0.2.0 于 2026-11-25 发布，npm 包 `terra-viewer`）；P3 余项（M3.7）、P4、P5 按需求 |
 
 ## 2. 已改造时间线
 
@@ -90,6 +90,7 @@ Hub 有记录的 7 个任务合计 640 分钟（约 10.7 小时），均 0–1 �
 | 11-23 | 层级绑定：图层挂到层级节点（泼溅、3D Tiles），实体坐标系、懒加载、拾取归实体、建筑文档 `splats` | M4.8 二期 ① | 见 Git 记录 | [indoor-bim.md](indoor-bim.md) §6.5、[splats.md](splats.md) §7.1 |
 | 11-24 | 体积云（近地）：天气跟随云壳的积云层，低分辨率交错追踪 + 时域重投影，按场景深度合成；云影乘进日照阴影的接收节点；Worker 生成可平铺噪声 | 插入项 | 见 Git 记录 | [volumetric-clouds.md](volumetric-clouds.md) |
 | 11-24 | 单包内重构（G 组）：拆 `GeoViewer`、`Globe`、`VolumetricClouds`，`clouds/`、`region/` 两个目录，消除反向依赖与文件循环，分层检查 `check:layers` | §4 G | `1ae5455`…（见 Git 记录） | AGENTS.md §2、§2.1 |
+| 11-25 | 0.2.0 发布：包名由 `terra-view` 改为 `terra-viewer`（`terra-view` 去掉连字符后与 npm 上的 `terraview` 相同，会被拒），去掉 `private`，仓库公开，打标签 `v0.2.0` | P1.7 | 见 Git 记录 | CHANGELOG `[0.2.0]`、[releases/v0.2.0.md](../releases/v0.2.0.md) |
 
 ## 3. Hub 任务与 roadmap 的对应
 
@@ -252,7 +253,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 | ~~是否为 B、C 两组建 Hub 任务~~ | TerraView 没有接入 Hub，不再适用 | — |
 | ~~浏览器冒烟测试用哪个工具（P1.5）~~ | 2026-11-12 决定：有条件时用真实浏览器 MCP，Playwright 兜底（同意新增开发依赖） | — |
 | ~~`cad-to-building` 技能与 CAD 数据去留（A10）~~ | 2026-11-12 决定不迁移，留在源仓库 | — |
-| 首个对外版本号与发布时间（P1.7） | 发布、推标签都要明确同意 | 版本号定为 `0.2.0`，准备已完成（2026-11-25）；剩下：发布日期、是否同时上 npm（去掉 `private`、`NPM_TOKEN`、仓库是否公开） |
+| 首个对外版本号与发布时间（P1.7） | 发布、推标签都要明确同意 | ✅ 2026-11-25：`0.2.0` 当天发布，同时上 npm（包名 `terra-viewer`、去掉 `private`、配好 `NPM_TOKEN`、仓库公开） |
 | ~~是否改 monorepo~~ | 2026-11-24 评估后决定：暂不改，先在单包内重构（G 组），触发条件见 roadmap §10.4 | — |
 | ~~G 组（单包内重构）何时开工~~ | 2026-11-24 已完成（§4 G） | — |
 | 源仓库 three-geo-global 的收尾方式（A9） | 涉及源仓库分支、Hub 任务 | 合并 `T261109-ppn` 分支后在 README 顶部注明"已迁移到 TerraView"，仓库归档 |
@@ -271,6 +272,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-25 | 0.2.0 发布：包名改为 `terra-viewer`，去掉 `private`，CHANGELOG 填日期，打标签 `v0.2.0` |
 | 2026-11-25 | P1.7 发布准备（0.2.0）：版本号、CHANGELOG `[0.2.0]`（日期待打标签当天填）、发布说明 `docs/releases/v0.2.0.md`（`release.yml` 用作 Release 正文）、README 重写（功能概览补齐、接入示例、文档索引、对标与限制更新）、package 描述与关键词、体积预算收紧。**没有**去掉 `private`、打标签或推送：这三步仍要单独确认（roadmap §0.2 P1.7 首发准备清单） |
 | 2026-11-24 | 远端分支 `claude/confident-fermi-oy3is7` 的 6 个提交（M4.8 高斯泼溅第一期、层级绑定）cherry-pick 到 main：viewer 相关改动按 G1 拆分放进 `ViewerLayers` / `ViewerPicking` / `FrameLoop` / `diagnostics` / `viewerTypes`，`splats/` 加进分层表（只依赖 core），`TSLNode` 改从 `core/tsl` 取；泼溅的 API 小节改为 api.md §1.14（§1.13 是体积云）；合并后入口 874.7 / 265.6 KiB，在 880 / 270 预算内。`--types` 审查多出两条只导入类型的边（`splats`、`tiles3d` → `indoor/levelBinding` 的 `LevelBindingOptions`），规则允许，未改。verify 523 个测试通过，冒烟 12 项（WebGL / WebGPU）通过 |
 | 2026-11-24 | B13 关闭：集显上"云影多 4 ms"是 `stats.gpuMs` 的波动，改用轮换顺序的吞吐测法后云影只占 0.1–0.6 ms，不改代码；volumetric-clouds §10 集显表和 B12 的数字更正。另评估了推送当前提交对远端分支 `claude/confident-fermi-oy3is7`（高斯泼溅、层级绑定）合并的影响 |

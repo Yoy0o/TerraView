@@ -7,7 +7,7 @@
  * under CC BY 4.0 by its author (credits below, shown in the panel). Small object captures
  * without a real-world scale: the demo enlarges them so that they read next to buildings.
  */
-import type { SplatLayerOptions } from 'terra-view';
+import type { SplatLayerOptions } from 'terra-viewer';
 
 export interface SplatDemo {
   name: string;

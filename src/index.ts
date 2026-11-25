@@ -3,7 +3,7 @@
  *
  * Everything a host application needs is exported from here; anything not
  * exported is internal and may change without notice. The stylesheet is a
- * separate import: `import 'terra-view/style.css'`.
+ * separate import: `import 'terra-viewer/style.css'`.
  *
  * API tiers (docs/api.md §2): exports are stable unless their declaration is
  * tagged advanced (engine objects and implementation details for extensions

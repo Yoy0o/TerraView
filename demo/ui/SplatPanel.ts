@@ -1,5 +1,5 @@
 import { SPLAT_DEMOS, SPLAT_DEMO_SITE } from '../data/demoSplats';
-import { type BimEntity, type GeoViewer, type LevelShow, type SplatLayer, type SplatLayerOptions, type SplatUpAxis } from 'terra-view';
+import { type BimEntity, type GeoViewer, type LevelShow, type SplatLayer, type SplatLayerOptions, type SplatUpAxis } from 'terra-viewer';
 import { Vector2 } from 'three';
 import { describeError } from './errors';
 import { h, section, slider } from './dom';

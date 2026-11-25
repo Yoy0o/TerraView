@@ -13,7 +13,7 @@
  * Code inside `page.evaluate` runs in the browser: it may use imported types, not imported values.
  */
 import { expect, type Page, type TestInfo } from '@playwright/test';
-import type { GeoViewer } from 'terra-view';
+import type { GeoViewer } from 'terra-viewer';
 
 /** Counters the init script keeps on `window.__smoke`. */
 export interface SmokeState {

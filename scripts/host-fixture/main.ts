@@ -1,7 +1,7 @@
 // Host application used by scripts/check-package.mjs: it sees the SDK only as the installed
 // package, with two viewers that do not fill the window.
-import 'terra-view/style.css';
-import { AWS_TERRARIUM, COLOR_GRADING_PRESETS, GeoViewer, IMAGERY_PRESETS, type BuildingDoc, type GeoViewerOptions } from 'terra-view';
+import 'terra-viewer/style.css';
+import { AWS_TERRARIUM, COLOR_GRADING_PRESETS, GeoViewer, IMAGERY_PRESETS, type BuildingDoc, type GeoViewerOptions } from 'terra-viewer';
 
 async function start(id: string, view: GeoViewerOptions['initialView']): Promise<GeoViewer> {
   return GeoViewer.create({

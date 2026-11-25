@@ -12,7 +12,7 @@ import {
   MAX_REGION_DIAMETER,
   MIN_REGION_RADIUS,
   RAD2DEG,
-} from 'terra-view';
+} from 'terra-viewer';
 import { h, section } from './dom';
 import { describeError } from './errors';
 

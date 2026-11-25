@@ -4,7 +4,7 @@
  * (alarms pulse, offline stations grey out), and a few thousand random points
  * to show clustering. Coordinates are approximate WGS84 degrees.
  */
-import type { PointLayerOptions, PointRule } from 'terra-view';
+import type { PointLayerOptions, PointRule } from 'terra-viewer';
 
 export interface PointDemo {
   name: string;

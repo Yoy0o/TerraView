@@ -30,7 +30,7 @@
  * sun shadows off / on and ?oit=0|1 order-independent transparency (docs/api.md §1.11; defaults
  * from the GPU tier).
  */
-import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions, type SplatLayerOptions, type SplatUpAxis, type VolumetricCloudOptions } from 'terra-view';
+import { type CloudOptions, compileSelector, type ContributionCullingOptions, type IntroSpinOptions, type SplatLayerOptions, type SplatUpAxis, type VolumetricCloudOptions } from 'terra-viewer';
 
 /** '1' / 'true' / 'on' / '' (bare flag) → true, '0' / 'false' / 'off' → false, absent or other → undefined. */
 export function parseFlag(params: URLSearchParams, name: string): boolean | undefined {

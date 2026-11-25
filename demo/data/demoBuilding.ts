@@ -1,4 +1,4 @@
-import { BUILDING_FORMAT, BUILDING_FORMAT_VERSION, type BuildingDoc, type FloorDef, type RoomDef, type ThingDef, type Vec2 } from 'terra-view';
+import { BUILDING_FORMAT, BUILDING_FORMAT_VERSION, type BuildingDoc, type FloorDef, type RoomDef, type ThingDef, type Vec2 } from 'terra-viewer';
 
 /** Axis-aligned room rectangle [x0, y0, x1, y1] in local meters. */
 type Rect = [number, number, number, number];

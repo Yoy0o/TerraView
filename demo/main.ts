@@ -1,6 +1,6 @@
-import 'terra-view/style.css';
+import 'terra-viewer/style.css';
 import './style.css';
-import { AWS_TERRARIUM, COLOR_GRADING_PRESETS, GeoViewer, parseGpuTier, type ViewPosition } from 'terra-view';
+import { AWS_TERRARIUM, COLOR_GRADING_PRESETS, GeoViewer, parseGpuTier, type ViewPosition } from 'terra-viewer';
 import { ControlPanel, createImagery } from './ui/ControlPanel';
 import { h } from './ui/dom';
 import { FeaturePopup } from './ui/FeaturePopup';

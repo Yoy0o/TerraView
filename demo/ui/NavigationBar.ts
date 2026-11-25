@@ -5,7 +5,7 @@
  * `viewer/NavigationControls.ts`), so a host application can build its own
  * controls on the same commands.
  */
-import type { AutoRotateMode, GeoViewer } from 'terra-view';
+import type { AutoRotateMode, GeoViewer } from 'terra-viewer';
 import { h } from './dom';
 
 /** 24×24 stroke icons (currentColor). Static markup, no user input. */

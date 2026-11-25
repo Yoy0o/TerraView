@@ -26,7 +26,7 @@
 
 ## 1. 项目速览
 
-基于 three.js 的 WebGPU 优先三维地球 SDK（npm 包 `terra-view`，目前私有、未发布）：WGS84 椭球、四叉树影像与地形、物理大气、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌、统一拾取事件，以及从地球无缝进入建筑、楼层、房间的室内 / BIM 浏览。宿主应用提供一个容器元素，通过 `GeoViewer` 使用全部能力。
+基于 three.js 的 WebGPU 优先三维地球 SDK（npm 包 `terra-viewer`）：WGS84 椭球、四叉树影像与地形、物理大气、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌、统一拾取事件，以及从地球无缝进入建筑、楼层、房间的室内 / BIM 浏览。宿主应用提供一个容器元素，通过 `GeoViewer` 使用全部能力。
 
 - 技术栈：three r187（0.187.0，`WebGPURenderer` + TSL）、3d-tiles-renderer 0.5.4、TypeScript 5.9（strict）、Vite 8、Vitest 5。依赖版本是锁定的，不要随意升级；升级要先征得同意，并同时更新 `package-lock.json`（本仓库用 npm 安装）。`three` 和 `3d-tiles-renderer` 是 peer 依赖（开发时也装在 devDependencies 里），不打进产物。
 - 命令：
@@ -44,7 +44,7 @@
   npm run smoke          # Playwright 浏览器冒烟：演示应用和打包宿主，WebGL / WebGPU 各一遍；本机用已装的 Chrome，端口 4180 / 4181
   ```
 
-- 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-view` 解析到 `src/index.ts`）。
+- 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-viewer` 解析到 `src/index.ts`）。
 
 - 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），高斯泼溅 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`（见 splats.md §8），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
@@ -54,7 +54,7 @@
 ```
 src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ index.ts     包入口：公共 API 只从这里导出（§3.10）
-├─ style.css    SDK 样式，发布为 `terra-view/style.css`，类名前缀 `tv-`
+├─ style.css    SDK 样式，发布为 `terra-viewer/style.css`，类名前缀 `tv-`
 ├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、i18n（显示文案与语言）、errors（TerraViewError）、
 │               gpuProfile（显存档位、预算表（含高斯泼溅的泼溅数与球谐阶数）、帧缓冲估算，纯函数）、tsl（TSL 节点类型）、cameraBounds（相机活动范围的约定类型）
 ├─ globe/       四叉树地球：Globe（配置、每帧更新、瓦片选择、缓存淘汰、高程与射线查询）、
@@ -104,7 +104,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
                 InteractionManager（click / dblclick / rightclick / hover + 选择器、标签、优先级、once、停止传播、暂停、顶牌事件代理）、
                 PickBuffer（GPU 拾取缓冲）、pickMath（八面体法线、深度反投影，纯函数）、loadState（加载状态与 idle 判定，纯函数）、framePacing（静止降帧、变化 / 唤醒、静止判定与绘制方式，纯函数）、
                 OcclusionProxies（顶牌遮挡查询代理）
-demo/           演示应用，不进包；只通过 `terra-view` 入口使用 SDK
+demo/           演示应用，不进包；只通过 `terra-viewer` 入口使用 SDK
 ├─ main.ts      启动、URL 参数、hash 同步、Esc 返回、文件拖放
 ├─ style.css    演示界面的样式（面板、状态栏等）
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / SplatPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
@@ -194,11 +194,11 @@ docs/agents/    子系统规范（本文档的展开）
 
 - 访问凭证（天地图、ion、Google、Mapbox）由宿主作为参数传入；演示应用把它们保存在本机 localStorage。凭证不能写进仓库，也不能内置进包。
 - 示例国界数据不是审定地图，在国内发布必须使用有审图号的数据。示例数据放在 `demo/`，不随包发布。
-- 许可证 Apache-2.0（`LICENSE`、`package.json` 的 `license` 字段；包仍是 `private`，未发布）。移植来的代码保留版权声明，见 `THIRD_PARTY_NOTICES.md`；引入新的第三方代码前先确认其许可与 Apache-2.0 兼容。
+- 许可证 Apache-2.0（`LICENSE`、`package.json` 的 `license` 字段）。移植来的代码保留版权声明，见 `THIRD_PARTY_NOTICES.md`；引入新的第三方代码前先确认其许可与 Apache-2.0 兼容。
 
 ### 3.10 SDK 边界（包与演示分离）
 
-- `src/` 不能 import `demo/`；`demo/` 只能从 `terra-view`（`src/index.ts`）和 `terra-view/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
+- `src/` 不能 import `demo/`；`demo/` 只能从 `terra-viewer`（`src/index.ts`）和 `terra-viewer/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
 - 新增、改名、删除导出都是公共 API 变更：同步 `docs/api.md`，记入 CHANGELOG。0.x 阶段次版本号可以有破坏性变更。
 - 不要在 `src/` 里读 URL 参数、`localStorage`、`location`，也不要在 `window` / `document` 上注册全局监听（键盘读 viewer 容器，见 camera-controller.md）。这些属于应用。
 - SDK 创建的 DOM 元素，类名一律以 `tv-` 开头，样式写在 `src/style.css`；可调的外观做成 `--tv-*` 变量并带默认值（`var(--tv-x, 默认值)`），不要依赖宿主页面的变量或全局样式。定位相对 viewer 容器，不要用 `position: fixed`。
@@ -392,6 +392,6 @@ docs/agents/    子系统规范（本文档的展开）
 ### 8.5 CI 与发布
 
 - `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、分层检查、单测、库构建与类型声明、演示构建；`package`（打包与浏览器冒烟，一个 job 共用同一份构建）：库构建、`check-package --keep-host`（打包检查并保留宿主构建），把 tgz 存为工作流产物，再构建演示应用、用 Playwright 自带的 Chromium 跑 `npm run smoke`（无 GPU：WebGL 经 ANGLE、WebGPU 经 Dawn 的回退适配器，都走 SwiftShader），失败时把 `test-output/` 存为产物；冒烟不重试。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
-- `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 不再是 `"private": true` 时执行，需要仓库密钥 `NPM_TOKEN`；版本号带 `-` 的发到 `next` 标签。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
-- 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本（打标签当天填日期）→ 写发布说明 `docs/releases/v<版本>.md`（GitHub Release 的正文，面向使用者：概览、升级须知、兼容性；链接写成指向该标签的绝对地址）→ 合并到 main → 在 Actions 页面手动运行一次 Release（演练）→ 打标签并推送。打标签和推送要先得到明确同意。0.2.0 已准备到打标签之前（2026-11-25，roadmap §0.2 P1.7）。
-- 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。
+- `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 没有 `"private": true` 时执行（2026-11-25 已去掉），需要仓库密钥 `NPM_TOKEN`；版本号带 `-` 的发到 `next` 标签。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
+- 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本（打标签当天填日期）→ 写发布说明 `docs/releases/v<版本>.md`（GitHub Release 的正文，面向使用者：概览、升级须知、兼容性；链接写成指向该标签的绝对地址）→ 合并到 main → 在 Actions 页面手动运行一次 Release（演练）→ 打标签并推送。打标签和推送要先得到明确同意。0.2.0 于 2026-11-25 发布（roadmap §0.2 P1.7）。
+- 包名 `terra-viewer`（2026-11-25 由 `terra-view` 改来：npm 上已有 `terraview`，npm 不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，`terra-view` 会撞上；`terra-viewer` 去掉连字符后是 `terraviewer`，没有人注册）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。

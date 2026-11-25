@@ -1,14 +1,14 @@
 # TerraView 公共 API
 
-面向在应用里嵌入 TerraView 的开发者。这里列的是从包入口 `terra-view`（`src/index.ts`）导出的内容；没有导出的模块是内部实现，随时可能变。各子系统的细节在 [docs/agents/](agents/)。
+面向在应用里嵌入 TerraView 的开发者。这里列的是从包入口 `terra-viewer`（`src/index.ts`）导出的内容；没有导出的模块是内部实现，随时可能变。各子系统的细节在 [docs/agents/](agents/)。
 
-> 状态：0.2.0（首个对外版本，发布说明见 [releases/v0.2.0.md](releases/v0.2.0.md)），`package.json` 仍是 `private`、未发布到 npm。0.x 阶段次版本号可以有破坏性变更，变更记入 [CHANGELOG](../CHANGELOG.md)。
+> 状态：0.2.0（首个对外版本，发布说明见 [releases/v0.2.0.md](releases/v0.2.0.md)），npm 包名 `terra-viewer`。0.x 阶段次版本号可以有破坏性变更，变更记入 [CHANGELOG](../CHANGELOG.md)。
 
 ## 1. 接入
 
 ```ts
-import 'terra-view/style.css';
-import { GeoViewer, IMAGERY_PRESETS } from 'terra-view';
+import 'terra-viewer/style.css';
+import { GeoViewer, IMAGERY_PRESETS } from 'terra-viewer';
 
 const viewer = await GeoViewer.create({
   container: document.getElementById('map')!,
@@ -18,7 +18,7 @@ const viewer = await GeoViewer.create({
 
 | 事项 | 说明 |
 | --- | --- |
-| 包入口 | `terra-view`（ES 模块，`dist/terraview.js`，类型在 `dist/types/`）；`terra-view/style.css` |
+| 包入口 | `terra-viewer`（ES 模块，`dist/terraview.js`，类型在 `dist/types/`）；`terra-viewer/style.css` |
 | peer 依赖 | `three` 0.187.x、`3d-tiles-renderer` 0.5.x，由宿主安装，不打进包。TypeScript 宿主另装 `@types/three@0.187.0` |
 | 浏览器 | WebGPU（Chrome / Edge 113+），没有时自动回退 WebGL 2；`forceWebGL: true` 强制 WebGL 2 |
 | 打包工具 | Worker 是 `dist/assets/*.worker-*.js`，用 `new URL(..., import.meta.url)` 引用。Vite 8（开发与构建）已实测；webpack 5（style-loader / css-loader）已实测：构建、运行，以及 Draco、KTX2、meshopt 模型的实际解码（不用设解码器路径） |
@@ -34,7 +34,7 @@ const viewer = await GeoViewer.create({
 
 ### 1.2 样式与主题
 
-`terra-view/style.css` 只管 SDK 创建的元素，类名都以 `tv-` 开头：
+`terra-viewer/style.css` 只管 SDK 创建的元素，类名都以 `tv-` 开头：
 
 | 类 | 元素 |
 | --- | --- |
@@ -536,7 +536,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 ## 5. 还没有的东西
 
-- 没有发布到 npm（`package.json` 里是 `private`；0.2.0 的 tgz 随 GitHub Release 提供）。许可证 Apache-2.0，见仓库根目录的 `LICENSE`。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
+- 发布在 npm 上（`terra-viewer`），0.2.0 起的 tgz 也随 GitHub Release 提供。许可证 Apache-2.0，见仓库根目录的 `LICENSE`。包名 `terra-viewer`（2026-11-25 由 `terra-view` 改来：npm 上已有 `terraview`，npm 不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，`terra-view` 会撞上；`terra-viewer` 去掉连字符后是 `terraviewer`，没有人注册）。
 - 显示文案只内置 `zh-CN` 和 `en` 两种语言（§1.6）；其他语言用 `messages` 逐项改写。
 - 没有 CommonJS / UMD 产物，只有 ES 模块。
 - 示例数据（`demo/data/`）和演示面板（`demo/ui/`）不随包发布。

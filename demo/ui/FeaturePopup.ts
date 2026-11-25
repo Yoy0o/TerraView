@@ -9,7 +9,7 @@ import {
   type PointLayer,
   type PointRecord,
   type TileFeature,
-} from 'terra-view';
+} from 'terra-viewer';
 import { h } from './dom';
 
 const KIND_LABEL = { point: '点要素', line: '线要素', polygon: '面要素' } as const;

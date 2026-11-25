@@ -18,7 +18,7 @@ import {
   type Tiles3DLayer,
   type TilesetSource,
   XYZImageryProvider,
-} from 'terra-view';
+} from 'terra-viewer';
 import { h, section, slider, toggle } from './dom';
 import { describeError } from './errors';
 import { autoRotateLabel } from './NavigationBar';
