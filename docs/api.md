@@ -2,7 +2,7 @@
 
 面向在应用里嵌入 TerraView 的开发者。这里列的是从包入口 `terra-view`（`src/index.ts`）导出的内容；没有导出的模块是内部实现，随时可能变。各子系统的细节在 [docs/agents/](agents/)。
 
-> 状态：0.1.0，私有包。0.x 阶段次版本号可以有破坏性变更，变更记入 [CHANGELOG](../CHANGELOG.md)。
+> 状态：0.2.0（首个对外版本，发布说明见 [releases/v0.2.0.md](releases/v0.2.0.md)），`package.json` 仍是 `private`、未发布到 npm。0.x 阶段次版本号可以有破坏性变更，变更记入 [CHANGELOG](../CHANGELOG.md)。
 
 ## 1. 接入
 
@@ -536,7 +536,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 ## 5. 还没有的东西
 
-- 没有发布到 npm（`package.json` 里是 `private`）。许可证 Apache-2.0，见仓库根目录的 `LICENSE`。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
+- 没有发布到 npm（`package.json` 里是 `private`；0.2.0 的 tgz 随 GitHub Release 提供）。许可证 Apache-2.0，见仓库根目录的 `LICENSE`。包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。
 - 显示文案只内置 `zh-CN` 和 `en` 两种语言（§1.6）；其他语言用 `messages` 逐项改写。
 - 没有 CommonJS / UMD 产物，只有 ES 模块。
 - 示例数据（`demo/data/`）和演示面板（`demo/ui/`）不随包发布。

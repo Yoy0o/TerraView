@@ -1,8 +1,19 @@
 # 更新日志
 
-格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。版本号尚未对外发布，`0.1.0` 是首个可用的原型；之后的改动先记在“未发布”下。
+格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。0.x 阶段次版本号可以有破坏性变更。`0.1.0` 是迁移前（three-geo-global）的原型，没有对外发布；`0.2.0` 是 TerraView 的首个对外版本。新的改动先记在“未发布”下。
 
 ## [未发布]
+
+## [0.2.0] - 日期待定（打标签当天填写）
+
+TerraView 的首个对外版本：代码从 three-geo-global 迁移并改造成 npm 包 `terra-view`，之后补齐了嵌入所需的 API 分级、语言与错误码、加载状态、按需停画，以及后期管线、日照阴影、局部场景、高斯泼溅、层级绑定、体积云等功能。面向使用者的发布说明（功能概览、从 0.1.0 升级的破坏性变更汇总、兼容性）见 [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)；下面按专题、从新到旧列出 0.1.0 之后的全部改动。
+
+**发布准备**（2026-11-25）
+
+- `package.json` 的 `version` 改为 `0.2.0`（`package-lock.json` 同步），`description`、`keywords` 补上体积云、高斯泼溅。
+- README 重写：功能概览按子系统整理并补齐 0.1.0 之后的功能，新增接入示例（最小接入、加载状态与错误、室内、多个 viewer、释放）、文档索引，更新架构图、目录、对标表、已知限制和路线图。
+- 新增发布说明 `docs/releases/v<版本>.md`；`release.yml` 创建 GitHub Release 时用它作正文（没有时退回 GitHub 自动生成的说明）。
+- 包体积预算收紧到当前大小的约 110%：`terraview.css` 16 → 10 KiB（gzip 5 → 3.2），`vector.worker` 32 → 28（10 → 9.2），`clusterTree.worker` 12 → 8（5 → 3.4），`cloudNoise.worker` 10 → 8（4 → 3.4）；入口和其余 Worker 已在 110% 以内，不变。
 
 ### 单包内重构（2026-11-24，progress-log G 组）
 

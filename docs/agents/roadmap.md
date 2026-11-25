@@ -111,7 +111,7 @@
 | P1.4 | 多实例余项（S5） | ✅ 2026-11-12：逐项核对模块级共享状态（结论表在 [api.md](../api.md) §4）。发现并修复一个问题：大气和注记的相机 uniform 是共享的，`captureFrame()` 和层级切换截帧在帧外渲染时没有重写，同页两个 viewer 时会画出另一个 viewer 的相机和大气；现在走 `renderOutsideFrame()`。浏览器实测：WebGL viewer 与演示应用的 WebGPU viewer 共用同一栋建筑的材质后销毁，再轮流以两种后端创建、销毁 6 个 viewer，无错误，演示应用的建筑照常渲染 | 两个 viewer 分别用 WebGPU 和 WebGL 时也正常 |
 | P1.5 | 浏览器冒烟测试进 CI | ✅ 2026-11-12。新增开发依赖 `@playwright/test` 1.65.0（约 19 MB，本机不下载浏览器，用已装的 Chrome；CI 用 Playwright 的 Chromium）。`playwright.config.ts` + `tests/e2e/`：**演示应用**（`?imagery=debug&noterrain&intro=0&clouds=0&demo`：瓦片就绪、建筑 → 楼层 → 房间 → 逐级返回地球并核对 13 个层级事件的顺序、房间顶牌、销毁后画布移除且 Worker 归零）；**打包宿主**（`check:package --keep-host .smoke/host` 保留的 host-fixture 构建：两个 viewer、影像和地形由本地替身瓦片应答、顶牌留在容器内、销毁左边后右边继续出帧、容器类名和 `tabindex` 还原、全部销毁后 Worker 归零、只有一份 three）。每个目标 WebGL / WebGPU 各一遍，无 WebGPU 适配器时自动跳过；页面错误、控制台错误、请求外部域名都算失败。实测：本机 Chrome 4 项全过（约 40 秒）；`SMOKE_NO_GPU=1` 模拟无 GPU，WebGL 两项过（宿主约 1.5 分钟）、WebGPU 两项跳过。CI 新增 `smoke` job。2026-11-13 修正：远端首跑宿主测试超时（软件渲染下等加载队列排空，2 核 runner 150 s 不够）；软件渲染改为只等屏幕就绪（有 GPU 仍要求排空），WebGL / WebGPU 都走 SwiftShader（CI 上 WebGPU 不再跳过），不重试，打包检查与冒烟合并为 CI 的 `package` job；本机软件模式 4 项全过（1.7 分钟）。合并后的 CI 远端首跑待推送后确认。原计划：**有条件时用真实浏览器 MCP**（如 Claude in Chrome，驱动本机真实 Chrome）做冒烟；**Playwright 兜底**（CI 和没有浏览器 MCP 时用，同意新增为开发依赖）。现在 CI 只有单测和构建，渲染、Worker、多 viewer、销毁都靠手测。用无头 Chrome（WebGL 回退或 SwiftShader）打开 `scripts/host-fixture`：创建、等瓦片就绪、`?demo` 进出层级、销毁，检查控制台无错误、Worker 归零 | CI 上有浏览器 job |
 | P1.6 | 包体积预算 | ✅ 2026-11-12：`scripts/check-package.mjs` 的 `BUDGETS` 给入口、样式和三个 Worker 各设原始大小与 gzip 上限（比当时大小高约 10%：入口 720 / 270 KiB，瓦片 Worker 220 / 115 KiB），超出时 `check:package` 失败，CI 上把体积表写进运行摘要。当时入口 652 KiB（gzip 242），瓦片 Worker 197 KiB（gzip 102）。有意增大时调高预算并在提交里说明。子入口（`terra-view/indoor`、`/markers`）只在体积真成问题时再做，单包的结论（§10.4）不变。2026-11-22：高斯泼溅图层让入口从 745 增到 780 KiB（gzip 229 → 239，预算 800 / 270 未动），新增 `splat.worker`（30.4 / 9.6 KiB，预算 34 / 11）；入口离预算只剩约 2.5%，下一个进入口的功能要么调高预算、要么先做子入口。2026-11-23：层级绑定（泼溅图层的实体坐标系与懒加载、`levelBinding`、文档 `splats` 的校验）让入口到 800.4 KiB（gzip 243.1），超出 0.4 KiB；属于有意增加的功能，入口预算调到 880（当前大小的 110%，gzip 预算 270 不变）。两天里入口从 745 涨到 800：泼溅（`src/splats/` 加层级绑定约 55 KiB）是做 `terra-view/splats` 子入口的第一候选，等首发前收紧预算时一并评估。2026-11-24：泼溅与层级绑定从分支合并到 main（main 上体积云已把预算调到 860），合并后入口 874.7 KiB（gzip 265.6），880 / 270 仍够，但原始大小只剩约 0.6%、gzip 约 1.7% 的余量：下一个进入口的功能必须先定是调预算还是做子入口 | 超过预算时 CI 失败 |
-| P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间。2026-11-17：**暂时搁置**，先完成 P2，之后再推进） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
+| P1.7 | 首次发布（2026-11-12 决定：**先做准备，暂不发布**；准备好后再单独确认发布时间。2026-11-17：**暂时搁置**，先完成 P2，之后再推进。2026-11-25：**0.2.0 准备完成**，停在打标签之前，见下面的首发准备清单） | 首发前确认 npm 包名（`terra-view` 可能撞相似名规则，见 §10.0，被拒就改带 scope 的名字）；README 补宿主接入示例（最小接入、多 viewer、室内）；整理 CHANGELOG、去掉 `private`、打标签。**发布和推送标签要先得到明确同意** | 按 AGENTS.md §8.5 的发版步骤走完 |
 
 **P1.1 公共 API 分级**（2026-11-12 草案，2026-11-13 修正并确认；依据：`src/index.ts` 227 个导出、`GeoViewer` / `Globe` 的公开成员，以及演示应用和宿主工程实际用到的 56 个导出）
 
@@ -144,12 +144,14 @@
 | --- | --- |
 | 包名 `terra-view` | npm 上仍未注册（2026-11-12 再查，404）。相似名规则只有真正发布时才能确认，被拒就改带 scope 的名字（§10.0） |
 | `package.json` 的 `repository` / `homepage` / `bugs` / `keywords` | ✅ 2026-11-12 补上。`release.yml` 在公开仓库里带 `--provenance` 发布，npm 会核对 `repository` 与 GitHub 仓库是否一致，缺了会发布失败 |
-| 体积预算 | ✅ P1.6。P1.1 之后主入口 489 / 150 KiB（预算 720 / 270），发版前按新大小收紧（约高 10%：540 / 165） |
+| 版本号与 CHANGELOG | ✅ 2026-11-25：`0.2.0`（`package.json`、`package-lock.json`），CHANGELOG「未发布」整理成 `[0.2.0]`，日期在打标签当天填写 |
+| 发布说明与 README | ✅ 2026-11-25：`docs/releases/v0.2.0.md`（`release.yml` 用它作 GitHub Release 正文）；README 重写，含宿主接入示例（最小接入、加载状态与错误、室内、多 viewer）。详细的使用文档之后单独补 |
+| 体积预算 | ✅ P1.6；2026-11-25 收紧：入口后来涨回 874.7 / 265.6（预算 880 / 270，不变），样式和三个小 Worker 收到当前大小的约 110%（见 CHANGELOG 0.2.0「发布准备」） |
 | 发布流程演练 | 待做：在 GitHub Actions 页面手动运行 Release 工作流（演练模式：验证、打包自检、打包，不建 Release、不发布） |
 | 仓库密钥 `NPM_TOKEN` | 待配置（npm 自动化令牌，发布前加到仓库密钥） |
 | GitHub 仓库是否公开 | 待决定：公开仓库才会带 provenance；包里的 `repository` 链接对私有仓库的使用者打不开 |
 | 首发前的代码项 | 无（P1.1–P1.6 ✅） |
-| 发版当天 | 改 `package.json` 的 `version`（`package-lock.json` 两处同步）→ CHANGELOG「未发布」整理成该版本 → 去掉 `private` → 合并到 main → 打标签推送（AGENTS.md §8.5） |
+| 发版当天 | CHANGELOG `[0.2.0]` 填日期 →（要发 npm 时）去掉 `private`、配好 `NPM_TOKEN` → 手动演练 Release → 打标签 `v0.2.0` 推送（AGENTS.md §8.5）。只发 GitHub Release、暂不上 npm 时保留 `private` 即可 |
 
 **P2 嵌入体验与性能**（P1 之后；P2.1 可与 P1 并行）
 

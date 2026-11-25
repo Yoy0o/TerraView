@@ -112,6 +112,7 @@ demo/           演示应用，不进包；只通过 `terra-view` 入口使用 S
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）、demoSplats（开放的高斯泼溅场景：地址与署名，数据不入库）
 tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/api.md     公共 API 与接入说明
+docs/releases/  各版本的发布说明（GitHub Release 的正文）
 docs/agents/    子系统规范（本文档的展开）
 ```
 
@@ -392,5 +393,5 @@ docs/agents/    子系统规范（本文档的展开）
 
 - `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、分层检查、单测、库构建与类型声明、演示构建；`package`（打包与浏览器冒烟，一个 job 共用同一份构建）：库构建、`check-package --keep-host`（打包检查并保留宿主构建），把 tgz 存为工作流产物，再构建演示应用、用 Playwright 自带的 Chromium 跑 `npm run smoke`（无 GPU：WebGL 经 ANGLE、WebGPU 经 Dawn 的回退适配器，都走 SwiftShader），失败时把 `test-output/` 存为产物；冒烟不重试。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
 - `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 不再是 `"private": true` 时执行，需要仓库密钥 `NPM_TOKEN`；版本号带 `-` 的发到 `next` 标签。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
-- 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本 → 合并到 main → 打标签并推送。打标签和推送要先得到明确同意。
+- 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本（打标签当天填日期）→ 写发布说明 `docs/releases/v<版本>.md`（GitHub Release 的正文，面向使用者：概览、升级须知、兼容性；链接写成指向该标签的绝对地址）→ 合并到 main → 在 Actions 页面手动运行一次 Release（演练）→ 打标签并推送。打标签和推送要先得到明确同意。0.2.0 已准备到打标签之前（2026-11-25，roadmap §0.2 P1.7）。
 - 包名：`terra-view` 在 npm 上没有注册（2026-11-11 查询）。但 npm 上已有 `terraview`（npm 官方的安全占位包，2021 年起），而 npm 自 2017 年起不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，所以首次发布 `terra-view` 有可能被拒；这一点只有真正发布时才能确认。被拒时改用带 scope 的 `@<scope>/terra-view`（scope 不受这条规则限制）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。
