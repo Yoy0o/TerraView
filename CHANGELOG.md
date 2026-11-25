@@ -4,6 +4,18 @@
 
 ## [未发布]
 
+### 使用手册、示例与文档站点（2026-11-25）
+
+- **使用手册**（`docs/guide/`，面向接入 SDK 的开发者）：简介、快速开始（含 React / Vue 接入）、基本概念、创建与容器、相机与导航、影像与地形、3D Tiles、GeoJSON、顶牌与点位、高斯泼溅、室内与 BIM、光照与云、局部场景、描边与自定义对象、交互与拾取、加载与性能、演示应用、常见问题。
+- **可运行示例**（`examples/`，16 个）：每个是独立页面，只用 `terra-viewer` 的公共 API 编写，只用免密钥的数据；清单在 `examples/catalog.ts`。`npm run examples:dev`（端口 5175）、`npm run build:examples`（`dist-examples/`，已接进 `verify` 和 CI）。
+- **文档站点**（GitHub Pages，`https://yoy0o.github.io/TerraView/`）：VitePress 生成手册、API 参考、建筑数据制作手册和发布说明，`/examples/` 是示例，`/demo/` 是演示应用；`npm run site:build` 构建到 `dist-site/`，`npm run docs:dev` 本地预览。手册页里的示例点击后才在 iframe 中运行。`docs/agents/` 不发布，站点里指向它、源码或 CHANGELOG 的相对链接改写成 GitHub 上的文件。工作流 `.github/workflows/pages.yml`：推送到 main 时构建并发布，PR 只构建。
+- 新增开发依赖 `vitepress` 1.6.4（经同意；只用于文档站点，不进包）。它自带 Vite 5，`npm audit` 报的 esbuild 开发服务器问题只影响本机的 `docs:dev`。
+- 浏览器冒烟测试新增 `examples` 项目（`tests/e2e/examples.e2e.ts`）：示例列表齐全，每个示例都能创建 viewer、出帧、没有未捕获的错误（外部数据被拦截时也一样）。
+
+### 已知问题
+
+- `carto-voyager`、`carto-dark` 底图预设和 `carto-labels` 叠加层目前不可用：Carto 已改为要求 API key，不带 key 的请求只返回写着 "API KEY REQUIRED" 的占位图（HTTP 200，所以不会报 `imagery-unreachable`）。在预设更新之前请换用其他底图；处理方式待定（roadmap §9 ISSUE-2）。
+
 ### 发布流程
 
 - `release.yml`：没有 `NPM_TOKEN` 时用 npm 的 trusted publishing（GitHub Actions OIDC，自带 provenance）发布；发布后从 registry 核对版本，`npm publish` 成功退出但版本只进了暂存区（staged，0.2.0 出现过）时让工作流失败并提示去 npmjs.com 批准；GitHub Release、npm 版本已存在时跳过，标签的运行可以安全重跑。

@@ -2,7 +2,9 @@
 
 基于 three.js 的 **WebGPU 优先** 三维地球 SDK。从全球视角到街道，再无缝进入建筑、楼层、房间：WGS84 椭球、四叉树影像与全球地形、物理大气与体积云、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌与点位、室内 / BIM 层级浏览，都由同一个 `GeoViewer` 提供。
 
-以 npm 包 `terra-viewer` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），不进包。
+以 npm 包 `terra-viewer` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），`examples/` 是按功能拆开的可运行示例，都不进包。
+
+**文档站点**：[使用手册](https://yoy0o.github.io/TerraView/guide/) · [示例](https://yoy0o.github.io/TerraView/examples/) · [在线演示](https://yoy0o.github.io/TerraView/demo/) · [API 参考](https://yoy0o.github.io/TerraView/api)
 
 > **状态**：0.2.0，首个对外版本（发布说明见 [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)）。已发布到 npm（`terra-viewer`），GitHub Release 也附带同一个 tgz。0.x 阶段次版本号可以有破坏性变更，记在 [CHANGELOG](CHANGELOG.md)。许可证 Apache-2.0（[LICENSE](LICENSE)）。
 >
@@ -277,8 +279,11 @@ right.dispose();
 
 ## 文档
 
+文档站点 [yoy0o.github.io/TerraView](https://yoy0o.github.io/TerraView/) 由 `docs/` 生成（VitePress，`.github/workflows/pages.yml` 在推送到 main 时发布），同时托管示例和演示应用。
+
 | 文档 | 内容 |
 | --- | --- |
+| [docs/guide/](docs/guide/) | 使用手册（面向接入 SDK 的开发者）：快速开始、基本概念，按功能分章，每章配一个可运行示例（[examples/](examples/)），附常见问题 |
 | [docs/api.md](docs/api.md) | 公共 API：接入、容器、样式、语言与错误、加载状态、帧率、后期、光照、阴影、局部场景、体积云、高斯泼溅；导出清单与级别；多 viewer |
 | [docs/building-data-manual.md](docs/building-data-manual.md) | 建筑数据制作手册（面向数据人员）：坐标、字段、类别、模型、自检；样例 [sample-office.building.json](docs/examples/sample-office.building.json) |
 | [docs/releases/](docs/releases/) | 各版本的发布说明 |
@@ -291,7 +296,11 @@ right.dispose();
 ```bash
 npm install
 npm run dev          # http://localhost:5173（demo/，直接引用 src/）
+npm run examples:dev # http://localhost:5175（examples/，按功能拆开的示例）
+npm run docs:dev     # 文档站点（页内的示例取自 examples:dev）
 ```
+
+在线版本：[演示应用](https://yoy0o.github.io/TerraView/demo/)、[示例](https://yoy0o.github.io/TerraView/examples/)。
 
 ### URL 参数
 
@@ -440,9 +449,11 @@ npm run dev            # 演示应用 http://localhost:5173
 npm test               # 单元测试（vitest）
 npm run build          # 类型检查 + 库构建（dist/：terraview.js、terraview.css、assets/*.worker.js、types/）
 npm run build:demo     # 演示应用的生产构建（dist-demo/）
-npm run verify         # typecheck + 分层检查 + test + build + build:demo，提交前跑
+npm run build:examples # 示例的生产构建（dist-examples/）
+npm run verify         # typecheck + 分层检查 + test + build + build:demo + build:examples，提交前跑
 npm run check:package  # 打包并装进一个临时宿主工程检查（含体积预算，需要联网，先 build）
-npm run smoke:build && npm run smoke   # Playwright 浏览器冒烟（演示应用与打包宿主，WebGL / WebGPU）
+npm run smoke:build && npm run smoke   # Playwright 浏览器冒烟（演示应用与打包宿主，WebGL / WebGPU；全部示例）
+npm run site:build     # 文档站点：手册 + 示例 + 演示应用（dist-site/）
 ```
 
 - 开发规范与踩坑记录：[AGENTS.md](AGENTS.md)（`CLAUDE.md` 引用它）。
@@ -451,7 +462,8 @@ npm run smoke:build && npm run smoke   # Playwright 浏览器冒烟（演示应�
 
 ### 持续集成与发布
 
-- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都在 Node 22、24 上跑 typecheck、分层检查、单测、库构建、演示构建；再把打出的包装进宿主工程检查（含体积预算），并用 Playwright 跑浏览器冒烟。
+- **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都在 Node 22、24 上跑 typecheck、分层检查、单测、库构建、演示与示例构建；再把打出的包装进宿主工程检查（含体积预算），并用 Playwright 跑浏览器冒烟。
+- **文档站点**（`.github/workflows/pages.yml`）：推送到 `main` 时构建手册、示例和演示应用并发布到 GitHub Pages；PR 只构建（检查死链）。
 - **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.2.0`）时，验证后创建 GitHub Release，正文取 `docs/releases/v<版本>.md`，附上 tgz。标签推送时还会发布到 npm（认证用仓库密钥 `NPM_TOKEN`，没有时用 npm 的 trusted publishing；`package.json` 带 `"private": true` 时跳过这一步），发布后核对版本确实上了 registry（只进了 npm 暂存区时失败，批准后重跑即可）。在 Actions 页面手动运行是演练，不创建 Release 也不发布。发版步骤见 [AGENTS.md](AGENTS.md) §8.5。
 - **包名**：`terra-viewer`。原名 `terra-view` 去掉连字符后与 npm 上已有的 `terraview` 相同，npm 不允许发布，2026-11-25 改名。
 

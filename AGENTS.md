@@ -7,6 +7,7 @@
 | 专题 | 文档 |
 | --- | --- |
 | 公共 API、接入方式、样式类名与主题变量（改导出、类名、容器行为前先看） | [docs/api.md](docs/api.md) |
+| 使用手册（面向接入 SDK 的开发者，按功能分章，每章配一个可运行示例；发布在 GitHub Pages） | [docs/guide/](docs/guide/)，示例在 [examples/](examples/) |
 | 相机控制器（手势、不变量、数学） | [docs/agents/camera-controller.md](docs/agents/camera-controller.md) |
 | 瓦片加载（底图 / 地形 / 3D Tiles） | [docs/agents/tile-loading.md](docs/agents/tile-loading.md) |
 | 室内与 BIM 模型定义、层级导航 | [docs/agents/indoor-bim.md](docs/agents/indoor-bim.md) |
@@ -33,18 +34,22 @@
 
   ```bash
   npm run dev         # 演示应用 http://localhost:5173（开发服务器可能已经在跑，先查端口占用，不要杀用户的进程）
-  npm run typecheck   # tsc --noEmit（src、demo、tests）
+  npm run typecheck   # tsc --noEmit（src、demo、examples、tests）
   npm run check:layers  # 分层检查：目录间的依赖方向、文件循环 import（§2.1）
   npm test            # vitest，纯数学与数据逻辑
   npm run build       # 类型检查 + 库构建（dist/terraview.js、terraview.css、assets/*.worker.js）+ 类型声明（dist/types）
   npm run build:demo  # 演示应用的生产构建（dist-demo/）
+  npm run build:examples  # 示例的生产构建（dist-examples/）
   npm run verify      # 以上全部，提交前跑
   npm run check:package  # 打包并装进一个临时宿主工程（scripts/host-fixture）检查，需要联网；先 build
-  npm run smoke:build    # 冒烟前的构建：库、演示应用、打包宿主（保留在 .smoke/host），需要联网
-  npm run smoke          # Playwright 浏览器冒烟：演示应用和打包宿主，WebGL / WebGPU 各一遍；本机用已装的 Chrome，端口 4180 / 4181
+  npm run smoke:build    # 冒烟前的构建：库、演示应用、示例、打包宿主（保留在 .smoke/host），需要联网
+  npm run smoke          # Playwright 浏览器冒烟：演示应用和打包宿主（WebGL / WebGPU 各一遍）、全部示例；本机用已装的 Chrome，端口 4180 / 4181 / 4182
+  npm run examples:dev   # 示例 http://localhost:5175
+  npm run docs:dev       # 文档站点（VitePress），页内示例取自 examples:dev，两个一起开
+  npm run site:build     # Pages 站点：手册（dist-site/）+ 示例（/examples/）+ 演示应用（/demo/）；改了 docs/ 后跑，死链和 Markdown 里的 Vue 模板错误会让它失败
   ```
 
-- 两份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用（把 `terra-viewer` 解析到 `src/index.ts`）。
+- 三份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用，`vite.examples.config.ts` 是示例（后两个都把 `terra-viewer` 解析到 `src/index.ts`）。文档站点的配置在 `docs/.vitepress/config.mts`。
 
 - 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），高斯泼溅 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`（见 splats.md §8），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
@@ -110,10 +115,18 @@ demo/           演示应用，不进包；只通过 `terra-viewer` 入口使用
 ├─ ui/          面板（ControlPanel / IndoorPanel / VectorPanel / PointPanel / SplatPanel / OverlayPanel）、状态栏、属性弹窗、层级条、
 │               导航按钮条（NavigationBar）、URL 参数解析（urlOptions）、本机设置（settings）
 └─ data/        示例数据：demoBuilding（示例办公楼）、demoPoints（示例点位）、demoSplats（开放的高斯泼溅场景：地址与署名，数据不入库）
+examples/       可运行示例，不进包；每个目录一页（index.html + main.ts），同样只通过 `terra-viewer` 入口使用 SDK
+├─ catalog.ts   示例清单（标题、简介、所属手册章节、数据署名）：示例列表页、各页标题和冒烟测试都读它
+├─ shared/      示例页面的面板与控件（ui.ts、example.css），不是 SDK API
+└─ index.html   示例列表页（gallery.ts）
 tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
-docs/api.md     公共 API 与接入说明
-docs/releases/  各版本的发布说明（GitHub Release 的正文）
-docs/agents/    子系统规范（本文档的展开）
+docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/agents/ 除外）
+├─ .vitepress/  站点配置（侧栏、搜索、链接改写）与主题（ExampleFrame：页内嵌入示例）
+├─ index.md     站点首页
+├─ guide/       使用手册（面向接入 SDK 的开发者）
+├─ api.md       公共 API 与接入说明（站点上的"API 参考"）
+├─ releases/    各版本的发布说明（GitHub Release 的正文）
+└─ agents/      子系统规范（本文档的展开，面向贡献者，不发布到站点）
 ```
 
 ### 2.1 分层
@@ -198,7 +211,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 ### 3.10 SDK 边界（包与演示分离）
 
-- `src/` 不能 import `demo/`；`demo/` 只能从 `terra-viewer`（`src/index.ts`）和 `terra-viewer/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
+- `src/` 不能 import `demo/`、`examples/`；`demo/`、`examples/` 只能从 `terra-viewer`（`src/index.ts`）和 `terra-viewer/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用或示例需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
 - 新增、改名、删除导出都是公共 API 变更：同步 `docs/api.md`，记入 CHANGELOG。0.x 阶段次版本号可以有破坏性变更。
 - 不要在 `src/` 里读 URL 参数、`localStorage`、`location`，也不要在 `window` / `document` 上注册全局监听（键盘读 viewer 容器，见 camera-controller.md）。这些属于应用。
 - SDK 创建的 DOM 元素，类名一律以 `tv-` 开头，样式写在 `src/style.css`；可调的外观做成 `--tv-*` 变量并带默认值（`var(--tv-x, 默认值)`），不要依赖宿主页面的变量或全局样式。定位相对 viewer 容器，不要用 `position: fixed`。
@@ -258,7 +271,9 @@ docs/agents/    子系统规范（本文档的展开）
 | 新增交互行为 | 用 `viewer.interaction.on(...)` 并带上 `tag`，方便整体注销；需要阻止默认行为时调用 `preventDefault()`，需要压过默认行为时给 `priority` 并调用 `stopPropagation()`。 |
 | 改某类层级的效果或取景 | 实现 `LevelControl`，用 `viewer.indoor.registerLevelControl(control, tag)` 注册（`condition` 选择器 + `priority`）；要整体替换默认行为就先 `unregisterLevelControls('builtin')`。效果要写成幂等的绝对状态（返回上级时会重新进入父级）。见 indoor-bim.md §6。 |
 | 新增顶牌样式 | 在 `markers/points.ts` 的 `MarkerStyleName` 加名字，在 `markers/cards.ts` 加 `style` 分支，在 `src/style.css` 写 `.tv-<style>`。锚点约定为元素底部中点（pivot `[0.5, 1]`）；以符号中心为锚点的样式用负下外边距让元素止于符号中心。同步 markers.md 的样式表和演示应用 `PointPanel` 的中文名。 |
-| 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。 |
+| 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。宿主会用到的功能，在使用手册对应章节（`docs/guide/`）补用法，必要时补或改示例；改名、删除时搜一遍 `docs/guide/` 和 `examples/`（示例有类型检查兜底，手册没有）。 |
+| 新增示例 | 建 `examples/<id>/index.html`（照抄现有的）和 `main.ts`，在 `examples/catalog.ts` 登记（标题、简介、所属章节 `guide`、第三方数据的署名）；SDK 调用写在 `main.ts` 里并加中文注释，面板控件用 `examples/shared/ui.ts`；只用免密钥、许可允许的数据，加载失败时不能抛出未捕获的错误（冒烟测试会拦截外部请求）。在对应章节末尾放 `<ExampleFrame id="<id>" />`。跑 `npm run build:examples` 和 `npx playwright test --project examples`（先 `npm run build:examples`）。 |
+| 改文档站点 | 手册在 `docs/guide/`，侧栏在 `docs/.vitepress/config.mts`。相对链接写 `.md` 扩展名（GitHub 上也能点）；指向 `docs/agents/`、源码、CHANGELOG 的相对链接构建时改写成 GitHub 地址；指向示例列表、演示应用用完整的 Pages 地址。正文里不要出现代码块以外的 `{{ }}` 和裸的 `<标签>`（VitePress 把 Markdown 当 Vue 模板编译）。`npm run site:build` 会检查死链。推送到 main 后 `pages.yml` 自动发布。 |
 | 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。这几项 `npm run smoke:build && npm run smoke` 会自动检查（另有顶牌留在容器内、逐个销毁后 Worker 归零），看画面仍要手测。 |
 | 加载高斯泼溅 | `viewer.addSplats(...)`、面板"高斯泼溅（3DGS）"、`?splats=<url>`，或拖入 `.ply` / `.splat` / `.spz`；方向不对换 `upAxis`，大小不对调 `scale`（文件没有真实尺度）。改了 `src/splats/` 后跑 `tests/splats.test.ts` 和冒烟的"高斯泼溅"用例，并按 splats.md §10 的清单在真实 GPU 上看一遍。 |
 | 新增泼溅文件格式 | 在 `splats/splatFormats.ts` 加解码函数（输出 `SplatData`，不 import three）和 `detectSplatFormat` 的判断，`SplatFormat` 加名字；需要第三方解压库时先征得同意，并决定放主线程（经宿主的 three）还是打进 Worker。补 `tests/splats.test.ts`（用代码生成最小文件），同步 splats.md §3.1。 |
@@ -268,7 +283,7 @@ docs/agents/    子系统规范（本文档的展开）
 
 ## 6. 提交前验证
 
-1. 运行 `npm run verify`（typecheck、分层检查、test、库构建与类型声明、演示构建），全部通过。
+1. 运行 `npm run verify`（typecheck、分层检查、test、库构建与类型声明、演示与示例构建），全部通过。改了 `docs/` 时再跑 `npm run site:build`。
 2. 涉及数学、调度规则或数据格式的改动，必须在 `tests/` 里补单测（相机不变量、地形分块、BIM 解析与层级都已有测试，可以照着写）。
 3. 浏览器手测（可以用 `window.viewer` 编程驱动）。有条件时用真实浏览器（Claude in Chrome 等）；自动化兜底是 `npm run smoke`（Playwright，CI 也跑）：演示应用（离线调试影像、`?demo` 逐级进出并核对事件顺序、销毁）和打包宿主（两个 viewer、逐个销毁、Worker 归零），出现页面错误、控制台错误或请求外部域名就失败。改了渲染、Worker、容器、层级相关的代码时跑一遍。手测清单：
    - 全球俯视状态下，光标分别放在北、南、东、西，滚轮放大，航向保持 0°、俯仰保持 -90°，画面不翻转。
@@ -288,7 +303,7 @@ docs/agents/    子系统规范（本文档的展开）
 - **3D Tiles 显存泄漏**：在 `load-model` 事件里替换材质，库释放的仍是旧材质；必须在 `processTileModel` 里替换。
 - **HTML 顶牌吞事件**：双击落在顶牌上时 canvas 收不到。实体顶牌走事件代理（`userData.entity` → `interaction.dispatchProxy`），其他顶牌自己处理单击和双击；滚轮要转发。右键只在右键按下也发生在顶牌上时才转发，否则从 canvas 开始、在顶牌上松开的右键拖动会被当成"返回"。
 - **Google 3D Tiles 下建筑、点位埋进地面**（ISSUE-1，已修复）：原来贴地只问地球地形，地球隐藏时建筑、点位落在 0 m，比倾斜摄影地面低几十米。现在一切"贴地"都走 `viewer.surfaceHeight`（地球显示用地形，隐藏时对可见 3D Tiles 做竖直射线，压制期间沿用缓存）。新增贴地逻辑不要直接调 `globe.getHeight`，也不要自己对 3D Tiles 做射线：射线每帧有时间预算，结果要看 `reliable`，不可靠时保持原高度（返回 null），不要回落到 0 m。
-- **无地球时手势失灵**：隐藏地球（Google 3D Tiles 会自动隐藏）后进入建筑，3D Tiles 也被压制，光标下只剩建筑。控制器拾取落空时原来抓的是椭球最小半径上的点（中纬度地下约 13 km），拖动 100 px 相机飞出 4000 多公里，右键也只能原地转。现在落空时用参考地面（建筑地面高度的椭球，`GeoViewer.pickReferenceSurface`），新增依赖拾取的手势必须走控制器的 `host.pick`，不要自己做射线兜底。
+- **无地球时手势失灵**：隐藏地球（演示应用加载 Google 3D Tiles 时会隐藏它，SDK 本身不会自动隐藏）后进入建筑，3D Tiles 也被压制，光标下只剩建筑。控制器拾取落空时原来抓的是椭球最小半径上的点（中纬度地下约 13 km），拖动 100 px 相机飞出 4000 多公里，右键也只能原地转。现在落空时用参考地面（建筑地面高度的椭球，`GeoViewer.pickReferenceSurface`），新增依赖拾取的手势必须走控制器的 `host.pick`，不要自己做射线兜底。
 - **渐变量在目标值处来回跳**：`a < target ? 加 : 减` 这种写法在 `a === target` 时会走减的分支，每帧在 1 和 0.29 之间翻（展台背景出现过）。到达目标要夹在目标值上：`a < t ? min(t, a + k) : max(t, a - k)`。
 - **瓦片材质改了 `needsUpdate` 不生效**：瓦片材质是 `NodeMaterialInstance`，版本号跟随共享的节点材质，在实例上设 `needsUpdate` 没有作用。改了影响管线的属性（如 `wireframe`）要调用 `refreshTileMaterials()`。
 - **层级半透明与用户样式冲突**：同级半透明用 `entity.levelOpacity`（与 `setStyle` 的不透明度相乘），不要用 `setStyle({ opacity })` 实现层级效果，否则返回时会抹掉用户自己设的样式。
@@ -391,7 +406,8 @@ docs/agents/    子系统规范（本文档的展开）
 
 ### 8.5 CI 与发布
 
-- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、分层检查、单测、库构建与类型声明、演示构建；`package`（打包与浏览器冒烟，一个 job 共用同一份构建）：库构建、`check-package --keep-host`（打包检查并保留宿主构建），把 tgz 存为工作流产物，再构建演示应用、用 Playwright 自带的 Chromium 跑 `npm run smoke`（无 GPU：WebGL 经 ANGLE、WebGPU 经 Dawn 的回退适配器，都走 SwiftShader），失败时把 `test-output/` 存为产物；冒烟不重试。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
+- `.github/workflows/ci.yml`：推送到 main 和每个 PR 都跑。`verify`（Node 22、24）：typecheck、分层检查、单测、库构建与类型声明、演示与示例构建；`package`（打包与浏览器冒烟，一个 job 共用同一份构建）：库构建、`check-package --keep-host`（打包检查并保留宿主构建），把 tgz 存为工作流产物，再构建演示应用和示例、用 Playwright 自带的 Chromium 跑 `npm run smoke`（无 GPU：WebGL 经 ANGLE、WebGPU 经 Dawn 的回退适配器，都走 SwiftShader），失败时把 `test-output/` 存为产物；冒烟不重试。CI 跑在 Linux 上，文件名大小写必须和 import 一致。
+- `.github/workflows/pages.yml`（2026-11-25）：文档站点。推送到 main 时 `npm run site:build`（手册、API 参考、示例、演示应用）并发布到 GitHub Pages（`https://yoy0o.github.io/TerraView/`），PR 只构建不发布。站点跟随 main，可能写到还没发布的功能。首次使用要在仓库 Settings → Pages 把 Source 设为 "GitHub Actions"。
 - `.github/workflows/release.yml`：推送标签 `v<版本>`（必须等于 `package.json` 的 `version`）时触发：验证、打包自检、创建 GitHub Release 并附 tgz（版本号带 `-` 的标为预发布）。发布到 npm 这一步只在 `package.json` 没有 `"private": true` 时执行（2026-11-25 已去掉）；认证优先用仓库密钥 `NPM_TOKEN`，没有时用 trusted publishing（OIDC，npm 上为包配置 GitHub Actions 的 `release.yml` 并允许直接 `npm publish`；新配置要在 2 天内完成首次发布，所以发版前再配）。npm 计划 2027 年 1 月取消令牌直接发布，届时只能走 OIDC。版本号带 `-` 的发到 `next` 标签。发布后从 registry 核对版本：`npm publish` 成功退出、版本却只进了 npm 的暂存区（staged，0.2.0 就是这样，需要在 npmjs.com 用 2FA 批准）时这一步失败；批准后重跑工作流即可，已存在的 Release 和 npm 版本会跳过。手动运行（workflow_dispatch）是演练，不创建 Release、不发布。
 - 发版步骤：改 `package.json` 的 `version`（`package-lock.json` 里的两处同步）→ 把 CHANGELOG 的「未发布」整理成该版本（打标签当天填日期）→ 写发布说明 `docs/releases/v<版本>.md`（GitHub Release 的正文，面向使用者：概览、升级须知、兼容性；链接写成指向该标签的绝对地址）→ 合并到 main → 在 Actions 页面手动运行一次 Release（演练）→ 打标签并推送。打标签和推送要先得到明确同意。0.2.0 于 2026-11-25 发布（roadmap §0.2 P1.7）。
 - 包名 `terra-viewer`（2026-11-25 由 `terra-view` 改来：npm 上已有 `terraview`，npm 不允许新建的无 scope 包名去掉 `.` `-` `_` 后与已有包相同，`terra-view` 会撞上；`terra-viewer` 去掉连字符后是 `terraviewer`，没有人注册）。改包名要同时改 `package.json`、`package-lock.json`、`tsconfig.json` 的 `paths`、两份 Vite 配置的别名、`demo/` 和 `scripts/host-fixture/` 里的 import，以及文档。
