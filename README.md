@@ -452,7 +452,7 @@ npm run smoke:build && npm run smoke   # Playwright 浏览器冒烟（演示应�
 ### 持续集成与发布
 
 - **CI**（`.github/workflows/ci.yml`）：推送到 `main` 和每个 PR 都在 Node 22、24 上跑 typecheck、分层检查、单测、库构建、演示构建；再把打出的包装进宿主工程检查（含体积预算），并用 Playwright 跑浏览器冒烟。
-- **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.2.0`）时，验证后创建 GitHub Release，正文取 `docs/releases/v<版本>.md`，附上 tgz。标签推送时还会发布到 npm（需要仓库密钥 `NPM_TOKEN`；`package.json` 带 `"private": true` 时跳过这一步）。在 Actions 页面手动运行是演练，不创建 Release 也不发布。发版步骤见 [AGENTS.md](AGENTS.md) §8.5。
+- **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.2.0`）时，验证后创建 GitHub Release，正文取 `docs/releases/v<版本>.md`，附上 tgz。标签推送时还会发布到 npm（认证用仓库密钥 `NPM_TOKEN`，没有时用 npm 的 trusted publishing；`package.json` 带 `"private": true` 时跳过这一步），发布后核对版本确实上了 registry（只进了 npm 暂存区时失败，批准后重跑即可）。在 Actions 页面手动运行是演练，不创建 Release 也不发布。发版步骤见 [AGENTS.md](AGENTS.md) §8.5。
 - **包名**：`terra-viewer`。原名 `terra-view` 去掉连字符后与 npm 上已有的 `terraview` 相同，npm 不允许发布，2026-11-25 改名。
 
 ## 许可与致谢

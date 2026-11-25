@@ -3,11 +3,20 @@
 #   1. verifies and builds the tagged commit, checks the package in a host project
 #   2. creates a GitHub Release with the tarball attached (pre-release when the version has a `-`);
 #      the notes are docs/releases/v<version>.md when it exists, otherwise GitHub's generated notes
-#   3. publishes to npm, only when package.json no longer says `"private": true`
+#   3. publishes to npm (skipped when package.json says `"private": true`), then checks that the
+#      version is on the registry: a publish that was only staged on npm fails the run, so it is
+#      not mistaken for a release (v0.2.0 was staged and needed approval on npmjs.com)
 #
-# Before the first npm publish:
-#   - remove `"private": true` from package.json (the license is already Apache-2.0)
-#   - add the repository secret NPM_TOKEN (an npm automation token allowed to publish the package)
+# npm authentication, in this order:
+#   - the repository secret NPM_TOKEN when it is set (a granular token with "bypass 2FA"; npm
+#     removes direct publishing with such tokens in January 2027)
+#   - otherwise trusted publishing (OIDC): on npmjs.com, package Settings > Trusted publisher >
+#     GitHub Actions, repository Yoy0o/TerraView, workflow `release.yml`, no environment, and
+#     allow `npm publish` (not only staging). Provenance is then added by npm itself. A new
+#     trusted publisher must publish within 2 days, so set it up right before a release.
+#
+# Re-running a tag run is safe: an existing GitHub Release or npm version is left as it is
+# (after approving a staged publish on npmjs.com, re-run to turn the run green).
 #
 # Run it by hand (Actions > Release > Run workflow) for a dry run: everything except the
 # GitHub Release and the npm publish.
@@ -32,7 +41,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write # create the GitHub Release
-      id-token: write # npm provenance (public repositories)
+      id-token: write # npm trusted publishing (OIDC) and provenance
     env:
       IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
@@ -75,6 +84,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PKG_VERSION: ${{ steps.pkg.outputs.version }}
         run: |
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            echo "GitHub Release ${GITHUB_REF_NAME} already exists, left as it is"
+            exit 0
+          fi
           # Release notes: docs/releases/v<version>.md when it exists, otherwise GitHub's generated notes.
           notes="docs/releases/v${PKG_VERSION}.md"
           if [ -f "$notes" ]; then flags="--notes-file $notes --verify-tag"; else flags="--generate-notes --verify-tag"; fi
@@ -82,31 +95,68 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" ./*.tgz --title "${GITHUB_REF_NAME}" $flags
 
       - name: Publish to npm
+        id: publish
         if: env.IS_TAG == 'true' && steps.pkg.outputs.private != 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PKG_NAME: ${{ steps.pkg.outputs.name }}
           PKG_VERSION: ${{ steps.pkg.outputs.version }}
           REPO_PRIVATE: ${{ github.event.repository.private }}
         run: |
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "::error::the NPM_TOKEN secret is not set"
-            exit 1
+          echo "npm $(npm -v)"
+          if curl -fsS -o /dev/null "https://registry.npmjs.org/${PKG_NAME}/${PKG_VERSION}" 2> /dev/null; then
+            echo "${PKG_NAME}@${PKG_VERSION} is already on the registry, not publishing again"
+            echo "auth=already published" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           tag=latest
           case "${PKG_VERSION}" in *-*) tag=next ;; esac
-          provenance=""
-          if [ "${REPO_PRIVATE}" = "false" ]; then provenance="--provenance"; fi
+          if [ -n "${NODE_AUTH_TOKEN}" ]; then
+            echo "auth=token (NPM_TOKEN)" >> "$GITHUB_OUTPUT"
+            # With a token npm only attaches provenance when asked; OIDC adds it by itself.
+            provenance=""
+            if [ "${REPO_PRIVATE}" = "false" ]; then provenance="--provenance"; fi
+          else
+            echo "auth=trusted publishing (OIDC)" >> "$GITHUB_OUTPUT"
+            echo "NPM_TOKEN is not set: publishing with trusted publishing (OIDC)"
+            # setup-node's .npmrc refers to NODE_AUTH_TOKEN; with it empty npm uses OIDC.
+            provenance=""
+          fi
           npm publish ./*.tgz --access public --tag "$tag" $provenance
+
+      # Queried with curl, not `npm view`: no auth involved (setup-node leaves a placeholder token).
+      # `npm publish` can exit 0 without the version going live (v0.2.0 was staged and waited for
+      # approval on npmjs.com). Fail here so that shows up, instead of a green run.
+      - name: Check the version on the registry
+        if: env.IS_TAG == 'true' && steps.pkg.outputs.private != 'true'
+        env:
+          PKG_NAME: ${{ steps.pkg.outputs.name }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS -o /dev/null "https://registry.npmjs.org/${PKG_NAME}/${PKG_VERSION}" 2> /dev/null; then
+              echo "${PKG_NAME}@${PKG_VERSION} is on the registry"
+              echo "- npm: [${PKG_NAME}@${PKG_VERSION}](https://www.npmjs.com/package/${PKG_NAME}/v/${PKG_VERSION}) is live" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          msg="${PKG_NAME}@${PKG_VERSION} is not on the registry after 2 minutes. If npmjs.com lists it under Staged Packages, approve it there (2FA), then re-run this workflow."
+          echo "::error::${msg}"
+          echo "- npm: **not live** — ${msg}" >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Summary
         env:
           PKG_NAME: ${{ steps.pkg.outputs.name }}
           PKG_VERSION: ${{ steps.pkg.outputs.version }}
           PKG_PRIVATE: ${{ steps.pkg.outputs.private }}
+          NPM_AUTH: ${{ steps.publish.outputs.auth || 'not run' }}
         run: |
           {
             echo "### ${PKG_NAME} ${PKG_VERSION}"
             echo "- tag run: ${IS_TAG}"
             echo "- package.json private: ${PKG_PRIVATE} (npm publish runs only when false, on a tag)"
+            echo "- npm publish: ${NPM_AUTH}"
             ls -l ./*.tgz | awk '{print "- tarball: " $NF " (" $5 " bytes)"}'
           } >> "$GITHUB_STEP_SUMMARY"

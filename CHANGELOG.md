@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### 发布流程
+
+- `release.yml`：没有 `NPM_TOKEN` 时用 npm 的 trusted publishing（GitHub Actions OIDC，自带 provenance）发布；发布后从 registry 核对版本，`npm publish` 成功退出但版本只进了暂存区（staged，0.2.0 出现过）时让工作流失败并提示去 npmjs.com 批准；GitHub Release、npm 版本已存在时跳过，标签的运行可以安全重跑。
+
 ## [0.2.0] - 2026-11-25
 
 TerraView 的首个对外版本：代码从 three-geo-global 迁移并改造成 npm 包 `terra-viewer`，之后补齐了嵌入所需的 API 分级、语言与错误码、加载状态、按需停画，以及后期管线、日照阴影、局部场景、高斯泼溅、层级绑定、体积云等功能。面向使用者的发布说明（功能概览、从 0.1.0 升级的破坏性变更汇总、兼容性）见 [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)；下面按专题、从新到旧列出 0.1.0 之后的全部改动。
