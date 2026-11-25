@@ -1,0 +1,66 @@
+# Documentation site on GitHub Pages: the user manual and API reference (VitePress, docs/),
+# the runnable examples (examples/) and the demo application (demo/), built together into
+# dist-site/ by `npm run site:build`:
+#
+#   <site>/            manual, API reference, building data manual, release notes
+#   <site>/examples/   example gallery and one page per example
+#   <site>/demo/       demo application
+#
+# Pushes to main build and deploy; pull requests only build (dead links, Vue template errors in
+# the Markdown, broken examples). The site follows main, so it can describe unreleased changes.
+#
+# One-time setup: repository Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref }}
+  # Let a running deployment finish; a newer push deploys right after it.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Build manual, examples and demo
+        run: npm run site:build
+        env:
+          # Project pages are served under /<repository>/.
+          SITE_BASE: /${{ github.event.repository.name }}/
+      - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
+        with:
+          path: dist-site
+
+  deploy:
+    name: Deploy
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
