@@ -30,11 +30,13 @@ const BUDGETS = [
   // 2026-11-23: 800 → 880 for the Gaussian splat layers and level bindings (entry 800.4 / 243.1 then);
   // 860 on main for the volumetric clouds. Both merged (2026-11-24): entry 874.7 / 265.6.
   { file: 'terraview.js', raw: 880, gzip: 270 },
-  { file: 'terraview.css', raw: 16, gzip: 5 },
+  // 2026-11-25 (0.2.0 release prep): budgets with more than ~10% headroom tightened to about
+  // 110% of the current size (css 8.3 / 2.6, vector 24.8 / 8.1, cluster 6.9 / 2.9, noise 6.8 / 2.8).
+  { file: 'terraview.css', raw: 10, gzip: 3.2 },
   { file: 'assets/tileMesh.worker', raw: 220, gzip: 115 },
-  { file: 'assets/vector.worker', raw: 32, gzip: 10 },
-  { file: 'assets/clusterTree.worker', raw: 12, gzip: 5 },
-  { file: 'assets/cloudNoise.worker', raw: 10, gzip: 4 },
+  { file: 'assets/vector.worker', raw: 28, gzip: 9.2 },
+  { file: 'assets/clusterTree.worker', raw: 8, gzip: 3.4 },
+  { file: 'assets/cloudNoise.worker', raw: 8, gzip: 3.4 },
   // Gaussian splat decoders (2026-11-22: 30.4 / 9.6).
   { file: 'assets/splat.worker', raw: 34, gzip: 11 },
 ];

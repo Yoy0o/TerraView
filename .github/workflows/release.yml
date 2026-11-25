@@ -1,7 +1,8 @@
 # Release: push a tag `v<version>` that matches package.json (for example v0.1.0).
 #
 #   1. verifies and builds the tagged commit, checks the package in a host project
-#   2. creates a GitHub Release with the tarball attached (pre-release when the version has a `-`)
+#   2. creates a GitHub Release with the tarball attached (pre-release when the version has a `-`);
+#      the notes are docs/releases/v<version>.md when it exists, otherwise GitHub's generated notes
 #   3. publishes to npm, only when package.json no longer says `"private": true`
 #
 # Before the first npm publish:
@@ -74,7 +75,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PKG_VERSION: ${{ steps.pkg.outputs.version }}
         run: |
-          flags="--generate-notes --verify-tag"
+          # Release notes: docs/releases/v<version>.md when it exists, otherwise GitHub's generated notes.
+          notes="docs/releases/v${PKG_VERSION}.md"
+          if [ -f "$notes" ]; then flags="--notes-file $notes --verify-tag"; else flags="--generate-notes --verify-tag"; fi
           case "${PKG_VERSION}" in *-*) flags="$flags --prerelease" ;; esac
           gh release create "${GITHUB_REF_NAME}" ./*.tgz --title "${GITHUB_REF_NAME}" $flags
 

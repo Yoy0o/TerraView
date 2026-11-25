@@ -1,9 +1,9 @@
 {
   "name": "terra-view",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "WebGPU-first 3D globe SDK built on three.js: quadtree imagery and terrain, atmosphere, OGC 3D Tiles, GeoJSON, HTML markers and indoor / BIM navigation.",
+  "description": "WebGPU-first 3D globe SDK built on three.js: quadtree imagery and terrain, physical atmosphere and volumetric clouds, OGC 3D Tiles, Gaussian splats, GeoJSON, HTML markers, and seamless globe-to-building indoor / BIM navigation.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -23,6 +23,9 @@
     "3d-tiles",
     "terrain",
     "geojson",
+    "gaussian-splatting",
+    "3dgs",
+    "atmosphere",
     "bim",
     "indoor",
     "digital-twin"
