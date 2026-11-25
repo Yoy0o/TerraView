@@ -91,8 +91,23 @@ test('host: two viewers from the package, dispose one then the other', async ({ 
   expect(await liveWorkers(page)).toBeGreaterThan(0);
 
   // A container that is not displayed draws nothing, and draws again once shown.
-  await page.evaluate(() => (document.getElementById('right')!.style.display = 'none'));
-  await page.waitForTimeout(300);
+  // The viewer stops on its IntersectionObserver's notification, which arrives after a rendering
+  // step: a fixed wait is too short under software rendering (a frame there takes 250 ms or more).
+  // Observers are notified in creation order, so once this one (created after the viewer's)
+  // reports the container gone, the viewer has seen it too.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const el = document.getElementById('right')!;
+        const io = new IntersectionObserver((entries) => {
+          if (entries[entries.length - 1]?.isIntersecting) return;
+          io.disconnect();
+          resolve();
+        });
+        io.observe(el);
+        el.style.display = 'none';
+      }),
+  );
   expect(await frameCount(page, 'right', 600), 'frames while the container is hidden').toBe(0);
   await page.evaluate(() => (document.getElementById('right')!.style.display = ''));
   await framesOf(page, 'right');
