@@ -20,5 +20,5 @@
       "terra-viewer": ["./src/index.ts"]
     }
   },
-  "include": ["src", "demo", "tests"]
+  "include": ["src", "demo", "examples", "tests"]
 }

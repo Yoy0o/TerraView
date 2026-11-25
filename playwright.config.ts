@@ -7,9 +7,14 @@
  *   host   .smoke/host (`node scripts/check-package.mjs --keep-host .smoke/host`, after
  *          `npm run build`): the packed SDK inside scripts/host-fixture → tests/e2e/host.e2e.ts
  *
+ * plus the runnable examples, dist-examples/ (`npm run build:examples`) → tests/e2e/examples.e2e.ts,
+ * in a single project `examples` on whichever backend the browser offers (the examples, like a
+ * host, do not pick one).
+ *
  * Browser: locally the installed Chrome (`channel: 'chrome'`, nothing to download, real GPU); on CI
  * Playwright's Chromium (`npx playwright install --with-deps --no-shell chromium`). SMOKE_CHANNEL
- * overrides (`chromium`, `chrome`, `msedge`). Ports 4180 / 4181, away from the dev server (5173).
+ * overrides (`chromium`, `chrome`, `msedge`). Ports 4180 / 4181 / 4182, away from the dev servers
+ * (5173 demo, 5175 examples).
  *
  * Software rendering (CI, or SMOKE_NO_GPU=1 to reproduce it locally): each backend is pointed at
  * SwiftShader, WebGL through ANGLE and WebGPU through Dawn's fallback adapter. The two switches
@@ -26,12 +31,20 @@ import { defineConfig, devices, type PlaywrightTestConfig } from '@playwright/te
 const CI = !!process.env.CI;
 const DEMO_PORT = 4180;
 const HOST_PORT = 4181;
+const EXAMPLES_PORT = 4182;
 const HOST_DIR = '.smoke/host';
+const EXAMPLES_DIR = 'dist-examples';
 const hasHost = existsSync(`${HOST_DIR}/index.html`);
 if (!hasHost) {
   const hint = `${HOST_DIR} is missing: run \`npm run build && node scripts/check-package.mjs --keep-host ${HOST_DIR}\``;
   if (CI) throw new Error(hint);
   console.warn(`[smoke] host tests skipped: ${hint}`);
+}
+const hasExamples = existsSync(`${EXAMPLES_DIR}/index.html`);
+if (!hasExamples) {
+  const hint = `${EXAMPLES_DIR} is missing: run \`npm run build:examples\``;
+  if (CI) throw new Error(hint);
+  console.warn(`[smoke] example tests skipped: ${hint}`);
 }
 
 const channel = process.env.SMOKE_CHANNEL ?? (CI ? 'chromium' : 'chrome');
@@ -78,6 +91,15 @@ export default defineConfig({
   retries: 0,
   reporter: CI ? [['github'], ['list'], ['html', { outputFolder: 'test-output/e2e-report', open: 'never' }]] : [['list']],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' },
-  projects: [...target('demo', DEMO_PORT), ...(hasHost ? target('host', HOST_PORT) : [])],
-  webServer: [server('dist-demo', DEMO_PORT), ...(hasHost ? [server(HOST_DIR, HOST_PORT)] : [])],
+  projects: [
+    ...target('demo', DEMO_PORT),
+    ...(hasHost ? target('host', HOST_PORT) : []),
+    // WebGPU flags: in software mode that is SwiftShader's WebGPU, which the examples pick by default.
+    ...(hasExamples ? [{ name: 'examples', testMatch: 'examples.e2e.ts', use: { ...browser('webgpu'), baseURL: `http://127.0.0.1:${EXAMPLES_PORT}` } }] : []),
+  ],
+  webServer: [
+    server('dist-demo', DEMO_PORT),
+    ...(hasHost ? [server(HOST_DIR, HOST_PORT)] : []),
+    ...(hasExamples ? [server(EXAMPLES_DIR, EXAMPLES_PORT)] : []),
+  ],
 });

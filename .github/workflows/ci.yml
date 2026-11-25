@@ -1,11 +1,14 @@
 # CI: every push to main and every pull request.
 #
-#   verify   typecheck, layering, unit tests, library build + declarations, demo build (Node 22 and 24)
+#   verify   typecheck, layering, unit tests, library build + declarations, demo and examples
+#            builds (Node 22 and 24)
 #   package  packs the build and installs it into a fresh host project, the way a consumer
 #            would (scripts/check-package.mjs; the tarball is kept as a workflow artifact), then
-#            runs the browser smoke tests (playwright.config.ts) on the demo and on that host, in
-#            Playwright's Chromium without a GPU: WebGL and WebGPU both on SwiftShader. One job,
-#            because the smoke tests need the same build and the same packed host.
+#            runs the browser smoke tests (playwright.config.ts) on the demo, on that host and on
+#            the examples, in Playwright's Chromium without a GPU: WebGL and WebGPU both on
+#            SwiftShader. One job, because the smoke tests need the same build and the same packed host.
+#
+# The documentation site (manual, examples, demo on GitHub Pages) has its own workflow: pages.yml.
 name: CI
 
 on:
@@ -48,6 +51,8 @@ jobs:
         run: npm run build:lib && npm run build:types
       - name: Build the demo
         run: npm run build:demo
+      - name: Build the examples
+        run: npm run build:examples
 
   package:
     name: Package and browser smoke
@@ -75,8 +80,8 @@ jobs:
           path: '*.tgz'
           if-no-files-found: error
           retention-days: 14
-      - name: Build the demo
-        run: npm run build:demo
+      - name: Build the demo and the examples
+        run: npm run build:demo && npm run build:examples
       - name: Install Chromium
         run: npx playwright install --with-deps --no-shell chromium
       - name: Smoke tests

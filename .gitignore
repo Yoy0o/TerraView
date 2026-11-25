@@ -15,3 +15,8 @@ test-output/
 .agent/
 # 本地临时资料（参考分析、草稿等），不入库
 /temp/
+# 示例与 Pages 站点的构建（npm run build:examples / site:build）
+dist-examples/
+dist-site/
+docs/.vitepress/cache/
+docs/.vitepress/dist/

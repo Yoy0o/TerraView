@@ -54,13 +54,18 @@
     "build:lib": "vite build",
     "build:types": "tsc -p tsconfig.build.json && tsc -p tsconfig.dts.json && node scripts/check-dts.mjs",
     "build:demo": "vite build --config vite.demo.config.ts",
+    "build:examples": "vite build --config vite.examples.config.ts",
     "preview": "vite preview --config vite.demo.config.ts",
+    "examples:dev": "vite --config vite.examples.config.ts",
+    "docs:dev": "vitepress dev docs",
+    "site:build": "vitepress build docs && vite build --config vite.examples.config.ts --outDir ../dist-site/examples && vite build --config vite.demo.config.ts --outDir ../dist-site/demo",
+    "site:preview": "vitepress preview docs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run check:layers && npm test && npm run build && npm run build:demo",
+    "verify": "npm run typecheck && npm run check:layers && npm test && npm run build && npm run build:demo && npm run build:examples",
     "check:layers": "node scripts/check-layers.mjs",
     "check:package": "node scripts/check-package.mjs",
-    "smoke:build": "npm run build && npm run build:demo && node scripts/check-package.mjs --keep-host .smoke/host",
+    "smoke:build": "npm run build && npm run build:demo && npm run build:examples && node scripts/check-package.mjs --keep-host .smoke/host",
     "smoke": "playwright test"
   },
   "peerDependencies": {
@@ -75,6 +80,7 @@
     "three": "0.187.0",
     "typescript": "5.9.3",
     "vite": "8.3.4",
+    "vitepress": "1.6.4",
     "vitest": "5.0.5"
   },
   "engines": {
