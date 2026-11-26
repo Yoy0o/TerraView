@@ -92,6 +92,7 @@ Hub 有记录的 7 个任务合计 640 分钟（约 10.7 小时），均 0–1 �
 | 11-24 | 单包内重构（G 组）：拆 `GeoViewer`、`Globe`、`VolumetricClouds`，`clouds/`、`region/` 两个目录，消除反向依赖与文件循环，分层检查 `check:layers` | §4 G | `1ae5455`…（见 Git 记录） | AGENTS.md §2、§2.1 |
 | 11-25 | 0.2.0 发布：包名由 `terra-view` 改为 `terra-viewer`（`terra-view` 去掉连字符后与 npm 上的 `terraview` 相同，会被拒），去掉 `private`，仓库公开，打标签 `v0.2.0` | P1.7 | 见 Git 记录 | CHANGELOG `[0.2.0]`、[releases/v0.2.0.md](../releases/v0.2.0.md) |
 | 11-25 | 使用手册（`docs/guide/`）、16 个可运行示例（`examples/`）、VitePress 文档站点与 GitHub Pages 工作流（手册 + 示例 + 演示应用），示例的浏览器冒烟 | 首发后插入项（D5） | 见 Git 记录 | [roadmap.md](roadmap.md) §0.2"首发后插入项"、AGENTS.md §5 |
+| 11-26 | 社区文件与中英双语对外文档：README / 贡献指南中英两版，站点英文入口 `/en/`，行为准则、安全策略、issue / PR 模板；赞助配置（`FUNDING.yml`、`funding` 字段、赞助页与收款码） | D5 余项 | 见 Git 记录 | CONTRIBUTING.md「文档同步」 |
 
 ## 3. Hub 任务与 roadmap 的对应
 
@@ -274,6 +275,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-26 | D5 余项：中英双语对外文档（README、CONTRIBUTING、站点 `/en/` 的首页 / 快速开始 / 发布说明 / 赞助页）、社区文件（行为准则、安全策略、issue / PR 模板）、赞助配置；仓库设置里要开启私下漏洞报告 |
 | 2026-11-25 | D5 使用手册与示例：`docs/guide/` 18 章、`examples/` 16 个示例（`catalog.ts`、共享面板），VitePress 站点（`docs/.vitepress/`：中文分词搜索、指向站外的相对链接改写到 GitHub、`ExampleFrame` 嵌入示例），`pages.yml`（main 发布、PR 只构建），`build:examples` 进 `verify` / CI，冒烟新增 `examples` 项目。核对 roadmap：§0.1、首发准备清单、本文 D4 / 推荐顺序里 P1.7 "搁置" 的旧说法更正 |
 | 2026-11-25 | 0.2.0 发布：包名改为 `terra-viewer`，去掉 `private`，CHANGELOG 填日期，打标签 `v0.2.0` |
 | 2026-11-25 | P1.7 发布准备（0.2.0）：版本号、CHANGELOG `[0.2.0]`（日期待打标签当天填）、发布说明 `docs/releases/v0.2.0.md`（`release.yml` 用作 Release 正文）、README 重写（功能概览补齐、接入示例、文档索引、对标与限制更新）、package 描述与关键词、体积预算收紧。**没有**去掉 `private`、打标签或推送：这三步仍要单独确认（roadmap §0.2 P1.7 首发准备清单） |

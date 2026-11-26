@@ -20,6 +20,7 @@
 | 体积云（近地积云、天气跟随云壳、低分辨率交错追踪与时域重投影、云影） | [docs/agents/volumetric-clouds.md](docs/agents/volumetric-clouds.md) |
 | 高斯泼溅 / 3DGS 图层（文件格式、预算、地理锚定、绘制、拾取、裁剪、分期） | [docs/agents/splats.md](docs/agents/splats.md) |
 | 改造记录与计划（时间线、Hub 任务对应、待办清单；每个任务合并后更新） | [docs/agents/progress-log.md](docs/agents/progress-log.md) |
+| 贡献指南（对外，中英两版；含中英成对文档的清单）、行为准则、安全策略、赞助页 | [CONTRIBUTING.md](CONTRIBUTING.md) / [CONTRIBUTING.en.md](CONTRIBUTING.en.md)、[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)、[SECURITY.md](SECURITY.md)、[docs/sponsor.md](docs/sponsor.md) |
 | ThingJS 示例分析与能力对照（本地资料，不入库） | `temp/thingjs/thingjs-reference.md` |
 | ThingJS 运行时源码分析、可借鉴的实现与落地清单（改层级、拾取、事件、样式前先看；本地资料，不入库） | `temp/thingjs/thingjs-runtime-analysis.md` |
 
@@ -126,6 +127,8 @@ docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/a
 ├─ guide/       使用手册（面向接入 SDK 的开发者）
 ├─ api.md       公共 API 与接入说明（站点上的"API 参考"）
 ├─ releases/    各版本的发布说明（GitHub Release 的正文）
+├─ en/          英文页面（站点的 /en/：首页、快速开始、发布说明、赞助页），与中文页成对维护
+├─ sponsor.md   赞助页（收款码在 images/sponsor/）
 └─ agents/      子系统规范（本文档的展开，面向贡献者，不发布到站点）
 ```
 
@@ -273,7 +276,7 @@ docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/a
 | 新增顶牌样式 | 在 `markers/points.ts` 的 `MarkerStyleName` 加名字，在 `markers/cards.ts` 加 `style` 分支，在 `src/style.css` 写 `.tv-<style>`。锚点约定为元素底部中点（pivot `[0.5, 1]`）；以符号中心为锚点的样式用负下外边距让元素止于符号中心。同步 markers.md 的样式表和演示应用 `PointPanel` 的中文名。 |
 | 新增或修改公共 API | 在 `src/index.ts` 导出，写 JSDoc（单位、坐标系、取值范围），同步 [docs/api.md](docs/api.md) 和 CHANGELOG；演示应用里用起来，确认从包入口够用。宿主会用到的功能，在使用手册对应章节（`docs/guide/`）补用法，必要时补或改示例；改名、删除时搜一遍 `docs/guide/` 和 `examples/`（示例有类型检查兜底，手册没有）。 |
 | 新增示例 | 建 `examples/<id>/index.html`（照抄现有的）和 `main.ts`，在 `examples/catalog.ts` 登记（标题、简介、所属章节 `guide`、第三方数据的署名）；SDK 调用写在 `main.ts` 里并加中文注释，面板控件用 `examples/shared/ui.ts`；只用免密钥、许可允许的数据，加载失败时不能抛出未捕获的错误（冒烟测试会拦截外部请求）。在对应章节末尾放 `<ExampleFrame id="<id>" />`。跑 `npm run build:examples` 和 `npx playwright test --project examples`（先 `npm run build:examples`）。 |
-| 改文档站点 | 手册在 `docs/guide/`，侧栏在 `docs/.vitepress/config.mts`。相对链接写 `.md` 扩展名（GitHub 上也能点）；指向 `docs/agents/`、源码、CHANGELOG 的相对链接构建时改写成 GitHub 地址；指向示例列表、演示应用用完整的 Pages 地址。正文里不要出现代码块以外的 `{{ }}` 和裸的 `<标签>`（VitePress 把 Markdown 当 Vue 模板编译）。`npm run site:build` 会检查死链。推送到 main 后 `pages.yml` 自动发布。 |
+| 改文档站点 | 手册在 `docs/guide/`，侧栏在 `docs/.vitepress/config.mts`。相对链接写 `.md` 扩展名（GitHub 上也能点）；指向 `docs/agents/`、源码、CHANGELOG 的相对链接构建时改写成 GitHub 地址；指向示例列表、演示应用用完整的 Pages 地址。正文里不要出现代码块以外的 `{{ }}` 和裸的 `<标签>`（VitePress 把 Markdown 当 Vue 模板编译）。`npm run site:build` 会检查死链。推送到 main 后 `pages.yml` 自动发布。对外文档有中英两版（README、CONTRIBUTING、站点首页、快速开始、发布说明、赞助页，清单在 CONTRIBUTING.md「文档同步」）：改一边时另一边同步；英文页放 `docs/en/`，侧栏在 config 的 `locales.en`。 |
 | 验证打出的包 | `npm run build && npm run check:package`：检查 tarball 内容和体积预算（`scripts/check-package.mjs` 的 `BUDGETS`，有意增大时调高并在提交里说明），并把它装进 `scripts/host-fixture` 的宿主工程做类型检查和构建（CI 也跑）。改了 Worker、样式、容器或导出时，再在那个宿主工程里实际打开页面看一遍：两个 viewer 都能跑、Worker 能加载、页面上只有一份 three。这几项 `npm run smoke:build && npm run smoke` 会自动检查（另有顶牌留在容器内、逐个销毁后 Worker 归零），看画面仍要手测。 |
 | 加载高斯泼溅 | `viewer.addSplats(...)`、面板"高斯泼溅（3DGS）"、`?splats=<url>`，或拖入 `.ply` / `.splat` / `.spz`；方向不对换 `upAxis`，大小不对调 `scale`（文件没有真实尺度）。改了 `src/splats/` 后跑 `tests/splats.test.ts` 和冒烟的"高斯泼溅"用例，并按 splats.md §10 的清单在真实 GPU 上看一遍。 |
 | 新增泼溅文件格式 | 在 `splats/splatFormats.ts` 加解码函数（输出 `SplatData`，不 import three）和 `detectSplatFormat` 的判断，`SplatFormat` 加名字；需要第三方解压库时先征得同意，并决定放主线程（经宿主的 three）还是打进 Worker。补 `tests/splats.test.ts`（用代码生成最小文件），同步 splats.md §3.1。 |

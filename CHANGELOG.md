@@ -4,6 +4,12 @@
 
 ## [未发布]
 
+### 社区文件、中英双语对外文档与赞助（2026-11-26）
+
+- **英文版对外文档**：`README.en.md`、`CONTRIBUTING.en.md`；文档站点新增英文入口 `/en/`（VitePress 多语言：首页、快速开始、0.2.0 发布说明、赞助页，侧栏链到只有中文的手册和 API 参考）。中英成对的文档清单写在 `CONTRIBUTING.md`，改一边时另一边同步。
+- **社区文件**：贡献指南 `CONTRIBUTING.md`、行为准则 `CODE_OF_CONDUCT.md`（采用 Contributor Covenant 2.1，中英双语）、安全策略 `SECURITY.md`（经 GitHub 私下报告，中英双语）；`.github/ISSUE_TEMPLATE/`（问题报告、功能建议，双语表单）和 `.github/PULL_REQUEST_TEMPLATE.md`。
+- **赞助**：`.github/FUNDING.yml`（仓库页的 Sponsor 按钮，指向站点赞助页）、`package.json` 的 `funding` 字段（`npm fund` 可见）、赞助页 `docs/sponsor.md` / `docs/en/sponsor.md`（微信、PayPal 收款码，企业赞助与支持），README 中英两版新增"参与贡献""赞助支持"两节和徽章。收款码图片在 `docs/images/sponsor/`。
+
 ### 使用手册、示例与文档站点（2026-11-25）
 
 - **使用手册**（`docs/guide/`，面向接入 SDK 的开发者）：简介、快速开始（含 React / Vue 接入）、基本概念、创建与容器、相机与导航、影像与地形、3D Tiles、GeoJSON、顶牌与点位、高斯泼溅、室内与 BIM、光照与云、局部场景、描边与自定义对象、交互与拾取、加载与性能、演示应用、常见问题。
