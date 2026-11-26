@@ -1,0 +1,65 @@
+name: 问题报告 / Bug report
+description: 画面、加载、交互或 API 的行为与预期不符 / Something renders, loads or behaves differently than expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！提交前请先搜一下[已有的 issue](https://github.com/Yoy0o/TerraView/issues) 和[常见问题](https://yoy0o.github.io/TerraView/guide/faq)。安全问题请不要在这里公开，见 [SECURITY.md](https://github.com/Yoy0o/TerraView/blob/main/SECURITY.md)。
+        Thanks for reporting! Please search [existing issues](https://github.com/Yoy0o/TerraView/issues) first. Do not report security issues here; see [SECURITY.md](https://github.com/Yoy0o/TerraView/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: terra-viewer 版本 / Version
+      placeholder: "0.2.0（或提交号 / or a commit hash）"
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: 渲染后端 / Rendering backend
+      description: 见 viewer.info.backend 或演示应用状态栏 / See viewer.info.backend or the demo status bar
+      options:
+        - WebGPU
+        - WebGL 2
+        - 两者都有 / Both
+        - 不确定 / Not sure
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 浏览器、系统与 GPU / Browser, OS and GPU
+      placeholder: "Chrome 142, Windows 11, NVIDIA RTX 3060（显存档位 / GPU tier: high）"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 现象 / What happened
+      description: 看到了什么，期望是什么；截图或录屏很有帮助 / What you saw and what you expected; screenshots or recordings help a lot
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: |
+        最小代码，或演示应用的完整地址（含 URL 参数和 #相机位置）
+        Minimal code, or the full demo URL (with its URL parameters and #camera hash)
+      render: ts
+    validations:
+      required: true
+  - type: textarea
+    id: snapshot
+    attributes:
+      label: 诊断快照 / Diagnostics snapshot
+      description: |
+        在控制台运行 `JSON.stringify(viewer.snapshot())` 并粘贴结果；以及控制台的报错
+        Paste the output of `JSON.stringify(viewer.snapshot())` and any console errors
+      render: json
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其他 / Anything else
+      description: 数据源（影像、地形、3D Tiles 地址，去掉密钥）、宿主框架、打包工具等 / Data sources (strip any keys), host framework, bundler, etc.

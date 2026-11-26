@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 使用手册与常见问题 / User manual and FAQ
+    url: https://yoy0o.github.io/TerraView/guide/faq
+    about: 先看手册和常见问题，很多用法问题在那里有答案 / Many usage questions are answered in the manual (Chinese) and FAQ
+  - name: 安全问题 / Security vulnerability
+    url: https://github.com/Yoy0o/TerraView/security/advisories/new
+    about: 请私下报告，不要公开提 issue / Please report privately, not in a public issue
+  - name: 赞助与企业支持 / Sponsorship and company support
+    url: https://yoy0o.github.io/TerraView/sponsor
+    about: 赞助方式与定制开发、技术支持 / Ways to sponsor, custom development and support
