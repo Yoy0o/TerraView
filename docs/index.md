@@ -70,3 +70,5 @@ const viewer = await GeoViewer.create({
 ```
 
 接下来读[快速开始](/guide/getting-started)，或者在[示例](https://yoy0o.github.io/TerraView/examples/)里挑一个改起来。
+
+TerraView 免费开源，由个人维护者业余开发。觉得有用的话，欢迎[赞助支持](/sponsor)。English readers: see the [English pages](/en/).

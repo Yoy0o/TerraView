@@ -1,5 +1,13 @@
 # TerraView
 
+简体中文 | [English](README.en.md)
+
+[![npm](https://img.shields.io/npm/v/terra-viewer?color=1d4ed8)](https://www.npmjs.com/package/terra-viewer)
+[![CI](https://github.com/Yoy0o/TerraView/actions/workflows/ci.yml/badge.svg)](https://github.com/Yoy0o/TerraView/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-0f766e)](https://yoy0o.github.io/TerraView/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E8%B5%9E%E5%8A%A9-ea4aaa)](docs/sponsor.md)
+
 基于 three.js 的 **WebGPU 优先** 三维地球 SDK。从全球视角到街道，再无缝进入建筑、楼层、房间：WGS84 椭球、四叉树影像与全球地形、物理大气与体积云、OGC 3D Tiles、高斯泼溅（3DGS）、GeoJSON 矢量与注记、HTML 顶牌与点位、室内 / BIM 层级浏览，都由同一个 `GeoViewer` 提供。
 
 以 npm 包 `terra-viewer` 的形式嵌入应用：宿主提供一个容器元素，就能用上地球、图层、点位、室内和交互 API。仓库里的 `demo/` 是建在同一套公共 API 上的演示应用（面板、状态栏、URL 参数），`examples/` 是按功能拆开的可运行示例，都不进包。
@@ -8,7 +16,7 @@
 
 > **状态**：0.2.0，首个对外版本（发布说明见 [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md)）。已发布到 npm（`terra-viewer`），GitHub Release 也附带同一个 tgz。0.x 阶段次版本号可以有破坏性变更，记在 [CHANGELOG](CHANGELOG.md)。许可证 Apache-2.0（[LICENSE](LICENSE)）。
 >
-> 参与开发（人或 AI 代理）请先读 [AGENTS.md](AGENTS.md)。
+> 参与开发请先读[贡献指南](CONTRIBUTING.md)；开发规范与踩坑记录（人或 AI 代理）在 [AGENTS.md](AGENTS.md)。觉得有用的话，欢迎[赞助支持](#赞助支持)。
 
 | 全球视角（WebGPU） | 近地轨道大气 | 昼夜晨昏线 |
 | --- | --- | --- |
@@ -42,6 +50,8 @@
 - [已知限制](#已知限制)
 - [路线图](#路线图)
 - [本仓库开发](#本仓库开发)
+- [参与贡献](#参与贡献)
+- [赞助支持](#赞助支持)
 - [许可与致谢](#许可与致谢)
 
 ## 功能概览
@@ -290,6 +300,10 @@ right.dispose();
 | [CHANGELOG.md](CHANGELOG.md) | 全部改动，按版本和专题 |
 | [docs/agents/](docs/agents/) | 子系统规范：相机、瓦片加载、室内 BIM、顶牌、开场与导航、显存、局部场景、体积云、高斯泼溅、路线图、改造记录 |
 | [AGENTS.md](AGENTS.md) | 开发规范与踩坑记录（贡献者必读） |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南：环境、分支与提交、验证、文档同步（[English](CONTRIBUTING.en.md)） |
+| [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 安全问题的报告方式、行为准则（中英双语） |
+
+英文读者：本 README 有 [English 版](README.en.md)，文档站点的 [English 入口](https://yoy0o.github.io/TerraView/en/)提供首页、快速开始、发布说明和赞助页；完整的使用手册和 API 参考目前只有中文。
 
 ## 演示应用
 
@@ -466,6 +480,27 @@ npm run site:build     # 文档站点：手册 + 示例 + 演示应用（dist-si
 - **文档站点**（`.github/workflows/pages.yml`）：推送到 `main` 时构建手册、示例和演示应用并发布到 GitHub Pages；PR 只构建（检查死链）。
 - **发布**（`.github/workflows/release.yml`）：推送与 `package.json` 版本一致的标签（如 `v0.2.0`）时，验证后创建 GitHub Release，正文取 `docs/releases/v<版本>.md`，附上 tgz。标签推送时还会发布到 npm（认证用仓库密钥 `NPM_TOKEN`，没有时用 npm 的 trusted publishing；`package.json` 带 `"private": true` 时跳过这一步），发布后核对版本确实上了 registry（只进了 npm 暂存区时失败，批准后重跑即可）。在 Actions 页面手动运行是演练，不创建 Release 也不发布。发版步骤见 [AGENTS.md](AGENTS.md) §8.5。
 - **包名**：`terra-viewer`。原名 `terra-view` 去掉连字符后与 npm 上已有的 `terraview` 相同，npm 不允许发布，2026-11-25 改名。
+
+## 参与贡献
+
+欢迎提问题、提需求和提交代码：
+
+- **报告问题**：用 [Bug 模板](https://github.com/Yoy0o/TerraView/issues/new?template=bug_report.yml)，附上浏览器、GPU、后端（WebGPU / WebGL）和 `viewer.snapshot()` 的输出。
+- **功能建议**：用[需求模板](https://github.com/Yoy0o/TerraView/issues/new?template=feature_request.yml)，先说要解决的场景。
+- **提交代码**：读[贡献指南](CONTRIBUTING.md)（[English](CONTRIBUTING.en.md)），提交前跑 `npm run verify`。
+- **安全问题**：不要公开提 issue，按 [SECURITY.md](SECURITY.md) 私下报告。
+
+参与本项目即表示同意遵守[行为准则](CODE_OF_CONDUCT.md)。
+
+## 赞助支持
+
+TerraView 由个人维护者利用业余时间开发，免费开源。如果它帮你省了时间，欢迎赞助，支持后续的功能开发、真实 GPU 上的测试和文档维护。
+
+| 微信支付 | PayPal |
+| :---: | :---: |
+| <img src="docs/images/sponsor/wechat-pay.png" alt="微信收款码" width="200"> | <img src="docs/images/sponsor/paypal.png" alt="PayPal 收款码" width="200"> |
+
+转账时可以备注 GitHub 用户名，方便在致谢名单里列出你。企业赞助、定制开发或技术支持，请开一个 issue 说明来意。不方便赞助的话，点一个 Star、在你的项目里用起来、把问题和改进反馈回来，同样是很大的支持。详见[赞助页](docs/sponsor.md)。
 
 ## 许可与致谢
 

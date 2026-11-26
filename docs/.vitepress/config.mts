@@ -4,6 +4,10 @@
  * `npm run site:build` builds it together with the examples (`<site>/examples/`) and the demo
  * (`<site>/demo/`) into dist-site/ (.github/workflows/pages.yml publishes that folder).
  *
+ * Two locales: Chinese at the root (the whole manual) and English under /en/ (home, quick start,
+ * release notes, sponsor page; the sidebar links to the Chinese-only pages). Keep the pairs in sync
+ * (CONTRIBUTING.md lists them).
+ *
  * docs/agents/ (the subsystem specs for contributors) is not part of the site. Relative links
  * that leave the site (to docs/agents/, the sources, CHANGELOG.md, …) are rewritten to the file on
  * GitHub, so the same Markdown reads correctly on GitHub and on the site.
@@ -98,6 +102,38 @@ const guide: DefaultTheme.SidebarItem[] = [
       { text: '常见问题', link: '/guide/faq' },
       { text: 'API 参考', link: '/api' },
       { text: '0.2.0 发布说明', link: '/releases/v0.2.0' },
+      { text: '赞助支持', link: '/sponsor' },
+    ],
+  },
+];
+
+/**
+ * English section (/en/): the home page, quick start, release notes and sponsor page. The rest of
+ * the manual and the API reference are Chinese only; the sidebar links to them with a marker.
+ */
+const guideEn: DefaultTheme.SidebarItem[] = [
+  {
+    text: 'Getting started',
+    items: [
+      { text: 'Overview', link: '/en/' },
+      { text: 'Quick start', link: '/en/guide/getting-started' },
+    ],
+  },
+  {
+    text: 'More (Chinese)',
+    collapsed: true,
+    items: [
+      { text: 'User manual', link: '/guide/' },
+      { text: 'API reference', link: '/api' },
+      { text: 'Building data manual', link: '/building-data-manual' },
+      { text: 'FAQ', link: '/guide/faq' },
+    ],
+  },
+  {
+    text: 'Project',
+    items: [
+      { text: '0.2.0 release notes', link: '/en/releases/v0.2.0' },
+      { text: 'Support the project', link: '/en/sponsor' },
     ],
   },
 ];
@@ -122,6 +158,44 @@ export default defineConfig({
   markdown: {
     config: githubLinks,
   },
+  locales: {
+    root: { label: '简体中文', lang: 'zh-CN' },
+    en: {
+      label: 'English',
+      lang: 'en-US',
+      link: '/en/',
+      description:
+        'WebGPU-first 3D globe SDK: imagery and terrain, atmosphere and volumetric clouds, 3D Tiles, Gaussian splats, GeoJSON, markers and points, indoor / BIM.',
+      themeConfig: {
+        nav: [
+          { text: 'Quick start', link: '/en/guide/getting-started', activeMatch: '^/en/guide/' },
+          { text: 'Examples', link: '/examples/', target: '_self' },
+          { text: 'Live demo', link: '/demo/', target: '_self' },
+          { text: 'Manual (Chinese)', link: '/guide/' },
+          {
+            text: '0.2.0',
+            items: [
+              { text: 'Release notes', link: '/en/releases/v0.2.0' },
+              { text: 'Changelog', link: `${REPO}/blob/main/CHANGELOG.md` },
+              { text: 'npm', link: 'https://www.npmjs.com/package/terra-viewer' },
+            ],
+          },
+          { text: 'Sponsor', link: '/en/sponsor' },
+        ],
+        sidebar: { '/en/': guideEn },
+        editLink: { pattern: `${REPO}/edit/main/docs/:path`, text: 'Edit this page on GitHub' },
+        outline: { level: [2, 3], label: 'On this page' },
+        docFooter: { prev: 'Previous', next: 'Next' },
+        darkModeSwitchLabel: 'Appearance',
+        sidebarMenuLabel: 'Menu',
+        returnToTopLabel: 'Return to top',
+        footer: {
+          message: 'Released under the Apache-2.0 license. Third-party data in the examples is used under its own license; see the credits in each example panel.',
+          copyright: 'TerraView',
+        },
+      },
+    },
+  },
   themeConfig: {
     nav: [
       { text: '手册', link: '/guide/', activeMatch: '^/guide/' },
@@ -138,12 +212,14 @@ export default defineConfig({
           { text: 'npm', link: 'https://www.npmjs.com/package/terra-viewer' },
         ],
       },
+      { text: '赞助', link: '/sponsor' },
     ],
     sidebar: {
       '/guide/': guide,
       '/building-data-manual': guide,
       '/api': guide,
       '/releases/': guide,
+      '/sponsor': guide,
     },
     socialLinks: [{ icon: 'github', link: REPO }],
     editLink: { pattern: `${REPO}/edit/main/docs/:path`, text: '在 GitHub 上编辑此页' },
@@ -184,6 +260,20 @@ export default defineConfig({
             backButtonTitle: '关闭',
             noResultsText: '没有找到',
             footer: { selectText: '选择', navigateText: '切换', closeText: '关闭' },
+          },
+        },
+        locales: {
+          en: {
+            translations: {
+              button: { buttonText: 'Search', buttonAriaLabel: 'Search' },
+              modal: {
+                displayDetails: 'Display detailed list',
+                resetButtonTitle: 'Reset search',
+                backButtonTitle: 'Close search',
+                noResultsText: 'No results for',
+                footer: { selectText: 'to select', navigateText: 'to navigate', closeText: 'to close' },
+              },
+            },
           },
         },
       },
