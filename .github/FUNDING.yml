@@ -1,0 +1,13 @@
+# Sponsor button on the repository page ("Sponsor this project").
+# Docs: https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# The sponsor page (WeChat Pay / PayPal QR codes, company sponsorship) is docs/sponsor.md, published
+# on the documentation site. Uncomment a platform below once the account exists; GitHub shows an
+# error on the button for accounts that are not set up.
+
+# github: [Yoy0o]          # GitHub Sponsors (after joining the program)
+# open_collective: terraview
+# ko_fi: your-name
+custom:
+  - https://yoy0o.github.io/TerraView/sponsor
+  - https://yoy0o.github.io/TerraView/en/sponsor

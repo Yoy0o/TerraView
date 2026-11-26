@@ -12,6 +12,10 @@
   "bugs": {
     "url": "https://github.com/Yoy0o/TerraView/issues"
   },
+  "funding": {
+    "type": "individual",
+    "url": "https://yoy0o.github.io/TerraView/en/sponsor"
+  },
   "keywords": [
     "three",
     "threejs",
