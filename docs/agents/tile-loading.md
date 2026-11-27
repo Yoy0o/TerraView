@@ -1,6 +1,6 @@
 # 瓦片加载规范（底图 / 地形 / 3D Tiles）
 
-代码：`src/globe/Globe.ts`（调度）、`src/globe/GlobeTile.ts`（瓦片与通道状态）、`src/globe/tileSelection.ts`（选择规则的纯函数）、`src/globe/TileMaterial.ts`（交叉淡入、地形渐变）、`src/globe/imagery/RequestScheduler.ts`（按域名限流）、`src/globe/tileMesh.worker.ts` + `src/globe/terrain/terrainTiling.ts`（地形取数与插值）、`src/tiles3d/`（3D Tiles）。测试：`tests/terrain.test.ts`、`tests/tileSelection.test.ts`、`tests/tileMeshLayout.test.ts`、`tests/requestScheduler.test.ts`。
+代码：`src/globe/Globe.ts`（遍历与细化、查询、缓存淘汰）、`src/globe/TileLoader.ts`（请求调度：通道、优先级、并发、取消、预取、上传预算）、`src/globe/TileContent.ts`（内容应用：影像揭示与交叉淡入、地形渐变）、`src/globe/GlobeTile.ts`（瓦片与通道状态）、`src/globe/tileSelection.ts`（选择规则的纯函数）、`src/globe/TileMaterial.ts`（淡入采样与 mip 偏置、地形渐变）、`src/globe/imagery/RequestScheduler.ts`（按域名限流）+ `src/globe/requestSlots.ts`（Worker 向主线程领名额）、`src/globe/tileMesh.worker.ts` + `src/globe/terrain/terrainTiling.ts`（地形取数、插值、边框采样）+ `src/globe/terrain/terrainDownloads.ts`（Worker 里的共享下载与取消）、`src/globe/tileStore.ts`（持久缓存）、`src/tiles3d/`（3D Tiles）。测试：`tests/terrain.test.ts`、`tests/tileSelection.test.ts`、`tests/tileMeshLayout.test.ts`、`tests/requestScheduler.test.ts`、`tests/terrainDownloads.test.ts`、`tests/tileStore.test.ts`。
 
 目标是让用户看着的地方最先变清晰，全程不出现空洞、台阶或闪烁，帧时间保持平稳。
 
@@ -100,6 +100,7 @@ flowchart LR
 
 放大时屏幕中心的瓦片要等一个网络往返（ArcGIS 从国内 300–800 ms，排队时更久）才变清晰。`TileLoader.prefetchNextLevel` 在空闲时把下一级影像提前下载进浏览器 HTTP 缓存，放大后的请求直接命中缓存。
 
+- **开了持久缓存时**（§6.1）：改为"不在缓存里才经 `requestBlob` 下载并存入"，预取的结果跨会话有效，也不再依赖服务端的缓存头；下面"只进 HTTP 缓存"的几条说的是缓存关闭时（默认）。
 - **只下载、不解码、不上传**：`ImageryProvider.prefetch` 读完响应体就丢弃，不占主线程、内存和显存，也不进瓦片缓存（不会挤掉 700 块里有用的瓦片）。真正需要时走正常的 `requestImage`，请求的 `mode` / `credentials` 与预取相同，才能命中同一条缓存。依赖服务端的缓存头（ArcGIS 为 `max-age=86400`）；`no-store` 的服务预取无效，应关闭。
 - **只取下一级、只取视野中心**：渲染瓦片满足 `shouldPrefetchChildren`（SSE ≥ 阈值的一半，即大约再放大一步就要细化；离视野中心不超过半对角视场角的 0.4 倍）时，预取它的四个子瓦片，按离中心远近排序。每个瓦片对同一影像源只取一次。
 - **只用空闲容量**：只要还有屏幕上（或阻塞层级切换）的瓦片在排队等影像，就不发起预取；作为兜底的祖先影像（`B_LOW`）不算。最多同时 `PREFETCH_MAX_ACTIVE`（2）个，影像通道的派发上限相应减去在途预取数，HTTP/1.1 的源上可见瓦片至少还有 4 个连接。
@@ -215,18 +216,20 @@ Worker 亲和路由（`terrainAffinity`）把读取同一张地形图的瓦片�
 | `maxConcurrentLoads` | 24 | 影像并发 | HTTP/1.1 的服务（单域名）可降到 8–12 |
 | `maxConcurrentGeometry` | 12 | 几何并发 | 地形服务慢时不要调大，避免占满 Worker |
 | `fadeDuration` | 0.5 s | 交叉淡入 | 0 表示直接切换 |
+| `FADE_MAX_MIP_BIAS` | 4 | TileMaterial.ts | 淡入开始时新影像最多糊几级（实际按两张画面的层级差，§2） |
 | `prefetchImagery` / `PREFETCH_MAX_ACTIVE` | 开 / 2 | GlobeOptions / tileSelection.ts | 流量敏感（移动网络、按量计费的服务）时关闭；HTTP/2 的源可以适当调大 |
 | `IMAGERY_COALESCE_MS` / `IMAGERY_GROUP_WAIT_MS` | 400 / 1500 ms | tileSelection.ts | 调大更平稳但清晰得更晚；影像源快时可以调小 |
 | `morphDuration` | 0.4 s | 地形渐变 | 0 表示直接切换（山区层级切换时地形会跳） |
-| `maxRequestsPerHost` | ArcGIS 6，其余不限 | `XYZImageryOptions` / 预设 | HTTP/1.1 的服务设为 6；HTTP/2 的不要设 |
+| `maxRequestsPerHost` | ArcGIS 影像、`AWS_TERRARIUM` 为 6，其余不限 | `XYZImageryOptions` / 地形源 / 预设 | HTTP/1.1 的服务设为 6；HTTP/2 的不要设。影像和地形同域名时共用这个上限（§3.1） |
+| `persistentCache` | 关 | GlobeOptions / `globe.setPersistentCache` | 宿主开启；`maxBytes` 默认 512 MB、`maxAgeDays` 默认 30（§6.1） |
 | `maxCachedTiles` | 700 | 缓存 | 集成显卡可降到 450 |
 | `fogScreenSpaceErrorFactor` | 1 | GlobeOptions | 地平线雾化：相机低、视线接近水平时，雾中的远处瓦片少细化，完全在雾中的瓦片要达到 2 倍阈值才细化（Cesium `Fog.screenSpaceErrorFactor` 的相对版）。0 关闭 |
 | `preloadSiblings` | true | GlobeOptions | 视野外兄弟瓦片预建插值网格；关掉可以略省内存，但平移和缩小时可能来回切换 |
 | `ANCHOR_GAP` | 3 | Globe.ts | 越小锚点越多：更早看到中间层级，但请求更多 |
 | `MAX_UPSAMPLE_LEVELS` | 3 | Globe.ts | 不建议调大（山区台阶明显） |
-| `LOCAL_GEOMETRY_LIMIT` | 32 | Globe.ts | 无需下载的构网任务的并发上限；Worker 少（2 核以下）时可降到 16 |
-| `APPLY_BUDGET` / `_MS` | 16 / 6 ms | Globe.ts | 帧时间敏感的场景可以调小 |
-| `STALE_FRAMES` | 20 | Globe.ts | |
+| `LOCAL_GEOMETRY_LIMIT` | 32 | TileLoader.ts | 无需下载的构网任务的并发上限；Worker 少（2 核以下）时可降到 16 |
+| `APPLY_BUDGET` / `_MS` | 16 / 6 ms | TileLoader.ts | 帧时间敏感的场景可以调小；按个数而不是按字节的理由见 §5 |
+| `STALE_FRAMES` | 20 | TileLoader.ts | |
 
 ## 9. 观测与调试
 

@@ -229,7 +229,7 @@ docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/a
 - **地球 Globe**：屏幕空间误差驱动的四叉树。
   - 瓦片有网格即可渲染；影像不足时用祖先影像放大顶替，新影像到达后交叉淡入。
   - 子瓦片可以先用精确祖先的高度插值出临时网格，最多跨 3 级。地形取数比网格层级低 3 级（一张 256 px 地形图服务 8×8 个网格瓦片，不损失精度）。
-  - 选择规则借鉴 CesiumJS：每块瓦片记住上一帧的选择结果。缩小时，父瓦片要等自身影像和地形不比子孙差才替换它们（不丢细节守卫）。新进入视野、还没有网格的子瓦片，由父瓦片的对应象限暂时顶替（象限填充）。
+  - 选择规则借鉴 CesiumJS：每块瓦片记住上一帧的选择结果。缩小时，父瓦片要等自身影像和地形不比子孙差才替换它们（不丢细节守卫）。有一个可见子瓦片就绪就细化，还没有网格的子瓦片由父瓦片的对应象限暂时顶替（象限填充，放大、缩小、平移都用）。
   - 规则写在 `tileSelection.ts`，详见 tile-loading.md §2。
 - **3D Tiles**：`NodeMaterialPlugin` 把材质转为节点材质；`TilesFadePlugin` 的材质管理器换成 `NodeFadeMaterialManager`（TSL dither 遮罩）；显存目标、解码缓存上限、纹理过滤按显存档位给（`viewer.gpu.tiles`），隐藏瓦片在显存目标内保留、过了延时才释放；斜视时远处瓦片放宽误差，缓存满时整体降精度而不是局部停止加载（[gpu-memory.md](docs/agents/gpu-memory.md) §5）。图层的 `errorTarget` 改 `layer.errorTarget`，不要直接写 `layer.tiles.errorTarget`（每帧会被覆盖）。要素拾取用 `event.tileFeature()` / `viewer.pickTileFeature`，高亮用 `viewer.highlightTileFeature`（tile-loading.md §7.1）。
 - **相机**：左键抓地平移；右键横向调航向、纵向调俯仰（默认绕屏幕中心点）；滚轮缩放到光标并保持航向和俯仰；另有环绕巡航、俯仰范围、各类开关、双击钩子。
@@ -269,8 +269,8 @@ docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/a
 
 | 任务 | 做法 |
 | --- | --- |
-| 新增影像源 | 实现 `ImageryProvider`（`requestImage` 返回 `ImageBitmap`，404 返回 null），在 `imagery/presets.ts` 注册。只支持 HTTP/1.1 的服务要声明 `maxRequestsPerHost: 6`。不要绕开 Globe 的通道。 |
-| 新增栅格地形源 | 在 `TerrainSource.ts` 描述，写明 `tileSize`（决定取数层级偏移）和 `heightReference`。 |
+| 新增影像源 | 实现 `ImageryProvider`（`requestImage` 返回 `ImageBitmap`，404 返回 null），在 `imagery/presets.ts` 注册。只支持 HTTP/1.1 的服务要声明 `maxRequestsPerHost: 6`。要进持久缓存就实现 `requestBlob`（返回服务器的原始文件，缓存命中后用 `decodeImage` 解码）。不要绕开 Globe 的通道。 |
+| 新增栅格地形源 | 在 `TerrainSource.ts` 描述，写明 `tileSize`（决定取数层级偏移）和 `heightReference`；只支持 HTTP/1.1 的服务声明 `maxRequestsPerHost: 6`。 |
 | 新增 BIM 字段 | 先改 `indoor/schema.ts` 的类型和 `parseBuildingDoc` 校验，再改 `Building` 构建，最后同步 [indoor-bim.md](docs/agents/indoor-bim.md)、[建筑数据制作手册](docs/building-data-manual.md)（含默认值表）和样例 `docs/examples/sample-office.building.json`（有单测校验），并补 `tests/indoor.test.ts`。 |
 | 新增交互行为 | 用 `viewer.interaction.on(...)` 并带上 `tag`，方便整体注销；需要阻止默认行为时调用 `preventDefault()`，需要压过默认行为时给 `priority` 并调用 `stopPropagation()`。 |
 | 改某类层级的效果或取景 | 实现 `LevelControl`，用 `viewer.indoor.registerLevelControl(control, tag)` 注册（`condition` 选择器 + `priority`）；要整体替换默认行为就先 `unregisterLevelControls('builtin')`。效果要写成幂等的绝对状态（返回上级时会重新进入父级）。见 indoor-bim.md §6。 |

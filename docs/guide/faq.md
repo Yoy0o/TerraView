@@ -14,7 +14,8 @@
 
 - 打开开发者工具的网络面板，看影像请求是不是失败了（跨域、密钥错误、被墙、配额用完）。同一个影像源累计失败 3 次后，`viewer.events` 会发一次 `error`（`source: 'imagery'`，`code: 'imagery-unreachable'`），可以据此提示用户切换底图。
 - 国内访问 ArcGIS、OSM 可能很慢：可以换天地图（需要 key，[影像、叠加层与地形](./imagery-terrain.md)）或自己部署的瓦片服务。
-- 只支持 HTTP/1.1 的瓦片服务要在影像源上声明 `maxRequestsPerHost: 6`，否则屏幕中心的瓦片会排在长队后面。
+- 只支持 HTTP/1.1 的瓦片服务要在影像源（或地形源）上声明 `maxRequestsPerHost: 6`，否则屏幕中心的瓦片会排在长队后面。
+- 用户经常回来看同一片区域、或者网络不稳定时，可以开启本机缓存 `persistentCache`，下载过的瓦片第二天和断网时直接从本机读（[影像、叠加层与地形](./imagery-terrain.md#本机缓存与离线)）。
 
 ### 画面看起来糊 / 太费显卡
 

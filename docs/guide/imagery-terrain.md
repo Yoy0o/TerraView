@@ -73,7 +73,7 @@ const topo = new XYZImageryProvider({
 | `minZoom`、`maxZoom` | 服务提供的层级范围（默认 0、19）。超过 `maxZoom` 的层级把最深一级的瓦片放大显示 |
 | `params` | 模板里其余占位符的值（会做 URL 编码），常用来放密钥 |
 | `maxRequestsPerHost` | 每个域名同时最多几个请求。**HTTP/1.1 的服务要设成 6**，HTTP/2 的不要设，见下 |
-| `prefetch` | 空闲时把下一级影像预先下载进浏览器的 HTTP 缓存，放大时立刻清晰（默认 true）。有请求配额的服务关掉 |
+| `prefetch` | 空闲时把下一级影像预先下载进浏览器的 HTTP 缓存（开了[本机缓存](#本机缓存与离线)时存进本机缓存），放大时立刻清晰（默认 true）。有请求配额的服务关掉 |
 | `attribution` | 署名文字，由你的界面显示 |
 | `id`、`name` | 标识和名字，用于诊断信息 |
 
@@ -220,7 +220,7 @@ viewer.events.on('error', ({ source, error }) => {
 
 最常见的原因是密钥错误、域名白名单没有配置、服务不允许跨域（CORS），或者内网环境访问不到外网服务。详见[加载、错误与性能](./performance.md)。
 
-## 本机缓存（离线）
+## 本机缓存与离线
 
 浏览器自己的 HTTP 缓存一般只保留一天左右（ArcGIS 是 `max-age=86400`），第二天打开又要重新下载。开启 `persistentCache` 后，下载过的影像、栅格叠加层和地形文件保存在本机的 IndexedDB 里，跨天和断网时直接从本机读：
 

@@ -177,6 +177,7 @@ const png = viewer.captureFrame().toDataURL('image/png');
 | 数据 | 建议 |
 | --- | --- |
 | 点位 | 点位是 HTML 顶牌，几千个以内没问题（避让走网格索引，数量一多自动进入精简模式）。点多时开聚合（`cluster: true`）。上万个、或数值高频刷新的场景不适合 DOM 顶牌。自定义顶牌样式不要给大量元素加 `backdrop-filter`、`filter` 或常驻动画（[顶牌与点位标注](./markers.md)） |
+| 地球影像与地形 | 只支持 HTTP/1.1 的服务声明 `maxRequestsPerHost: 6`；按流量计费或移动网络时关掉空闲预取 `prefetchImagery: false`；用户常回到同一片区域时开启本机缓存 `persistentCache`（[影像、叠加层与地形](./imagery-terrain.md#本机缓存与离线)） |
 | 3D Tiles | 预算按档位给，缓存满时整体降精度而不是局部停止加载；要更清晰或更省，调图层的 `layer.errorTarget`（不要直接改内部的 `tiles.errorTarget`）（[3D Tiles](./tiles3d.md)） |
 | GeoJSON | 解析和栅格化都在 Worker 里，大文件不卡主线程；按瓦片贴地，只重绘受影响的瓦片 |
 | 建筑 | 楼层和设备模型在楼层第一次显示时才加载，隐藏楼层超出预算时卸载；设备自动合批（1 万个设备约 40 次绘制）。设备很多时可以开贡献剔除 `viewer.indoor.culling.enabled = true`，屏幕上太小的设备不画 |
