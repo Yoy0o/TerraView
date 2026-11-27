@@ -64,6 +64,26 @@ export function wouldLoseDetail<T extends SelectionNode<T>>(tile: T, lastFrame: 
   return false;
 }
 
+/**
+ * Whether a tile that is not detailed enough is refined this frame, given
+ * which of its visible children can be drawn (have a mesh). Children without
+ * one are filled with the tile's own quadrant (`GlobeTile.fills`), so the
+ * tile refines once any visible child is ready; with none ready it is drawn
+ * itself. Children outside the view do not count; no visible child at all
+ * refines (nothing to wait for).
+ *
+ * CesiumJS uses fill tiles only for tiles refined last frame (zooming out),
+ * since its fills are synthesized meshes whose edges need fixing up. Ours are
+ * the tile's own mesh, so a fill looks exactly like the tile and refining
+ * early only lets the ready children draw, and request their imagery, sooner.
+ *
+ * @param allVisibleReady Every visible child has a mesh.
+ * @param anyVisibleReady At least one visible child has a mesh.
+ */
+export function refinesNow(allVisibleReady: boolean, anyVisibleReady: boolean): boolean {
+  return allVisibleReady || anyVisibleReady;
+}
+
 /** CesiumJS `Fog` defaults (`Scene/Fog.js`). */
 const FOG_DENSITY = 6e-4;
 const FOG_HEIGHT_SCALAR = 1e-3;

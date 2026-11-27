@@ -38,7 +38,7 @@ import { WebMercatorTilingScheme } from './TilingScheme';
 import type { ImageryProvider } from './imagery/ImageryProvider';
 import type { TerrainSource } from './terrain/TerrainSource';
 import { extractQuads, quadrantQuads } from './tileMeshLayout';
-import { fogRelaxedError, horizonFogDensity, selectionIn, TileSelection, wouldLoseDetail } from './tileSelection';
+import { fogRelaxedError, horizonFogDensity, refinesNow, selectionIn, TileSelection, wouldLoseDetail } from './tileSelection';
 
 export interface GlobeOptions {
   imagery: ImageryProvider;
@@ -620,11 +620,11 @@ export class Globe {
         this.loader.queue('geo', child, B_LOW);
       }
     }
-    // A child just came into view without a mesh. If this tile was refined last frame, falling
-    // back to it would swap the sharper children on screen for one frame or more: keep them and
-    // draw this tile's quadrant in place of the missing child (CesiumJS fills) instead.
-    const fill = !ready && anyReady && selectionIn(tile, this.frame - 1) === TileSelection.REFINED;
-    if (!ready && !fill) {
+    // Visible children without a mesh are drawn as this tile's quadrant (fills), so the ready ones
+    // draw (and request their imagery) at once: zooming in, they need not wait for the slowest
+    // sibling; zooming out or panning, the sharper children on screen are not swapped for this
+    // tile when one more comes into view.
+    if (!refinesNow(ready, anyReady)) {
       // Some visible children cannot be drawn yet; draw this tile meanwhile.
       this.render(tile, !kept);
       return;

@@ -251,12 +251,18 @@ export class TileContent {
     return false;
   }
 
-  /** Whether every sibling drawn this frame has its own imagery, or has none to wait for (out of range, missing, failed). */
+  /**
+   * Whether every sibling drawn this frame has its own imagery, or has none to wait for (out of
+   * range, missing, failed). A sibling filled in by the parent's quadrant (no mesh yet) has not:
+   * it will be drawn shortly, and revealing without it would change the block piece by piece.
+   */
   private siblingsHaveImagery(tile: GlobeTile): boolean {
     const siblings = tile.parent?.children;
     if (!siblings) return true;
     for (const s of siblings) {
-      if (s === tile || selectionIn(s, this.globe.frame) !== TileSelection.RENDERED) continue;
+      if (s === tile) continue;
+      if (s.filledFrame === this.globe.frame) return false;
+      if (selectionIn(s, this.globe.frame) !== TileSelection.RENDERED) continue;
       if (s.imageryGen === this.globe.imageryGen || s.img.failures > 0) continue;
       return false;
     }

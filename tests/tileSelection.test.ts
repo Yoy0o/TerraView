@@ -10,6 +10,7 @@ import {
   imagerySwitchDue,
   PREFETCH_MAX_FOVEATION,
   PREFETCH_SSE_RATIO,
+  refinesNow,
   shouldPrefetchChildren,
   selectionIn,
   TileSelection,
@@ -33,6 +34,18 @@ describe('selection memory', () => {
     const n = node('a', TileSelection.RENDERED, 41);
     expect(selectionIn(n, 41)).toBe(TileSelection.RENDERED);
     expect(selectionIn(n, 42)).toBe(TileSelection.NONE);
+  });
+});
+
+describe('refinesNow (quadrant fills)', () => {
+  it('refines once any visible child can be drawn, the others filled', () => {
+    expect(refinesNow(true, true)).toBe(true);
+    // Zooming in: one sibling has its mesh, the others still download theirs.
+    expect(refinesNow(false, true)).toBe(true);
+    // No visible child ready: draw the tile itself.
+    expect(refinesNow(false, false)).toBe(false);
+    // No visible child at all: nothing to wait for.
+    expect(refinesNow(true, false)).toBe(true);
   });
 });
 
