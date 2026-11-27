@@ -29,7 +29,9 @@ import { gzipSync } from 'node:zlib';
 const BUDGETS = [
   // 2026-11-23: 800 → 880 for the Gaussian splat layers and level bindings (entry 800.4 / 243.1 then);
   // 860 on main for the volumetric clouds. Both merged (2026-11-24): entry 874.7 / 265.6.
-  { file: 'terraview.js', raw: 880, gzip: 270 },
+  // 2026-11-27: 880 → 920, gzip 270 → 280 for the persistent tile cache (IndexedDB store), the
+  // worker request slots and the tile-loading changes of the C batch: entry 890.6 / 270.3 then.
+  { file: 'terraview.js', raw: 920, gzip: 280 },
   // 2026-11-25 (0.2.0 release prep): budgets with more than ~10% headroom tightened to about
   // 110% of the current size (css 8.3 / 2.6, vector 24.8 / 8.1, cluster 6.9 / 2.9, noise 6.8 / 2.8).
   { file: 'terraview.css', raw: 10, gzip: 3.2 },

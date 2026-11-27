@@ -173,7 +173,7 @@ Hub 与仓库里需要处理的小问题：
 | C2 ✅ | 上传预算改按字节和 GPU 时间 | 现在按个数和 CPU 时间。2026-11-27 评估后不改：独显、集显上流式加载都没有超过 33 ms 的帧；试过按字节（4 MB / 帧），积压降了但到 idle 的时间不变，网格密集的帧反而更长（网格的开销在渲染对象和绑定组，不随字节走）。测量和重新评估的条件见 [tile-loading.md](tile-loading.md) §5 | 小 |
 | C3 ✅ | 淡入期间由糊到清 | 新影像淡入时 mip 偏置逐步降到 0，减少两层画面叠加的重影感。2026-11-27 完成：偏置 = (1 − fade) × 两张画面的层级差（着色器里算）；占位纹理、极地盖子改为线性过滤（[tile-loading.md](tile-loading.md) §2） | 小 |
 | C4 | 缩小时父瓦片替换子瓦片的淡出 | 要处理深度与透明排序 | 中 |
-| C5 | 持久缓存 | Cache API / IndexedDB，跨天和离线 | 中 |
+| C5 ✅ | 持久缓存 | Cache API / IndexedDB，跨天和离线。2026-11-27 完成：`persistentCache`（默认关闭、宿主开启），IndexedDB 存压缩文件，影像、栅格叠加层、地形（Worker 里）共用一个库；LRU + 过期；实测重开同一视角到 idle 从 7.96 s 降到 1.04 s、断网可用（[tile-loading.md](tile-loading.md) §6.1） | 中 |
 | C6 ✅ | 地形 Worker 下载接入按域名限流 | 与影像共用 `RequestScheduler`。2026-11-27 完成：地形源的 `maxRequestsPerHost`（`AWS_TERRARIUM` 为 6），Worker 经主线程代领名额（`globe/requestSlots.ts`），已开始的下载不中止、预取只用空闲名额（[tile-loading.md](tile-loading.md) §3.1） | 小 |
 | C7 | 带注记底图的处理 | 暂缓；根本办法是底图用无注记版本，注记走 `LabelManager` | — |
 | C8 ✅ | 3D Tiles 要素拾取与属性查询 | `EXT_mesh_features` / batch table，高亮，接入统一事件（README 近期项）。2026-11-17 完成（P2.3，[tile-loading.md](tile-loading.md) §7.1）；要素编号纹理不读 | 中 |
@@ -275,6 +275,7 @@ P1 期间新增的公共 API 直接按 S7 的规则写，避免返工。
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-27 | C5 持久缓存：`GlobeOptions.persistentCache`（默认关闭，宿主开启）、`globe.persistentCache` / `setPersistentCache`，IndexedDB；演示应用 `?tileCache=1` 和面板"瓦片缓存" |
 | 2026-11-27 | C 组小项：C6 地形下载按域名限流（Worker 经主线程领名额，与影像共用队列）、C1 放大时也用象限填充、C3 影像淡入由糊到清（mip 偏置；占位纹理改线性过滤）、C10 瓦片边界法线拼接（共享高程缓存经实测不需要）、C2 上传预算评估后维持按个数。各项的实测见 [tile-loading.md](tile-loading.md) §2、§3.1、§4.2.1、§5 |
 | 2026-11-26 | D5 余项：中英双语对外文档（README、CONTRIBUTING、站点 `/en/` 的首页 / 快速开始 / 发布说明 / 赞助页）、社区文件（行为准则、安全策略、issue / PR 模板）、赞助配置；仓库设置里要开启私下漏洞报告 |
 | 2026-11-25 | D5 使用手册与示例：`docs/guide/` 18 章、`examples/` 16 个示例（`catalog.ts`、共享面板），VitePress 站点（`docs/.vitepress/`：中文分词搜索、指向站外的相对链接改写到 GitHub、`ExampleFrame` 嵌入示例），`pages.yml`（main 发布、PR 只构建），`build:examples` 进 `verify` / CI，冒烟新增 `examples` 项目。核对 roadmap：§0.1、首发准备清单、本文 D4 / 推荐顺序里 P1.7 "搁置" 的旧说法更正 |

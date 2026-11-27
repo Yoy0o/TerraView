@@ -311,6 +311,7 @@ export class GeoViewer {
     });
     this.globe.reportError = (source, error) => this.events.emit('error', { source, error });
     this.globe.setOverlaySource(this.overlays);
+    this.overlays.tileStore = () => this.globe.imageryStore;
     this.scene.add(this.globe.group);
     this.labels = new LabelManager(this.ellipsoid);
     this.labels.heightProvider = (lon, lat) => (this.state.showGlobe ? this.globe.getHeight(lon, lat) : 0);

@@ -52,7 +52,7 @@
 
 - 三份 Vite 配置：`vite.config.ts` 是库构建和 Vitest，`vite.demo.config.ts` 是演示应用，`vite.examples.config.ts` 是示例（后两个都把 `terra-viewer` 解析到 `src/index.ts`）。文档站点的配置在 `docs/.vitepress/config.mts`。
 
-- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），高斯泼溅 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`（见 splats.md §8），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），以及 `#lon,lat,height,heading,pitch`。
+- 演示应用的 URL 参数：`?webgl` `?imagery=osm` `?noterrain` `?tileset=<url>` `?geojson=<url>` `?points=<url>`（点位标注）`?demo`（示例办公楼）`?building=<url>`，开场动画 `?intro=0|1` `?introDuration` `?introSpeed`，云层 `?clouds=0|1` `?cloudCoverage` `?cloudSpeed` `?cloudTexture=<url>` 等（见 intro-and-navigation.md §5），体积云 `?cloudVolumetric=0|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0|1`（见 volumetric-clouds.md），贡献剔除 `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector`（见 indoor-bim.md §5.3），局部场景 `?region=circle:经度,纬度,半径km` / `rect:西,南,东,北` / `poly:经度,纬度;…`、`?regionLook=sandbox|float|dim`（见 local-scene.md §5.1），高斯泼溅 `?splats=<url>` `?splatsAt=经度,纬度[,椭球高]` `?splatsScale` `?splatsHeading` `?splatsUp=-y|+y|+z` `?splatsMax`（见 splats.md §8），显存档位 `?gpu=low|medium|high|ultra`（见 gpu-memory.md），静止帧率 `?idleFps=0|10–60`、静止超采样 `?ss=0|1` `?ssSamples=4–64`、调色 `?grade=neutral|vivid`（见 docs/api.md §1.8、§1.9），瓦片持久缓存 `?tileCache=0|1`（docs/api.md §1.15），以及 `#lon,lat,height,heading,pitch`。
 - 调试入口：演示应用里，浏览器控制台的 `window.viewer` 就是 `GeoViewer` 实例。
 
 ## 2. 目录与职责
@@ -64,7 +64,7 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、i18n（显示文案与语言）、errors（TerraViewError）、
 │               gpuProfile（显存档位、预算表（含高斯泼溅的泼溅数与球谐阶数）、帧缓冲估算，纯函数）、tsl（TSL 节点类型）、cameraBounds（相机活动范围的约定类型）
 ├─ globe/       四叉树地球：Globe（配置、每帧更新、瓦片选择、缓存淘汰、高程与射线查询）、
-│               TileLoader（请求调度：分通道优先级队列与并发、取消、下一级预取、每帧上传预算、失败上报）、requestSlots（Worker 下载向主线程领域名名额）、
+│               TileLoader（请求调度：分通道优先级队列与并发、取消、下一级预取、每帧上传预算、失败上报）、requestSlots（Worker 下载向主线程领域名名额）、tileStore（瓦片持久缓存，IndexedDB，宿主开启）、
 │               TileContent（内容应用：影像揭示与交叉淡入、地形渐变）、PolarCaps（两极补洞）、GlobeTile（状态）、
 │               tileSelection（选择规则纯函数）、tileMeshLayout（网格索引布局，Worker 与象限填充共用）、TileMaterial（TSL）、
 │               Worker 构网、影像源、地形源
@@ -120,7 +120,7 @@ examples/       可运行示例，不进包；每个目录一页（index.html + 
 ├─ catalog.ts   示例清单（标题、简介、所属手册章节、数据署名）：示例列表页、各页标题和冒烟测试都读它
 ├─ shared/      示例页面的面板与控件（ui.ts、example.css），不是 SDK API
 └─ index.html   示例列表页（gallery.ts）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / terrainDownloads / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / terrainDownloads / tileStore / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/agents/ 除外）
 ├─ .vitepress/  站点配置（侧栏、搜索、链接改写）与主题（ExampleFrame：页内嵌入示例）
 ├─ index.md     站点首页
@@ -217,7 +217,7 @@ docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/a
 
 - `src/` 不能 import `demo/`、`examples/`；`demo/`、`examples/` 只能从 `terra-viewer`（`src/index.ts`）和 `terra-viewer/style.css` 引用 SDK，不要用相对路径伸进 `src/`。演示应用或示例需要的东西没有导出，就说明公共 API 缺了一块：补到 `src/index.ts`，并同步 [docs/api.md](docs/api.md)。
 - 新增、改名、删除导出都是公共 API 变更：同步 `docs/api.md`，记入 CHANGELOG。0.x 阶段次版本号可以有破坏性变更。
-- 不要在 `src/` 里读 URL 参数、`localStorage`、`location`，也不要在 `window` / `document` 上注册全局监听（键盘读 viewer 容器，见 camera-controller.md）。这些属于应用。
+- 不要在 `src/` 里读 URL 参数、`localStorage`、`location`，也不要在 `window` / `document` 上注册全局监听（键盘读 viewer 容器，见 camera-controller.md）。这些属于应用。浏览器存储唯一的例外是瓦片持久缓存（IndexedDB，`globe/tileStore.ts`），而且只在宿主传了 `persistentCache` 时才打开；以后要落盘的东西照此办理：默认关闭、宿主开启。
 - SDK 创建的 DOM 元素，类名一律以 `tv-` 开头，样式写在 `src/style.css`；可调的外观做成 `--tv-*` 变量并带默认值（`var(--tv-x, 默认值)`），不要依赖宿主页面的变量或全局样式。定位相对 viewer 容器，不要用 `position: fixed`。
 - 对容器元素的改动（类、定位、`tabindex`）集中在 `GeoViewer.adoptContainer`，并在 `dispose()` 里恢复。
 - `three`、`3d-tiles-renderer` 及其子路径在库构建里是 external。新增运行时依赖要先征得同意，并决定它是打进包还是做成 peer 依赖。

@@ -1,5 +1,6 @@
 import { SlotBroker } from './requestSlots';
 import type { TerrainSource } from './terrain/TerrainSource';
+import type { ResolvedCacheOptions } from './tileStore';
 import type { BuildTileRequest, BuiltTile, WorkerResponse } from './workerProtocol';
 
 interface PendingJob {
@@ -56,6 +57,11 @@ export class TileWorkerPool {
 
   get size(): number {
     return this.workers.length;
+  }
+
+  /** Persistent cache for terrain downloads in every worker (null = off); see `tileStore.ts`. */
+  setPersistentCache(options: ResolvedCacheOptions | null): void {
+    for (const w of this.workers) w.postMessage({ type: 'cache', options });
   }
 
   /** Sends a terrain source description to every worker once (requests then refer to it by id). */

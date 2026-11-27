@@ -13,10 +13,11 @@ import type { TileOverlaySource } from './overlay';
 import type { PolarCaps } from './PolarCaps';
 import type { TileContent } from './TileContent';
 import { isAbortError, TileWorkerPool } from './TileWorkerPool';
-import type { ImageryProvider } from './imagery/ImageryProvider';
+import { decodeImage, type ImageryProvider } from './imagery/ImageryProvider';
 import { isQuantizedMesh, type TerrainSource } from './terrain/TerrainSource';
 import { rasterSourceTile, terrainLevelOffset } from './terrain/terrainTiling';
 import { PREFETCH_MAX_ACTIVE, shouldPrefetchChildren } from './tileSelection';
+import { cachedRequest, tileKey, type TileStore } from './tileStore';
 import type { UpsampleSource } from './workerProtocol';
 
 export type ChannelKind = 'geo' | 'img' | 'ovl';
@@ -82,6 +83,8 @@ export interface LoaderHost {
   readonly imageryGen: number;
   readonly geometryGen: number;
   readonly imagery: ImageryProvider;
+  /** The persistent cache for imagery (null when off). */
+  readonly imageryStore: TileStore | null;
   readonly terrain: TerrainSource | null;
   readonly exaggeration: number;
   readonly segments: number;
@@ -236,8 +239,13 @@ export class TileLoader {
         if (this.prefetched.size > 4096) this.prefetched.delete(this.prefetched.values().next().value as string);
         free--;
         this.prefetchActive++;
-        provider
-          .prefetch(level, x, y, signal)
+        // With a persistent cache, prefetch into it (kept across sessions) instead of the HTTP cache.
+        const store = this.globe.imageryStore;
+        const warm =
+          store && provider.requestBlob
+            ? cachedRequest(store, tileKey('img', provider.id, level, x, y), signal, () => provider.requestBlob!(level, x, y, signal))
+            : provider.prefetch(level, x, y, signal);
+        warm
           .catch(() => undefined)
           .finally(() => {
             // A provider switch has reset the count already.
@@ -365,8 +373,7 @@ export class TileLoader {
     const controller = this.begin('img', tile);
     const epoch = tile.epoch;
     const gen = this.globe.imageryGen;
-    this.globe.imagery
-      .requestImage(tile.level, tile.x, tile.y, controller.signal)
+    this.requestImage(tile.level, tile.x, tile.y, controller.signal)
       .then((bitmap) => {
         this.enqueueReady(
           tile,
@@ -392,6 +399,20 @@ export class TileLoader {
         // Keep showing a magnified ancestor; the tile stays stale and is retried with backoff.
         tile.img.fail(performance.now());
       });
+  }
+
+  /**
+   * A tile image from the provider, through the persistent cache when it is on and the provider
+   * hands out encoded files (`requestBlob`): a stored file is decoded without a request (and
+   * without a per-host slot), a downloaded one is stored.
+   */
+  private requestImage(level: number, x: number, y: number, signal: AbortSignal): Promise<ImageBitmap | null> {
+    const provider = this.globe.imagery;
+    const store = this.globe.imageryStore;
+    if (!store || !provider.requestBlob) return provider.requestImage(level, x, y, signal);
+    return cachedRequest(store, tileKey('img', provider.id, level, x, y), signal, () => provider.requestBlob!(level, x, y, signal)).then((blob) =>
+      blob ? decodeImage(blob) : null,
+    );
   }
 
   private startOverlay(tile: GlobeTile): void {

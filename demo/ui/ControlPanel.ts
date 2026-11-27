@@ -98,6 +98,7 @@ export class ControlPanel {
       { class: 'panel-body' },
       this.basemapSection(),
       this.terrainSection(),
+      this.cacheSection(),
       this.vectorPanel.root,
       this.pointPanel.root,
       this.indoorPanel.root,
@@ -227,6 +228,41 @@ export class ControlPanel {
       if (current) this.viewer.globe.setTerrain(current, v);
     });
     return section('地形', select, tokenRow, urlRow, apply, exag.root, hint);
+  }
+
+  /** Persistent tile cache (viewer.globe.persistentCache): on / off, usage, clearing. */
+  private cacheSection(): HTMLElement {
+    const s = this.settings;
+    const globe = this.viewer.globe;
+    const info = h('p', { class: 'hint' });
+    const refresh = async () => {
+      const cache = globe.persistentCache;
+      if (!cache) {
+        info.textContent = '关闭时只靠浏览器自己的 HTTP 缓存（多数服务约一天）。开启后影像、叠加图层和地形保存在本机 IndexedDB，第二天或断网时不必重新下载。';
+        return;
+      }
+      const { bytes, count } = await cache.usage();
+      info.textContent = `已保存 ${count} 块瓦片，${(bytes / 1048576).toFixed(1)} MB（上限 ${Math.round(cache.options.maxBytes / 1048576)} MB）；本页影像命中 ${cache.hits}、未命中 ${cache.misses}。`;
+    };
+    const update = h('button', { class: 'btn' }, '刷新');
+    const clear = h('button', { class: 'btn' }, '清空');
+    const buttons = h('div', { class: 'row' }, update, clear);
+    update.addEventListener('click', () => void refresh());
+    clear.addEventListener('click', async () => {
+      await globe.persistentCache?.clear();
+      this.notify('瓦片缓存已清空');
+      void refresh();
+    });
+    const on = toggle('保存下载过的瓦片（本机）', s.tileCache, (v) => {
+      s.tileCache = v;
+      this.save();
+      globe.setPersistentCache(v);
+      buttons.hidden = !v;
+      void refresh();
+    });
+    buttons.hidden = !s.tileCache;
+    void refresh();
+    return section('瓦片缓存', on, buttons, info);
   }
 
   /** Applies the saved terrain choice, reporting errors in the panel. */

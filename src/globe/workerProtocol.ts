@@ -1,5 +1,6 @@
 import type { SlotGrant, SlotRequest } from './requestSlots';
 import type { TerrainSource } from './terrain/TerrainSource';
+import type { ResolvedCacheOptions } from './tileStore';
 
 /** An ancestor's height grid to build an interim mesh from (no network). */
 export interface UpsampleSource {
@@ -47,7 +48,13 @@ export interface SourceRequest {
   source: TerrainSource;
 }
 
-export type WorkerRequest = BuildTileRequest | CancelRequest | SourceRequest | SlotGrant;
+/** Persistent cache for terrain downloads (null = off). */
+export interface CacheRequest {
+  type: 'cache';
+  options: ResolvedCacheOptions | null;
+}
+
+export type WorkerRequest = BuildTileRequest | CancelRequest | SourceRequest | SlotGrant | CacheRequest;
 
 export interface BuiltTile {
   type: 'built';

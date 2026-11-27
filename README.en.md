@@ -336,6 +336,7 @@ Online: [demo app](https://yoy0o.github.io/TerraView/demo/), [examples](https://
 | `?cloudVolumetric=0\|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0\|1` | Volumetric clouds |
 | `?shadows=0\|1` `?oit=0\|1` `?ao=0\|1` `?aoIntensity` | Sun shadows, order-independent transparency, floor ambient occlusion |
 | `?ss=0\|1` `?ssSamples=4–64` `?idleFps=0\|10–60` `?grade=neutral\|vivid` | Idle supersampling, idle frame rate, color grading |
+| `?tileCache=0\|1` | Persistent tile cache (IndexedDB; survives sessions and works offline; usage and clearing in the panel) |
 | `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector` | Equipment contribution culling |
 | `#lon,lat,height,heading,pitch` | Camera position (updated as you browse, so the link can be shared directly) |
 

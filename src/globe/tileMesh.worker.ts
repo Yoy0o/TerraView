@@ -11,11 +11,14 @@
  * Downloads are shared by every job that needs the same terrain tile and are
  * aborted when the last waiting job is cancelled; sources on HTTP/1.1 servers
  * also keep to their per-host limit, with slots granted by the main thread
- * (`terrain/terrainDownloads.ts`, `requestSlots.ts`).
+ * (`terrain/terrainDownloads.ts`, `requestSlots.ts`). With the persistent
+ * cache on, tile files are looked up in it first and stored after download
+ * (`tileStore.ts`).
  */
 import { computeHorizonCullingPoint, geodeticNormal, geodeticToEcef, mercatorVToLatitude, WGS84_A } from '../core/geodesy';
 import { geoidUndulation } from '../core/Geoid';
 import { SlotClient } from './requestSlots';
+import { cachedRequest, openTileStore, tileKey, type TileStore } from './tileStore';
 import type { BuildTileRequest, BuiltTile, WorkerRequest, WorkerResponse } from './workerProtocol';
 import { isQuantizedMesh, type QuantizedMeshTerrainSource, type RasterTerrainSource, type TerrainSource } from './terrain/TerrainSource';
 import { decodeQuantizedMesh, geographicTileRect, isTileAvailable, rasterizeQuantizedMesh, sampleGrid } from './terrain/quantizedMesh';
@@ -41,6 +44,8 @@ const heightCache = new LoadCache<HeightImage>(HEIGHT_CACHE_SIZE);
 const jobs = new Map<number, AbortController>();
 const sources = new Map<string, TerrainSource>();
 const slots = new SlotClient((message) => self.postMessage(message, []));
+/** Persistent cache of terrain files (null when off). */
+let store: TileStore | null = null;
 
 function fillTemplate(url: string, z: number, x: number, y: number): string {
   return url.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y));
@@ -48,11 +53,13 @@ function fillTemplate(url: string, z: number, x: number, y: number): string {
 
 async function fetchHeightImage(src: RasterTerrainSource, z: number, x: number, y: number, load: SharedLoad<HeightImage>): Promise<HeightImage> {
   const url = fillTemplate(src.url, z, x, y);
-  const blob = await throttledRead(slots, url, src.maxRequestsPerHost, load, async (signal) => {
-    const res = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
-    if (!res.ok) throw new Error(`terrain HTTP ${res.status}`);
-    return res.blob();
-  });
+  const blob = (await cachedRequest(store, tileKey('dem', src.id, z, x, y), load.controller.signal, () =>
+    throttledRead(slots, url, src.maxRequestsPerHost, load, async (signal) => {
+      const res = await fetch(url, { mode: 'cors', credentials: 'omit', signal });
+      if (!res.ok) throw new Error(`terrain HTTP ${res.status}`);
+      return res.blob();
+    }),
+  ))!;
   // Keep raw bytes: no color management or premultiplication, or the decoded heights drift.
   const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
   const { width, height } = bitmap;
@@ -147,14 +154,16 @@ function loadGeoTile(src: QuantizedMeshTerrainSource, level: number, x: number, 
       const parent = () => (level > 0 ? loadGeoTile(src, level - 1, x >> 1, y >> 1, s.aborted ? undefined : s) : Promise.resolve(null));
       if (!isTileAvailable(src.available, level, x, y)) return parent();
       const url = fillTemplate(src.url, level, x, y);
-      const body = await throttledRead(slots, url, src.maxRequestsPerHost, load, async (signal) => {
-        const res = await fetch(url, { headers: src.headers, mode: 'cors', credentials: 'omit', signal });
-        if (res.status === 404 || res.status === 204) return null;
-        if (!res.ok) throw new Error(`terrain HTTP ${res.status}`);
-        return res.arrayBuffer();
-      });
-      if (!body) return parent();
-      return { level, x, y, grid: rasterizeQuantizedMesh(decodeQuantizedMesh(body), QM_GRID) };
+      const file = await cachedRequest(store, tileKey('dem', src.id, level, x, y), s, () =>
+        throttledRead(slots, url, src.maxRequestsPerHost, load, async (signal) => {
+          const res = await fetch(url, { headers: src.headers, mode: 'cors', credentials: 'omit', signal });
+          if (res.status === 404 || res.status === 204) return null;
+          if (!res.ok) throw new Error(`terrain HTTP ${res.status}`);
+          return res.blob();
+        }),
+      );
+      if (!file) return parent();
+      return { level, x, y, grid: rasterizeQuantizedMesh(decodeQuantizedMesh(await file.arrayBuffer()), QM_GRID) };
     },
     !signal,
   );
@@ -485,4 +494,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   else if (msg.type === 'build') void handleBuild(msg);
   else if (msg.type === 'cancel') jobs.get(msg.id)?.abort();
   else if (msg.type === 'slot') slots.receive(msg);
+  else if (msg.type === 'cache') {
+    void store?.close();
+    store = msg.options ? openTileStore(msg.options) : null;
+  }
 };

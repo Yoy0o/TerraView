@@ -77,6 +77,7 @@ export type { LocalRegion } from './region/region';
 // ---------------------------------------------------------------- globe
 export { Globe } from './globe/Globe';
 export type { GlobeOptions, GlobeStats } from './globe/Globe';
+export type { PersistentCacheOptions, PersistentTileCache, TileStoreUsage } from './globe/tileStore';
 export { XYZImageryProvider } from './globe/imagery/ImageryProvider';
 export type { ImageryProvider, XYZImageryOptions } from './globe/imagery/ImageryProvider';
 export { EquirectangularImageryProvider } from './globe/imagery/EquirectangularImageryProvider';

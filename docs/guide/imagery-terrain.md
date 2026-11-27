@@ -220,6 +220,28 @@ viewer.events.on('error', ({ source, error }) => {
 
 最常见的原因是密钥错误、域名白名单没有配置、服务不允许跨域（CORS），或者内网环境访问不到外网服务。详见[加载、错误与性能](./performance.md)。
 
+## 本机缓存（离线）
+
+浏览器自己的 HTTP 缓存一般只保留一天左右（ArcGIS 是 `max-age=86400`），第二天打开又要重新下载。开启 `persistentCache` 后，下载过的影像、栅格叠加层和地形文件保存在本机的 IndexedDB 里，跨天和断网时直接从本机读：
+
+```ts
+const viewer = await GeoViewer.create({
+  container,
+  imagery,
+  terrain: AWS_TERRARIUM,
+  persistentCache: { maxBytes: 1024 * 1024 * 1024 }, // 最多 1 GB；true 表示用默认值（512 MB、30 天）
+});
+```
+
+- **默认关闭**，由你的应用决定要不要在用户的浏览器里存数据。也可以运行时开关：`viewer.globe.setPersistentCache(true)` / `false` / 选项对象。
+- 用量和清理：`await viewer.globe.persistentCache?.usage()`（字节数和瓦片数）、`await viewer.globe.persistentCache?.clear()`。
+- 超过 `maxBytes` 时先删最久没用过的；保存超过 `maxAgeDays`（默认 30 天）的瓦片重新下载。
+- **先看服务条款**：有的服务不允许缓存（或限制缓存时长），对应那一类用 `imagery: false` 或 `terrain: false` 关掉。
+- 浏览器在磁盘紧张时可能整体清掉网站数据。需要更可靠的离线使用，可以在用户同意后调用 `navigator.storage.persist()`。
+- 自己写的影像源要提供 `requestBlob`（返回服务器的原始文件）才会经过缓存。
+
+完整说明见 [API 参考](../api.md) §1.15。
+
 ## 加载调参
 
 下面几个创建选项影响清晰度和流量，一般不需要改：

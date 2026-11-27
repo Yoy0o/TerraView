@@ -164,6 +164,23 @@ Worker 亲和路由（`terrainAffinity`）把读取同一张地形图的瓦片�
 
 `maxCachedTiles` 默认 700。每 30 帧按"最久未访问、层级深的优先"淘汰；仍有子孙内容的瓦片不淘汰（叶子先走）。浏览器 HTTP 缓存里的压缩瓦片仍然有效，再次访问只需要解码和上传。
 
+### 6.1 持久缓存（2026-11-27，C5）
+
+代码：`globe/tileStore.ts`（`TileStore` 的过期、批量写、淘汰；后端接口、内存后端、IndexedDB 后端），接入点在 `TileLoader.requestImage` / `prefetchNextLevel`、`OverlayCompositor.cachedBlob`、`tileMesh.worker` 的 `fetchHeightImage` / `loadGeoTile`。测试：`tests/tileStore.test.ts`。公共 API 见 [api.md](../api.md) §1.15。
+
+- **默认关闭，宿主开启**（`GlobeOptions.persistentCache`，运行时 `setPersistentCache`）。AGENTS.md §3.10 不让 SDK 自作主张用浏览器存储，这里只在宿主要求时打开 IndexedDB。
+- **存什么**：服务器返回的压缩文件，键是 `img:<影像源 id>/z/x/y`（底图和栅格叠加层共用，同一个源只存一份）、`dem:<地形源 id>/z/x/y`。404 / 204（瓦片不存在）不存。影像要经过 `requestBlob` 才能存，命中后用 `decodeImage` 解码；没有 `requestBlob` 的源（调试网格、单张全球图）不经缓存。
+- **在哪一步查**：在按域名领名额（§3.1）之前，命中不占连接；地形在 Worker 里查，命中后照常解码进 Worker 的内存缓存。查找期间任务被取消就以 `AbortError` 结束。下一级影像预取（§3.2）在缓存开启时改为"不在缓存里才经 `requestBlob` 下载并存入"，预取的结果跨会话有效，不再依赖服务端的缓存头。
+- **为什么用 IndexedDB**：影像在主线程、地形在每个瓦片 Worker 里下载，都要写进同一个库、同一个总量里；IndexedDB 的事务在不同上下文之间串行，写入时在同一事务里更新运行总量，总量不会错。Cache API 没有事务，也拿不到每条的大小。三个对象仓库：`tiles`（文件）、`meta`（大小、存入时间、最近使用时间，按最近使用建索引）、`totals`（总字节、总条数）。
+- **写入**：先进内存队列（排队期间的读也能命中），250 ms 或攒满 32 条时一个事务写完；写完总量超过 `maxBytes` 就按最近使用时间从旧到新删到上限的 90%。命中只在距上次记录超过 1 小时时才更新最近使用时间（每次更新都是一次写）。超出浏览器配额时先删到当前用量的一半再试一次，还失败就本会话停止写入。
+- **过期**：存入超过 `maxAgeDays`（默认 30）的当作未命中，重新下载后覆盖。不做条件请求（服务器上更新了的瓦片要等过期才换新）。
+- **打不开库**（没有 IndexedDB、隐私模式、被禁用）：缓存静默失效，照常走网络。
+- 实测（2026-11-27，Playwright，本机 Chrome WebGPU，OSM 影像 + AWS 地形，瓦片经测试脚本以 `no-store` 返回，排除浏览器 HTTP 缓存）：
+  - 首次打开阿尔卑斯视角：270 次影像、28 次地形请求，7.96 s 到 idle，存入 296 块、10.9 MB。
+  - 重新打开同一视角：影像 9 次（首次没加载过的块）、地形 0 次，1.04 s 到 idle。
+  - 再打开时所有瓦片请求都失败（模拟断网）：1.04 s 到 idle，屏幕上的瓦片都有自己的影像，没有报不可达。
+  - `maxBytes` 设为 3 MB 后飞过四处：用量保持在 2.69–2.97 MB。
+
 ## 7. 3D Tiles
 
 - `NodeMaterialPlugin.processTileModel`：把材质转为节点材质（`renderer.library.fromMaterial`），并设为双面。必须在这个钩子里做，原因见 AGENTS.md §3.5。

@@ -1,5 +1,6 @@
 import type { ImageryProvider } from './imagery/ImageryProvider';
 import type { TileOverlaySource } from './overlay';
+import { cachedRequest, tileKey, type TileStore } from './tileStore';
 
 /** A semi-transparent raster layer drawn over the base imagery (labels, roads, grids...). */
 export interface RasterOverlay {
@@ -35,6 +36,8 @@ export class OverlayCompositor implements TileOverlaySource {
   private readonly layers: RasterOverlay[] = [];
   /** Compressed tile bytes, so vector-only refreshes do not refetch rasters. */
   private readonly blobs = new Map<string, Promise<Blob | null>>();
+  /** @internal The persistent tile cache to read and write raster tiles through (the globe's, when on). */
+  tileStore: (() => TileStore | null) | null = null;
 
   constructor(private readonly vectors: TileOverlaySource & { readonly tileSize: number }) {}
 
@@ -177,7 +180,8 @@ export class OverlayCompositor implements TileOverlaySource {
       return entry;
     }
     // Not tied to any one tile's abort signal: several tiles may share an ancestor.
-    entry = layer.provider.requestBlob!(z, x, y);
+    const provider = layer.provider;
+    entry = cachedRequest(this.tileStore?.() ?? null, tileKey('img', provider.id, z, x, y), undefined, () => provider.requestBlob!(z, x, y));
     this.blobs.set(key, entry);
     entry.catch(() => this.blobs.delete(key));
     while (this.blobs.size > BLOB_CACHE_SIZE) this.blobs.delete(this.blobs.keys().next().value as string);

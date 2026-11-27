@@ -38,6 +38,7 @@ import type { TileOverlaySource } from './overlay';
 import { WebMercatorTilingScheme } from './TilingScheme';
 import type { ImageryProvider } from './imagery/ImageryProvider';
 import type { TerrainSource } from './terrain/TerrainSource';
+import { openTileStore, resolveCacheOptions, type PersistentCacheOptions, type PersistentTileCache, type TileStore } from './tileStore';
 import { extractQuads, quadrantQuads } from './tileMeshLayout';
 import { fogRelaxedError, horizonFogDensity, refinesNow, selectionIn, TileSelection, wouldLoseDetail } from './tileSelection';
 
@@ -84,6 +85,15 @@ export interface GlobeOptions {
    * Default true.
    */
   prefetchImagery?: boolean;
+  /**
+   * Keep downloaded tile files (imagery, raster overlays, terrain) in IndexedDB across sessions, so
+   * they are not downloaded again the next day or offline. Off by default: the SDK only uses browser
+   * storage when the host asks for it. `true` uses the defaults (512 MB, 30 days, database
+   * 'terraview-tiles'); change at runtime with `Globe.setPersistentCache`. Check the tile services'
+   * terms: some forbid caching (turn `imagery` or `terrain` off for those).
+   * See docs/agents/tile-loading.md §6.1.
+   */
+  persistentCache?: boolean | PersistentCacheOptions;
 }
 
 export interface GlobeStats {
@@ -243,6 +253,7 @@ export class Globe {
   overlaySource: TileOverlaySource | null = null;
   /** @internal */
   readonly emptyOverlay: SharedTexture;
+  private tileStore: TileStore | null = null;
 
   // Per-frame camera state.
   private readonly frustum = new Frustum();
@@ -298,6 +309,7 @@ export class Globe {
       for (let x = 0; x < n; x++) this.roots.push(new GlobeTile(MIN_LEVEL, x, y, null, this.scheme, lo, hi));
     }
     this.polarCaps = new PolarCaps(this);
+    this.setPersistentCache(options.persistentCache ?? false);
   }
 
   // ---------------------------------------------------------------------------
@@ -326,6 +338,31 @@ export class Globe {
     this.polarCaps.capColors[1].clear();
     for (const t of this.loader.active.img) t.img.loading?.abort();
     this.loader.resetPrefetch();
+  }
+
+  /**
+   * The persistent tile cache (`GlobeOptions.persistentCache`): usage, clearing, hit counts.
+   * Null when off.
+   */
+  get persistentCache(): PersistentTileCache | null {
+    return this.tileStore;
+  }
+
+  /**
+   * Turns the persistent tile cache on (`true` or options) or off (`false`). Tiles already stored
+   * stay in the database when it is turned off; `persistentCache.clear()` deletes them.
+   */
+  setPersistentCache(options: boolean | PersistentCacheOptions): void {
+    const resolved = resolveCacheOptions(options);
+    void this.tileStore?.close();
+    this.tileStore = resolved ? openTileStore(resolved) : null;
+    this.loader.workers.setPersistentCache(resolved?.terrain ? resolved : null);
+    this.loader.resetPrefetch();
+  }
+
+  /** @internal The cache imagery and raster overlays read and write (null when off or not for imagery). */
+  get imageryStore(): TileStore | null {
+    return this.tileStore?.options.imagery ? this.tileStore : null;
   }
 
   /** @internal Drapes a tile overlay source (the viewer's `overlays`) over the imagery. */
@@ -1120,6 +1157,8 @@ export class Globe {
     this.emptyOverlay.release();
     this.loader.resetPrefetch();
     this.loader.workers.dispose();
+    void this.tileStore?.close();
+    this.tileStore = null;
     this.imagery.dispose?.();
   }
 }

@@ -52,6 +52,7 @@ async function main(): Promise<void> {
   if (params.has('noterrain')) settings.terrainSource = 'none';
   // ?ss=0|1 still supersampling off / on, ?grade=neutral|vivid color grading (override the panel settings).
   settings.supersampling = parseFlag(params, 'ss') ?? settings.supersampling;
+  settings.tileCache = parseFlag(params, 'tileCache') ?? settings.tileCache;
   const grade = params.get('grade');
   if (grade === 'neutral' || grade === 'vivid') settings.grading = grade;
 
@@ -92,6 +93,7 @@ async function main(): Promise<void> {
       // Sources that need network setup (Cesium ion, layer.json) are applied once the panel exists.
       terrain: settings.terrainSource === 'aws' ? AWS_TERRARIUM : null,
       terrainExaggeration: settings.exaggeration,
+      persistentCache: settings.tileCache,
       maxScreenSpaceError: settings.quality,
       forceWebGL: params.has('webgl'),
       // ?gpu=low|medium|high|ultra overrides the tier guessed from the adapter.

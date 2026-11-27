@@ -336,6 +336,7 @@ npm run docs:dev     # 文档站点（页内的示例取自 examples:dev）
 | `?cloudVolumetric=0\|1` `?cloudBase` `?cloudThickness` `?cloudWind` `?cloudWindHeading` `?cloudDensity` `?cloudShadows=0\|1` | 体积云 |
 | `?shadows=0\|1` `?oit=0\|1` `?ao=0\|1` `?aoIntensity` | 日照阴影、透明顺序无关混合、楼层环境光遮蔽 |
 | `?ss=0\|1` `?ssSamples=4–64` `?idleFps=0\|10–60` `?grade=neutral\|vivid` | 静止超采样、静止帧率、调色 |
+| `?tileCache=0\|1` | 瓦片持久缓存（IndexedDB，跨会话、离线可用；面板"瓦片缓存"里可看用量、清空） |
 | `?cull=1` `?cullThreshold` `?cullHysteresis` `?cullInterval` `?cullSelector` | 设备贡献剔除 |
 | `#lon,lat,height,heading,pitch` | 相机位置（随浏览自动更新，可直接分享链接） |
 

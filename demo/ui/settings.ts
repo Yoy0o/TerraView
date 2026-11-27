@@ -39,6 +39,8 @@ export interface Settings {
   supersampling: boolean;
   /** Color grading preset (COLOR_GRADING_PRESETS). */
   grading: 'neutral' | 'vivid';
+  /** Keep downloaded tiles across sessions (GlobeOptions.persistentCache). */
+  tileCache: boolean;
   quality: number;
   tiandituKey: string;
   ionToken: string;
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   intro: true,
   supersampling: true,
   grading: 'neutral',
+  tileCache: false,
   quality: 1.25,
   tiandituKey: '',
   ionToken: '',

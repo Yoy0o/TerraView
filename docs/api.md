@@ -372,6 +372,37 @@ console.log(layer.level.position);
 - `viewer.splatLayers` 是图层列表，`viewer.removeSplats(layer)` 移除并释放显存；`viewer.events` 的 `splats-changed` 在增、删、加载完成或失败时触发。`viewer.memory.splats` 是各图层显存之和。
 - SPZ 4 的 Zstandard 解压用 three.js 自带的 `three/addons/libs/zstddec.module.js`（在主线程，按需加载），其余解码都在 Worker 里。
 
+### 1.15 瓦片持久缓存
+
+默认关闭：SDK 只有在宿主要求时才使用浏览器存储。开启后，下载过的瓦片文件（底图影像、`viewer.overlays` 的栅格叠加层、地形）保存在本机 IndexedDB，跨天、离线时直接从本机读取，不再下载：
+
+```ts
+const viewer = await GeoViewer.create({
+  container,
+  imagery,
+  terrain: AWS_TERRARIUM,
+  persistentCache: true, // 或 { maxBytes, maxAgeDays, imagery, terrain, name }
+});
+
+viewer.globe.setPersistentCache(false); // 运行时开关（已存的瓦片留在库里）
+const cache = viewer.globe.persistentCache; // 关闭时为 null
+const { bytes, count } = await cache.usage();
+await cache.clear();
+```
+
+| 选项（`PersistentCacheOptions`） | 默认 | 说明 |
+| --- | --- | --- |
+| `maxBytes` | 512 MB | 保存的瓦片文件总字节上限，超出时先删最久没用过的（删到上限的 90%） |
+| `maxAgeDays` | 30 | 保存超过这么多天的瓦片重新下载 |
+| `imagery` / `terrain` | true / true | 分别控制影像（含栅格叠加层）和地形是否进缓存；服务条款不允许缓存的那一类关掉 |
+| `name` | `'terraview-tiles'` | IndexedDB 数据库名。同名的 viewer、同源的页面共用一个缓存和一个上限 |
+
+- 存的是服务器返回的压缩文件（PNG、JPEG、WebP、quantized-mesh），按"影像源或地形源的 `id` + 层级行列"索引，换了 `id` 就是另一份缓存。影像源要提供 `requestBlob`（`XYZImageryProvider` 有；自定义源没有它就不经缓存），缓存里的文件用 `createImageBitmap(blob, { premultiplyAlpha: 'none' })` 解码。
+- 先查缓存、再按域名排队（`maxRequestsPerHost`），命中不占连接。空闲时的下一级影像预取也写进这个缓存，而不是只进浏览器的 HTTP 缓存。
+- 打不开数据库（浏览器不支持、隐私模式、被禁用）时什么都不做，照常从网络加载；写入超出浏览器配额时先腾出一半空间再试一次，还不行就停止写入（控制台警告一次）。
+- `persistentCache.hits` / `misses` 是本页主线程上的计数（影像和叠加层；地形在 Worker 里查，不计入）。浏览器在存储紧张时可能清掉整个源的数据，需要更可靠时由宿主调用 `navigator.storage.persist()` 申请。
+- 规则和实测见 [tile-loading.md](agents/tile-loading.md) §6.1。
+
 ## 2. 约定
 
 - **坐标**：世界坐标是 ECEF，单位米，+Z 指向北极。公共 API 的经纬度用度，高度是 WGS84 椭球高（米），航向自北顺时针（度），俯仰向下为负（度）。带 `Vector3` 的参数是 ECEF 点。
@@ -421,9 +452,10 @@ console.log(layer.level.position);
 | --- | --- | --- |
 | `ImageryProvider`、`XYZImageryProvider`、`EquirectangularImageryProvider`、`DebugImageryProvider` | 底图影像源；自定义源实现 `ImageryProvider` | 稳定 |
 | `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设；显示名是 `label`（`LocalizedText`），见 §1.6 | 稳定 |
+| `PersistentCacheOptions`、`PersistentTileCache`、`TileStoreUsage` | 瓦片持久缓存的选项、`globe.persistentCache` 的类型、用量（§1.15） | 稳定 |
 | `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源。`maxRequestsPerHost`（可选）：每个域名同时最多几个下载，HTTP/1.1 的服务设 6（`AWS_TERRARIUM` 已设），与同域名的影像共用这个上限；`quantizedMeshFromLayerJson` 的选项里也可以给 | 稳定 |
 | `RasterOverlay`、`OverlayCompositor`（`viewer.overlays`） | 半透明栅格叠加层：`addRaster` / `removeRaster` / `setOpacity` / `setVisible` / `move` / `rasterLayers`。地球调用的合成接口（`version`、`hasContent`、`isCurrent`、`requestOverlay`）是高级 | 稳定 |
-| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`setImagery` / `setTerrain`、`imageryProvider` / `terrainSource` / `terrainExaggeration`、`onImageryError` / `imageryError` / `terrainError`（§1.6；稳定的做法是 `viewer.events` 的 `error`）、`stats`、`gpuBytes`、加载调参（`maxScreenSpaceError` 等）、`getHeight`（只看地形，弧度；贴地用 `viewer.surfaceHeight`）、调试（`setWireframe`、`freeze`）；[tile-loading.md](agents/tile-loading.md) | 高级 |
+| `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`setImagery` / `setTerrain`、`imageryProvider` / `terrainSource` / `terrainExaggeration`、`onImageryError` / `imageryError` / `terrainError`（§1.6；稳定的做法是 `viewer.events` 的 `error`）、`stats`、`gpuBytes`、加载调参（`maxScreenSpaceError` 等）、持久缓存（`persistentCache`、`setPersistentCache`，§1.15）、`getHeight`（只看地形，弧度；贴地用 `viewer.surfaceHeight`）、调试（`setWireframe`、`freeze`）；[tile-loading.md](agents/tile-loading.md) | 高级 |
 | `tileDebugUniforms`、`refreshTileMaterials` | 瓦片着色器的调试开关（页面上所有 viewer 共用） | 高级 |
 
 ### 3.3 3D Tiles
@@ -511,6 +543,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 | 共享的东西 | 位置 | 为什么安全 |
 | --- | --- | --- |
+| 瓦片持久缓存的数据库 | IndexedDB（`globe/tileStore`），按 `persistentCache.name` | 有意共享：同名的 viewer 和同源页面共用一份缓存和一个上限；每个 viewer 的主线程和每个瓦片 Worker 各开一条连接，写入在事务里串行，总量统计不会错 |
 | 按域名的请求队列 | `globe/imagery/RequestScheduler` | 有意共享：浏览器的连接数本来就按页面算。影像在主线程直接取名额，地形 Worker 经主线程代领（`globe/requestSlots`），所以同一域名的影像、地形、所有 Worker 和所有 viewer 共用一个上限；viewer 销毁时它的 Worker 持有和排队的名额一并归还 |
 | 瓦片着色器的节点图、占位纹理、形变位置节点 | `globe/TileMaterial` | 节点和纹理对象由每个渲染器各自编译、上传；从不释放，不会被某个 viewer 的 `dispose()` 带走 |
 | `tileDebugUniforms` | `globe/TileMaterial` | 调试开关，有意让所有 viewer 一起变 |
