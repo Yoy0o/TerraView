@@ -15,6 +15,7 @@ import {
   DataTexture,
   Frustum,
   Group,
+  LinearFilter,
   Matrix4,
   Mesh,
   PerspectiveCamera,
@@ -281,6 +282,11 @@ export class Globe {
 
     const placeholderTex = new DataTexture(new Uint8Array([28, 46, 72, 255]), 1, 1);
     placeholderTex.colorSpace = SRGBColorSpace;
+    // Filterable like real imagery (DataTexture defaults to nearest): on WebGPU a nearest-filtered
+    // `imageryMap` builds a shader variant without a sampler, where the mip-biased sampling of
+    // a cross-fade (TileMaterial `FADE_MAX_MIP_BIAS`) fails to compile. One texel looks the same either way.
+    placeholderTex.minFilter = LinearFilter;
+    placeholderTex.magFilter = LinearFilter;
     placeholderTex.needsUpdate = true;
     this.placeholder = new SharedTexture(placeholderTex, -1, 0, 0, 4).acquire();
     this.emptyOverlay = new SharedTexture(EMPTY_OVERLAY, -1, 0, 0, 4).acquire();

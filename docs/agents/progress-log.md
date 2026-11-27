@@ -171,7 +171,7 @@ Hub 与仓库里需要处理的小问题：
 | --- | --- | --- | --- |
 | C1 ✅ | 放大时也用象限填充 | 部分子瓦片就绪就能细化，影像请求更早发出。2026-11-27 完成（`tileSelection.refinesNow`；被填充的兄弟也算"未就绪"，成组揭示照旧）。默认栅格地形下兄弟网格本来同时就绪，实测差别在 0.3 s 以内（[tile-loading.md](tile-loading.md) §2） | 小 |
 | C2 | 上传预算改按字节和 GPU 时间 | 现在按个数和 CPU 时间 | 小 |
-| C3 | 淡入期间由糊到清 | 新影像淡入时 mip 偏置逐步降到 0，减少两层画面叠加的重影感 | 小 |
+| C3 ✅ | 淡入期间由糊到清 | 新影像淡入时 mip 偏置逐步降到 0，减少两层画面叠加的重影感。2026-11-27 完成：偏置 = (1 − fade) × 两张画面的层级差（着色器里算）；占位纹理、极地盖子改为线性过滤（[tile-loading.md](tile-loading.md) §2） | 小 |
 | C4 | 缩小时父瓦片替换子瓦片的淡出 | 要处理深度与透明排序 | 中 |
 | C5 | 持久缓存 | Cache API / IndexedDB，跨天和离线 | 中 |
 | C6 ✅ | 地形 Worker 下载接入按域名限流 | 与影像共用 `RequestScheduler`。2026-11-27 完成：地形源的 `maxRequestsPerHost`（`AWS_TERRARIUM` 为 6），Worker 经主线程代领名额（`globe/requestSlots.ts`），已开始的下载不中止、预取只用空闲名额（[tile-loading.md](tile-loading.md) §3.1） | 小 |

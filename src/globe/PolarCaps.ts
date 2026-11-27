@@ -2,7 +2,7 @@
  * Polar caps of the globe: Web Mercator stops at about 85 degrees, so a cap mesh closes each
  * pole, tinted with the color the root tiles' imagery has along that edge.
  */
-import { BufferAttribute, BufferGeometry, DataTexture, Mesh, SRGBColorSpace, type Group } from 'three';
+import { BufferAttribute, BufferGeometry, DataTexture, LinearFilter, Mesh, SRGBColorSpace, type Group } from 'three';
 import { geodeticNormal, geodeticToEcef } from '../core/geodesy';
 import type { GlobeTile } from './GlobeTile';
 import { createTileMaterial, MORPH_ATTRIBUTE } from './TileMaterial';
@@ -27,6 +27,9 @@ export class PolarCaps {
     for (const north of [true, false]) {
       const tex = new DataTexture(new Uint8Array(north ? [214, 226, 236, 255] : [236, 240, 244, 255]), 1, 1);
       tex.colorSpace = SRGBColorSpace;
+      // Filterable like tile imagery: the tile shader samples `imageryMap` with a mip bias (see Globe's placeholder).
+      tex.minFilter = LinearFilter;
+      tex.magFilter = LinearFilter;
       tex.needsUpdate = true;
       this.capTextures.push(tex);
 

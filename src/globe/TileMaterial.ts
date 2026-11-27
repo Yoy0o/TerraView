@@ -2,10 +2,12 @@ import { DataTexture, SRGBColorSpace, Texture, Vector4 } from 'three';
 import { MeshBasicNodeMaterial, NodeMaterialInstance } from 'three/webgpu';
 import {
   attribute,
+  clamp,
   dot,
   float,
   Fn,
   If,
+  log2,
   materialReference,
   max,
   mix,
@@ -44,7 +46,11 @@ export interface TileMaterial extends NodeMaterialInstance {
    */
   fadeMap: Texture;
   fadeTransform: Vector4;
-  /** 0 = show `fadeMap`, 1 = show `imageryMap`. */
+  /**
+   * 0 = show `fadeMap`, 1 = show `imageryMap`. While fading, `imageryMap` is
+   * also sampled with a mip bias that falls from the level gap between the
+   * two pictures to 0 (`FADE_MAX_MIP_BIAS`), so it sharpens as it fades in.
+   */
   fade: number;
   /** Transparent overlay drawn over the imagery (rasterized vector layers). */
   overlayMap: Texture;
@@ -97,16 +103,28 @@ let shared: SharedNodes | null = null;
  * texture through both: every cross-fade blended the old picture with a
  * shrunken copy of it (tile-sized ghost copies), then snapped to the new one.
  */
-function textureReference(property: string): TSLNode {
+function textureReference(property: string, bias: TSLNode | null = null): TSLNode {
   const ref: TSLNode = materialReference(property, 'texture');
-  // ReferenceNode creates its texture node lazily; give it a hash of its own.
+  // ReferenceNode creates its texture node lazily; give it a hash of its own (and the mip bias,
+  // which TSL has no context hook for).
   const setNodeType = ref.setNodeType.bind(ref);
   ref.setNodeType = (type: string) => {
     setNodeType(type);
     ref.node.getUniformHash = () => `globeTile.${property}`;
+    if (bias) ref.node.biasNode = bias;
   };
   return ref;
 }
+
+/**
+ * Largest mip bias (levels) a cross-fade starts the new imagery with
+ * (docs/agents/tile-loading.md §2, cross-fades). The bias is the level gap
+ * between the old and the new picture, so a tile fading from its parent's
+ * picture starts one mip level blurrier: the two layers blended mid-fade then
+ * show about the same detail instead of a sharp image over a soft copy of
+ * itself (ghosting, most visible on labels in the imagery).
+ */
+export const FADE_MAX_MIP_BIAS = 4;
 const placeholder = new Texture();
 placeholder.flipY = false;
 
@@ -196,15 +214,23 @@ function sharedNodes(): SharedNodes {
     return position;
   })();
 
+  const fadeTransform: TSLNode = materialReference('fadeTransform', 'vec4');
+  const fade: TSLNode = materialReference('fade', 'float');
+  // Level gap between the old picture and the new one: their UV scales differ by 2^gap (an
+  // ancestor shown magnified covers the tile with a smaller part of its texture). The new picture
+  // starts that many mip levels blurrier and sharpens as `fade` reaches 1 (no bias when not fading).
+  // Under magnification (texels larger than pixels) a bias changes little: it never blurs past what the
+  // old picture shows.
+  const levelGap = clamp(log2(imageryTransform.z.div(fadeTransform.z)), 0, FADE_MAX_MIP_BIAS);
+  const imageryBias = float(1).sub(fade).mul(levelGap);
+
   const imageryUV = uv().mul(imageryTransform.zw).add(imageryTransform.xy);
-  const imagery: TSLNode = textureReference('imageryMap').context({ getUV: () => imageryUV });
+  const imagery: TSLNode = textureReference('imageryMap', imageryBias).context({ getUV: () => imageryUV });
   // Cross-fade source. Sampled unconditionally (texture fetches must stay in uniform
   // control flow); when not fading it is the same texels as `imagery`, so it is ~free.
   // Its binding must stay separate from `imagery`'s even then (see `textureReference`).
-  const fadeTransform: TSLNode = materialReference('fadeTransform', 'vec4');
   const fadeUV = uv().mul(fadeTransform.zw).add(fadeTransform.xy);
   const previous: TSLNode = textureReference('fadeMap').context({ getUV: () => fadeUV });
-  const fade: TSLNode = materialReference('fade', 'float');
   const overlayTransform: TSLNode = materialReference('overlayTransform', 'vec4');
   const overlayUV = uv().mul(overlayTransform.zw).add(overlayTransform.xy);
   const overlay: TSLNode = textureReference('overlayMap').context({ getUV: () => overlayUV });
