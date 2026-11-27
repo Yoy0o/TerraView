@@ -1,6 +1,8 @@
 /**
  * Per-host request throttling for tile servers (CesiumJS `RequestScheduler`,
- * simplified). Dependency-free.
+ * simplified). Dependency-free. Imagery uses it on the main thread; the
+ * terrain workers ask the main thread for slots (`requestSlots.ts`), so one
+ * limit per host holds across imagery, terrain, workers and viewers of a page.
  *
  * Browsers open about 6 connections per host to an HTTP/1.1 server. Requests
  * beyond that wait inside the browser's network stack, first come first
@@ -43,23 +45,30 @@ export function hostOf(url: string): string {
   }
 }
 
-export interface ScheduleOptions {
+export interface SlotOptions {
   /** Requests in flight to this host at most (the lowest limit given for a host wins). */
   limit: number;
-  /** Aborting before the request starts rejects with an `AbortError` and frees its place at once. */
+  /** Aborting before the slot is granted rejects with an `AbortError` and frees its place at once. */
   signal?: AbortSignal;
+  /**
+   * Take a slot only if one is free now and nobody waits for one; otherwise
+   * resolve to null at once (prefetches that must not hold back needed requests).
+   */
+  ifFree?: boolean;
+}
+
+export interface ScheduleOptions extends Omit<SlotOptions, 'ifFree'> {
   /** Also abort a request that has already started (default false, see the module comment). */
   abortStarted?: boolean;
 }
 
 /**
- * Runs `run` once fewer than `limit` requests to `host` are in flight; waiting
- * requests start in the order they were scheduled.
- *
- * @param run Receives the signal to pass to `fetch`: the caller's when
- * `abortStarted`, otherwise none.
+ * Waits for one of `limit` request slots of `host`; waiting requests are
+ * granted in the order they asked. Resolves to the function that gives the
+ * slot back (call it exactly once, when the response body has been read), or
+ * to null when `ifFree` and no slot is free.
  */
-export async function scheduleRequest<T>(host: string, options: ScheduleOptions, run: (signal: AbortSignal | undefined) => Promise<T>): Promise<T> {
+export async function acquireRequestSlot(host: string, options: SlotOptions): Promise<(() => void) | null> {
   const { signal } = options;
   if (signal?.aborted) throw abortError();
   let q = hosts.get(host);
@@ -70,8 +79,10 @@ export async function scheduleRequest<T>(host: string, options: ScheduleOptions,
   q.limit = Math.max(1, Math.min(q.limit, options.limit));
   const queue = q;
 
-  if (queue.active < queue.limit) {
+  if (queue.active < queue.limit && queue.waiting.length === 0) {
     queue.active++;
+  } else if (options.ifFree) {
+    return null;
   } else {
     // Wait for a slot; `release` hands it over without decrementing `active`.
     await new Promise<void>((resolve, reject) => {
@@ -89,9 +100,10 @@ export async function scheduleRequest<T>(host: string, options: ScheduleOptions,
     });
   }
 
-  try {
-    return await run(options.abortStarted ? signal : undefined);
-  } finally {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
     const next = queue.waiting.shift();
     if (next) {
       next.signal?.removeEventListener('abort', next.onAbort);
@@ -99,6 +111,22 @@ export async function scheduleRequest<T>(host: string, options: ScheduleOptions,
     } else {
       queue.active--;
     }
+  };
+}
+
+/**
+ * Runs `run` once fewer than `limit` requests to `host` are in flight; waiting
+ * requests start in the order they were scheduled.
+ *
+ * @param run Receives the signal to pass to `fetch`: the caller's when
+ * `abortStarted`, otherwise none.
+ */
+export async function scheduleRequest<T>(host: string, options: ScheduleOptions, run: (signal: AbortSignal | undefined) => Promise<T>): Promise<T> {
+  const release = (await acquireRequestSlot(host, options))!;
+  try {
+    return await run(options.abortStarted ? options.signal : undefined);
+  } finally {
+    release();
   }
 }
 

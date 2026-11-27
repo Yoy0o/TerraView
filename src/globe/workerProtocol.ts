@@ -1,3 +1,4 @@
+import type { SlotGrant, SlotRequest } from './requestSlots';
 import type { TerrainSource } from './terrain/TerrainSource';
 
 /** An ancestor's height grid to build an interim mesh from (no network). */
@@ -46,7 +47,7 @@ export interface SourceRequest {
   source: TerrainSource;
 }
 
-export type WorkerRequest = BuildTileRequest | CancelRequest | SourceRequest;
+export type WorkerRequest = BuildTileRequest | CancelRequest | SourceRequest | SlotGrant;
 
 export interface BuiltTile {
   type: 'built';
@@ -78,4 +79,5 @@ export interface BuildError {
   aborted: boolean;
 }
 
-export type WorkerResponse = BuiltTile | BuildError;
+/** Results of build jobs, and requests for download slots (`requestSlots.ts`). */
+export type WorkerResponse = BuiltTile | BuildError | SlotRequest;

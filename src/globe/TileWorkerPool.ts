@@ -1,3 +1,4 @@
+import { SlotBroker } from './requestSlots';
 import type { TerrainSource } from './terrain/TerrainSource';
 import type { BuildTileRequest, BuiltTile, WorkerResponse } from './workerProtocol';
 
@@ -24,9 +25,14 @@ export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError';
 }
 
-/** Small pool of mesh-building workers with optional cache affinity. */
+/**
+ * Small pool of mesh-building workers with optional cache affinity. Each
+ * worker's terrain downloads to throttled hosts take their slots from the
+ * page-wide host queues through a `SlotBroker` (`requestSlots.ts`).
+ */
 export class TileWorkerPool {
   private workers: Worker[] = [];
+  private brokers: SlotBroker[] = [];
   private load: number[] = [];
   private jobs = new Map<number, PendingJob>();
   private nextId = 1;
@@ -35,9 +41,15 @@ export class TileWorkerPool {
   constructor(size = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 1))) {
     for (let i = 0; i < size; i++) {
       const worker = new Worker(new URL('./tileMesh.worker.ts', import.meta.url), { type: 'module', name: `tile-mesh-${i}` });
-      worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.onMessage(event.data);
+      const broker = new SlotBroker((message) => worker.postMessage(message));
+      worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+        const msg = event.data;
+        if (msg.type === 'slot') broker.receive(msg);
+        else this.onMessage(msg);
+      };
       worker.onerror = (event) => console.error('[TileWorkerPool] worker error', event.message);
       this.workers.push(worker);
+      this.brokers.push(broker);
       this.load.push(0);
     }
   }
@@ -91,7 +103,7 @@ export class TileWorkerPool {
     });
   }
 
-  private onMessage(msg: WorkerResponse): void {
+  private onMessage(msg: Exclude<WorkerResponse, { type: 'slot' }>): void {
     const job = this.jobs.get(msg.id);
     if (!job) return;
     this.jobs.delete(msg.id);
@@ -102,6 +114,9 @@ export class TileWorkerPool {
 
   dispose(): void {
     for (const w of this.workers) w.terminate();
+    // Slots held by the terminated workers would otherwise be lost to every viewer on the page.
+    for (const b of this.brokers) b.dispose();
+    this.brokers = [];
     for (const job of this.jobs.values()) job.reject(abortError());
     this.jobs.clear();
     this.workers = [];

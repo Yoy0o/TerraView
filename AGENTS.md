@@ -64,11 +64,11 @@ src/            SDK 源码，打成 npm 包；不能依赖 demo/
 ├─ core/        椭球（Ellipsoid）、测地学（geodesy，Worker 可用、无 three 依赖）、EGM96、太阳位置、EventEmitter、i18n（显示文案与语言）、errors（TerraViewError）、
 │               gpuProfile（显存档位、预算表（含高斯泼溅的泼溅数与球谐阶数）、帧缓冲估算，纯函数）、tsl（TSL 节点类型）、cameraBounds（相机活动范围的约定类型）
 ├─ globe/       四叉树地球：Globe（配置、每帧更新、瓦片选择、缓存淘汰、高程与射线查询）、
-│               TileLoader（请求调度：分通道优先级队列与并发、取消、下一级预取、每帧上传预算、失败上报）、
+│               TileLoader（请求调度：分通道优先级队列与并发、取消、下一级预取、每帧上传预算、失败上报）、requestSlots（Worker 下载向主线程领域名名额）、
 │               TileContent（内容应用：影像揭示与交叉淡入、地形渐变）、PolarCaps（两极补洞）、GlobeTile（状态）、
 │               tileSelection（选择规则纯函数）、tileMeshLayout（网格索引布局，Worker 与象限填充共用）、TileMaterial（TSL）、
 │               Worker 构网、影像源、地形源
-│  └─ terrain/  地形源描述、quantized-mesh 解码、terrainTiling（主线程与 Worker 共用的分块 / 插值规则）
+│  └─ terrain/  地形源描述、quantized-mesh 解码、terrainTiling（主线程与 Worker 共用的分块 / 插值规则）、terrainDownloads（Worker 里的共享下载、取消与限流）
 ├─ atmosphere/  大气散射 TSL 节点（含建筑与 3D Tiles 的空气透视 `aerialPerspectiveOutputNode`）、大气的 CPU 版（atmosphereModel：透射率、天空、SH，常数两边共用）、
 │               AtmosphereLighting（光照跟随大气：太阳颜色、天光探针）、星空
 ├─ clouds/      云层（CloudLayer，远看的云壳）、体积云（VolumetricClouds：后期效果的渲染目标、帧状态、何时画什么；
@@ -120,7 +120,7 @@ examples/       可运行示例，不进包；每个目录一页（index.html + 
 ├─ catalog.ts   示例清单（标题、简介、所属手册章节、数据署名）：示例列表页、各页标题和冒烟测试都读它
 ├─ shared/      示例页面的面板与控件（ui.ts、example.css），不是 SDK API
 └─ index.html   示例列表页（gallery.ts）
-tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
+tests/          vitest：geo / camera / keyboard / flight / navigation / terrain / tileSelection / tileMeshLayout / requestScheduler / terrainDownloads / vector / points / clusterTree / occlusion / selector / indoor / batching / backdrop / pickBuffer / interaction / surfaceHeight / intro / clouds / culling / gpuProfile / i18n / loadState / framePacing / models / tileFeatures / post / atmosphere / floorOcclusion / shadows / localRegion / volumetricClouds / splats / levelBinding；tests/e2e/ 是 Playwright 浏览器冒烟（*.e2e.ts，不归 vitest）
 docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/agents/ 除外）
 ├─ .vitepress/  站点配置（侧栏、搜索、链接改写）与主题（ExampleFrame：页内嵌入示例）
 ├─ index.md     站点首页
@@ -182,6 +182,7 @@ docs/           文档站点的源（VitePress，发布到 GitHub Pages；docs/a
 ### 3.5 数据加载
 
 - 地球瓦片的几何、影像、叠加层是三个独立通道，各有优先级桶和并发上限；新数据源要接入这套机制，不要自己 `fetch` 后同步上传。规则见 [tile-loading.md](docs/agents/tile-loading.md)。
+- HTTP/1.1 的服务（影像或地形）声明 `maxRequestsPerHost`，下载经按域名的队列（`RequestScheduler`）；Worker 里的下载经 `requestSlots` 向主线程领名额，不要在 Worker 里各自限流（tile-loading.md §3.1）。
 - 完成的加载进入上传队列，按每帧预算应用；在应用之前它一直占着并发槽位（形成背压）。
 - 3D Tiles 的材质替换必须在插件的 `processTileModel` 钩子里做：库在这个钩子之后才登记要释放的材质，晚于它替换会泄漏显存。
 

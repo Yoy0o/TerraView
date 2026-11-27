@@ -14,6 +14,15 @@ interface TerrainSourceBase {
    */
   heightReference: 'msl' | 'ellipsoid';
   attribution: string;
+  /**
+   * Downloads in flight per host at most. Set it for HTTP/1.1 servers (6 is
+   * what browsers allow per host; AWS Terrain Tiles is one): the excess then
+   * waits in the SDK's queue, where cancelled requests drop out at once,
+   * instead of the browser's, and started downloads are not aborted (that
+   * would close the connection). The limit is shared with imagery on the
+   * same host. Leave it unset for HTTP/2 servers.
+   */
+  maxRequestsPerHost?: number;
 }
 
 /**
@@ -62,6 +71,8 @@ export const AWS_TERRARIUM: RasterTerrainSource = {
   maxZoom: 15,
   heightReference: 'msl',
   attribution: 'Terrain © Mapzen, AWS Open Data (SRTM, GMTED2010, ETOPO1)',
+  // s3.amazonaws.com negotiates HTTP/1.1 only.
+  maxRequestsPerHost: 6,
 };
 
 export function mapboxTerrain(token: string): RasterTerrainSource {
@@ -105,7 +116,7 @@ const QM_ACCEPT = 'application/vnd.quantized-mesh,application/octet-stream;q=0.9
 /** Reads a quantized-mesh tileset description (layer.json) and builds a terrain source. */
 export async function quantizedMeshFromLayerJson(
   baseUrl: string,
-  options: { name?: string; id?: string; headers?: Record<string, string>; attribution?: string } = {},
+  options: { name?: string; id?: string; headers?: Record<string, string>; attribution?: string; maxRequestsPerHost?: number } = {},
 ): Promise<QuantizedMeshTerrainSource> {
   const base = baseUrl.replace(/layer\.json(\?.*)?$/, '').replace(/\/?$/, '/');
   const headers = { Accept: QM_ACCEPT, ...options.headers };
@@ -133,6 +144,7 @@ export async function quantizedMeshFromLayerJson(
     available,
     heightReference: 'ellipsoid',
     attribution: options.attribution ?? layer.attribution ?? '',
+    ...(options.maxRequestsPerHost !== undefined ? { maxRequestsPerHost: options.maxRequestsPerHost } : {}),
   };
 }
 

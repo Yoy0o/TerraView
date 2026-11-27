@@ -4,6 +4,10 @@
 
 ## [未发布]
 
+### 地球瓦片加载（2026-11-27）
+
+- **地形下载按域名限流**（C6）：地形源新增可选字段 `maxRequestsPerHost`（HTTP/1.1 的服务设 6），`AWS_TERRARIUM` 默认 6（`s3.amazonaws.com` 只支持 HTTP/1.1）；`quantizedMeshFromLayerJson` 的选项也可以给。地形在 Worker 里下载，名额由主线程从影像所用的同一个域名队列里代领，所以同一域名的影像、地形、所有 Worker 和同页所有 viewer 共用一个上限，排不上的下载留在 SDK 这边、取消即出队。这类源上已经开始的下载不再中止（中止会关闭 HTTP/1.1 连接），下完留在 Worker 缓存里；临时网格附带的精确地形预取只用空闲名额。实现见 `globe/requestSlots.ts`、`globe/terrain/terrainDownloads.ts`，说明见 docs/agents/tile-loading.md §3.1。
+
 ### 社区文件、中英双语对外文档与赞助（2026-11-26）
 
 - **英文版对外文档**：`README.en.md`、`CONTRIBUTING.en.md`；文档站点新增英文入口 `/en/`（VitePress 多语言：首页、快速开始、0.2.0 发布说明、赞助页，侧栏链到只有中文的手册和 API 参考）。中英成对的文档清单写在 `CONTRIBUTING.md`，改一边时另一边同步。

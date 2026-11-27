@@ -174,7 +174,7 @@ Hub 与仓库里需要处理的小问题：
 | C3 | 淡入期间由糊到清 | 新影像淡入时 mip 偏置逐步降到 0，减少两层画面叠加的重影感 | 小 |
 | C4 | 缩小时父瓦片替换子瓦片的淡出 | 要处理深度与透明排序 | 中 |
 | C5 | 持久缓存 | Cache API / IndexedDB，跨天和离线 | 中 |
-| C6 | 地形 Worker 下载接入按域名限流 | 与影像共用 `RequestScheduler` | 小 |
+| C6 ✅ | 地形 Worker 下载接入按域名限流 | 与影像共用 `RequestScheduler`。2026-11-27 完成：地形源的 `maxRequestsPerHost`（`AWS_TERRARIUM` 为 6），Worker 经主线程代领名额（`globe/requestSlots.ts`），已开始的下载不中止、预取只用空闲名额（[tile-loading.md](tile-loading.md) §3.1） | 小 |
 | C7 | 带注记底图的处理 | 暂缓；根本办法是底图用无注记版本，注记走 `LabelManager` | — |
 | C8 ✅ | 3D Tiles 要素拾取与属性查询 | `EXT_mesh_features` / batch table，高亮，接入统一事件（README 近期项）。2026-11-17 完成（P2.3，[tile-loading.md](tile-loading.md) §7.1）；要素编号纹理不读 | 中 |
 | C9 | 矢量进阶 | MVT 矢量瓦片、面拉伸（建筑白模）、沿线注记 | 大 |

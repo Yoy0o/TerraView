@@ -71,7 +71,7 @@ flowchart LR
 
 在途加载如果连续 20 帧（`STALE_FRAMES`）不再被需要，就会被取消；失败按指数退避重试（1 s × 2^n，最长 30 s）。
 
-### 3.1 按域名限流（HTTP/1.1 影像服务）
+### 3.1 按域名限流（HTTP/1.1 的影像与地形服务）
 
 - 浏览器对 HTTP/1.1 服务每个域名只开约 6 个连接。影像通道默认并发 24，多出来的约 18 个请求排在浏览器网络栈里，先来先服务：我们的优先级（视野中心优先、阻塞内容优先）在那里不起作用，已经移出视野的请求还挡在新请求前面。
 - `server.arcgisonline.com`（ArcGIS 影像、地形图、边界地名、交通叠加）只支持 HTTP/1.1，从国内访问单张约 300–800 ms，握手约 600 ms。之前用它时屏幕上 80 多块瓦片要等十几秒才全部变清晰。
@@ -79,6 +79,13 @@ flowchart LR
   - 预设声明 `maxRequestsPerHost`（ArcGIS 为 6），`XYZImageryProvider.requestBlob` 经 `scheduleRequest` 按域名限并发，超出的在我们这边排队，取消时立即出队。底图和叠加层同域名时共用这 6 个名额。
   - Provider 据此报告 `maxConcurrentRequests`（每域名额度 × 子域名数），Globe 的影像通道最多同时派发这么多。排队留在每帧重排的优先级队列里，不再进浏览器的 FIFO。
   - 已经开始的下载不中止：中止 HTTP/1.1 响应会关闭连接，下一个请求要重新握手，代价常常比把剩下的字节下完还大。这类"取消后才到达"的影像照常应用和缓存（`applyReady` 对影像通道不因取消而丢弃，换了影像源的结果仍由代数检查丢弃）。
+- **地形**（2026-11-27，C6）：地形源同样声明 `maxRequestsPerHost`（`AWS_TERRARIUM` 为 6：`s3.amazonaws.com` 只协商 HTTP/1.1；Mapbox、MapTiler、Cesium ion 都是 HTTP/2，不设）。地形在瓦片 Worker 里下载，看不到主线程的队列，每个 Worker 各自限流又会放进 Worker 数 × 上限个请求，所以名额由主线程代领：
+  - Worker 下载前发 `acquire`（域名、上限），`TileWorkerPool` 里每个 Worker 一个 `SlotBroker`，从 `RequestScheduler` 的同一个域名队列里取名额，回 `grant`；读完响应体（解码之前）发 `release`。协议和两端实现在 `globe/requestSlots.ts`，Worker 侧的共享下载在 `globe/terrain/terrainDownloads.ts`（`LoadCache`、`throttledRead`），单测 `tests/terrainDownloads.test.ts`。往返不到一帧，相比 HTTP/1.1 服务几百毫秒的下载可以忽略。
+  - 于是同一域名的影像和地形、池里所有 Worker、同页所有 viewer 共用一个上限。等名额时被取消立即出队；名额在途时被取消，迟到的 `grant` 被丢弃、名额随即归还。`dispose()` 先撤回排队的请求、再归还持有的名额（顺序反过来，归还的名额会先交给同一个 Worker 排队的请求）。
+  - 和影像一样，限流的源上**已经开始的下载不中止**：任务全被取消后它照样下完、留在 Worker 的缓存里（`SharedLoad.detached`），下一个需要它的任务直接命中。没有限流的源仍是"最后一个等待者取消就中止"。
+  - 临时网格附带的精确地形预取**只用空闲名额**（`ifFree`）：域名满了就放弃，等瓦片以 `B_RENDERED` 请求精确网格时再下载；放弃之前有任务加入了这次下载，就按普通请求排队。
+  - 几何通道的派发上限（`maxConcurrentGeometry`，12）不按域名额度收紧：一张地形图服务 8×8 个网格瓦片，12 个任务通常只对应几次下载。
+  - 实测（2026-11-27，本机网络，演示应用调试影像，阿尔卑斯和珠峰 3 个视点各停 2.5 s，以及 10 个视点每 0.6 s 换一次）：同时在途的 S3 请求从 8–10 个降到 6 个，请求数相同（20–24），没有失败；本机到 S3 够快、连接没有排满，所以到 idle 的时间没有可测的差别（6–8 s，两种都一样）。收益在连接排满的慢链路上（国内访问 S3）。
 - HTTP/2 服务（OSM、Carto 等）不设 `maxRequestsPerHost`，行为不变：仍由通道并发限流，取消即中止。
 - 跨域请求没有 `Timing-Allow-Origin` 时 `nextHopProtocol` 为空，无法自动探测协议，新增 HTTP/1.1 的源要在预设里手动声明。可以用 Node 的 `tls.connect({ ALPNProtocols: ['h2', 'http/1.1'] })` 查看服务端协商结果。
 
@@ -97,7 +104,7 @@ flowchart LR
 
 取消要真正释放资源：
 - 几何任务被取消时，`TileWorkerPool` 立即结束这个 Promise、归还并发槽，不等 Worker 回复（Worker 的迟到回复直接丢弃）。
-- Worker 里同一张地形图的下载由需要它的任务共享（`sharedLoad` / `waitFor`）。最后一个等待它的任务被取消时，用 `AbortController` 中止这次下载；预取不计入等待者。
+- Worker 里同一张地形图的下载由需要它的任务共享（`terrain/terrainDownloads.ts` 的 `LoadCache`）。最后一个等待它的任务被取消时，用 `AbortController` 中止这次下载（限流的源上已经开始的除外，见 §3.1）；预取不计入等待者。
 - 以前取消只是打个标记，槽位和 HTTP 连接要等网络返回才释放。地形服务大多是 HTTP/1.1（每个域名约 6 个连接），快速缩放时过期请求占满连接，细化会卡住好几秒。
 
 ## 4. 地形

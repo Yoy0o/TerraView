@@ -421,7 +421,7 @@ console.log(layer.level.position);
 | --- | --- | --- |
 | `ImageryProvider`、`XYZImageryProvider`、`EquirectangularImageryProvider`、`DebugImageryProvider` | 底图影像源；自定义源实现 `ImageryProvider` | 稳定 |
 | `IMAGERY_PRESETS` / `findImageryPreset`、`OVERLAY_PRESETS` / `findOverlayPreset` | 内置底图与叠加层预设；显示名是 `label`（`LocalizedText`），见 §1.6 | 稳定 |
-| `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源 | 稳定 |
+| `TerrainSource`、`AWS_TERRARIUM`、`mapboxTerrain`、`maptilerTerrain`、`cesiumIonTerrain`、`quantizedMeshFromLayerJson` | 地形源。`maxRequestsPerHost`（可选）：每个域名同时最多几个下载，HTTP/1.1 的服务设 6（`AWS_TERRARIUM` 已设），与同域名的影像共用这个上限；`quantizedMeshFromLayerJson` 的选项里也可以给 | 稳定 |
 | `RasterOverlay`、`OverlayCompositor`（`viewer.overlays`） | 半透明栅格叠加层：`addRaster` / `removeRaster` / `setOpacity` / `setVisible` / `move` / `rasterLayers`。地球调用的合成接口（`version`、`hasContent`、`isCurrent`、`requestOverlay`）是高级 | 稳定 |
 | `Globe`（`viewer.globe`）、`GlobeOptions`、`GlobeStats` | 四叉树地球：`setImagery` / `setTerrain`、`imageryProvider` / `terrainSource` / `terrainExaggeration`、`onImageryError` / `imageryError` / `terrainError`（§1.6；稳定的做法是 `viewer.events` 的 `error`）、`stats`、`gpuBytes`、加载调参（`maxScreenSpaceError` 等）、`getHeight`（只看地形，弧度；贴地用 `viewer.surfaceHeight`）、调试（`setWireframe`、`freeze`）；[tile-loading.md](agents/tile-loading.md) | 高级 |
 | `tileDebugUniforms`、`refreshTileMaterials` | 瓦片着色器的调试开关（页面上所有 viewer 共用） | 高级 |
@@ -511,7 +511,7 @@ const f = viewer.pickTileFeature(clientX, clientY); // 不在监听里时
 
 | 共享的东西 | 位置 | 为什么安全 |
 | --- | --- | --- |
-| 按域名的请求队列 | `globe/imagery/RequestScheduler` | 有意共享：浏览器的连接数本来就按页面算 |
+| 按域名的请求队列 | `globe/imagery/RequestScheduler` | 有意共享：浏览器的连接数本来就按页面算。影像在主线程直接取名额，地形 Worker 经主线程代领（`globe/requestSlots`），所以同一域名的影像、地形、所有 Worker 和所有 viewer 共用一个上限；viewer 销毁时它的 Worker 持有和排队的名额一并归还 |
 | 瓦片着色器的节点图、占位纹理、形变位置节点 | `globe/TileMaterial` | 节点和纹理对象由每个渲染器各自编译、上传；从不释放，不会被某个 viewer 的 `dispose()` 带走 |
 | `tileDebugUniforms` | `globe/TileMaterial` | 调试开关，有意让所有 viewer 一起变 |
 | 大气 uniform（太阳方向、相机位置与高度、光照 / 大气开关） | `atmosphere/AtmosphereNodes` | 每个 viewer 渲染前重写全部值（帧内在 `updateEnvironment` 里；帧外的截图和层级切换截帧也先重写，见下） |

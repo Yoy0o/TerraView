@@ -166,9 +166,12 @@ const myTerrain = {
   tileSize: 256, // 瓦片边长，像素
   maxZoom: 14,
   heightReference: 'msl', // 海拔填 'msl'，椭球高填 'ellipsoid'
+  maxRequestsPerHost: 6, // 只支持 HTTP/1.1 的服务才设，HTTP/2 的不要设
   attribution: '© 某某测绘',
 } satisfies RasterTerrainSource;
 ```
+
+地形的 `maxRequestsPerHost` 和影像的同理（见上文"为什么要设"）：地形在 Worker 里下载，名额由主线程统一发放，同一个域名的影像和地形共用这个上限。已经开始的下载在不再需要时不会中止（中止会关掉连接，下一个请求要重新握手），下完照样进缓存。`AWS_TERRARIUM` 所在的 `s3.amazonaws.com` 只支持 HTTP/1.1，预设里已经设了 6。
 
 ### 地形夸张与运行时切换
 
