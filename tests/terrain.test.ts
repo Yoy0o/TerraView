@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { rasterSourceTile, sampleHeightGrid, terrainLevelOffset, upsampleHeightGrid } from '../src/globe/terrain/terrainTiling';
+import {
+  innerGrid,
+  rasterSourceTile,
+  sampleBorderedGrid,
+  sampleHeightGrid,
+  terrainLevelOffset,
+  upsampleBorderedGrid,
+  upsampleHeightGrid,
+} from '../src/globe/terrain/terrainTiling';
 
 describe('terrain tiling', () => {
   it('reads raster terrain from the coarsest tile that still has one sample per grid cell', () => {
@@ -29,6 +37,61 @@ describe('terrain tiling', () => {
       }
     }
     expect(sampleHeightGrid(parent, n, 1, 1)).toBe(parent[row * row - 1]);
+  });
+
+  describe('bordered grids (edge normals)', () => {
+    const n = 4;
+    const brow = n + 3;
+    // A smooth source surface over u, v in 0..1.
+    const surface = (u: number, v: number) => Math.sin(5 * u) * 300 + Math.cos(3 * v) * 200 + 40 * u * v;
+    // Mesh tiles 2 levels below the source: 4 x 4 of them share it.
+    const tile = (tx: number, ty: number) => sampleBorderedGrid(n, tx / 4, ty / 4, 1 / 4, surface);
+    const at = (g: Float32Array, i: number, j: number) => g[(j + 1) * brow + i + 1];
+
+    it('holds the tile grid inside a one-cell border', () => {
+      const g = tile(1, 2);
+      expect(g.length).toBe(brow * brow);
+      const inner = innerGrid(g, n);
+      for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) expect(inner[j * (n + 1) + i]).toBe(at(g, i, j));
+      expect(at(g, -1, 0)).toBeCloseTo(surface(1 / 4 - 1 / 16, 2 / 4), 4);
+    });
+
+    it("gives a tile's border the neighbor's first row or column, so shared edges get the same normals", () => {
+      const a = tile(1, 1);
+      const east = tile(2, 1);
+      const south = tile(1, 2);
+      for (let j = -1; j <= n + 1; j++) {
+        // a's column n + 1 is east's column 1; a's column n - 1 is east's column -1.
+        expect(at(a, n + 1, j)).toBeCloseTo(at(east, 1, j), 3);
+        expect(at(east, -1, j)).toBeCloseTo(at(a, n - 1, j), 3);
+      }
+      for (let i = -1; i <= n + 1; i++) expect(at(a, i, n + 1)).toBeCloseTo(at(south, i, 1), 3);
+    });
+
+    it('leaves the border empty (NaN) where the source ends', () => {
+      const corner = tile(0, 0);
+      expect(at(corner, -1, 2)).toBeNaN();
+      expect(at(corner, 2, -1)).toBeNaN();
+      expect(at(corner, n + 1, 2)).not.toBeNaN();
+      const last = tile(3, 3);
+      expect(at(last, n + 1, 1)).toBeNaN();
+      expect(at(last, 1, n + 1)).toBeNaN();
+      expect(at(last, -1, n)).not.toBeNaN();
+    });
+
+    it('upsamples with the border the ancestor covers', () => {
+      const pn = 8;
+      const prow = pn + 1;
+      const parent = new Float32Array(prow * prow);
+      for (let j = 0; j <= pn; j++) for (let i = 0; i <= pn; i++) parent[j * prow + i] = 10 * i + 100 * j;
+      // Child in the north-west quadrant: border outside the parent on the west and north only.
+      const child = upsampleBorderedGrid(parent, pn, 5, 10, 20, 6, 20, 40, n);
+      expect(at(child, -1, 1)).toBeNaN();
+      expect(at(child, 1, -1)).toBeNaN();
+      // East border inside the parent: the ramp continues (u = 0.5 + 1/8, v = 1/8).
+      expect(at(child, n + 1, 1)).toBeCloseTo(10 * (0.5 + 1 / 8) * pn + 100 * (1 / 8) * pn, 3);
+      expect(innerGrid(child, n)).toEqual(upsampleHeightGrid(parent, pn, 5, 10, 20, 6, 20, 40, n));
+    });
   });
 });
 import {

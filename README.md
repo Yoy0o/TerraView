@@ -436,7 +436,7 @@ tests/          vitest 单元测试；tests/e2e/ 是 Playwright 浏览器冒烟
 
 - 影像（底图与叠加）只支持 Web Mercator 瓦片，±85.05° 以外用纯色极盖。
 - Cesium ion / quantized-mesh、Mapbox、MapTiler 的解码与重采样有单元测试，但在真实网络下验证得不多；ion 访问令牌约 1 小时过期。
-- 山区的粗层级插值误差较大，所以临时（插值）地形最多跨 3 级；地形法线在瓦片边界用单侧差分，开启光照时可能看到细微接缝。
+- 山区的粗层级插值误差较大，所以临时（插值）地形最多跨 3 级；地形法线在瓦片边界按相邻数据做中心差分，但地形图自身的边界上（栅格地形约每 8 个瓦片一处）仍是单侧差分，开启光照时那里可能看到细微接缝。
 - 3D Tiles 的影像叠加（ImageOverlayPlugin）依赖 `onBeforeCompile`，在 WebGPU 下不可用；点云（pnts）在 WebGPU 下为 1 像素点；用纹理存要素编号的数据集拾取不到要素。
 - 高斯泼溅：单文件整体加载，没有分块流式；不写深度，所以不挡顶牌，与半透明物体的前后关系可能不对；压缩 PLY、`.ksplat`、SOG、glTF / 3D Tiles 内嵌泼溅还不支持；真实 GPU 上的帧率尚未系统测量（[splats.md](docs/agents/splats.md)）。
 - 室内：尚不支持 IFC 直读、剖切与室内导航。

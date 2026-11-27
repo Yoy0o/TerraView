@@ -436,7 +436,7 @@ Positioning: a globe foundation in the three.js ecosystem that "understands geog
 
 - Imagery (base map and overlays) only supports Web Mercator tiles; beyond ±85.05° the poles are covered with solid-color caps.
 - Decoding and resampling for Cesium ion / quantized-mesh, Mapbox and MapTiler are unit tested but have seen little validation over real networks; ion access tokens expire after about 1 hour.
-- Interpolation error at coarse levels is large in mountainous areas, so provisional (interpolated) terrain spans at most 3 levels; terrain normals use one-sided differences at tile borders, so subtle seams may be visible with lighting on.
+- Interpolation error at coarse levels is large in mountainous areas, so provisional (interpolated) terrain spans at most 3 levels; terrain normals at tile borders use central differences across the neighbor's data, except where a terrain source tile itself ends (about every 8th tile with raster terrain), so subtle seams may still be visible there with lighting on.
 - 3D Tiles imagery overlays (ImageOverlayPlugin) rely on `onBeforeCompile` and are unavailable under WebGPU; point clouds (pnts) render as 1-pixel points under WebGPU; features cannot be picked in datasets that store feature IDs in textures.
 - Gaussian splats: a single file is loaded as a whole, with no tiled streaming; splats do not write depth, so they do not occlude markers, and their ordering relative to translucent objects may be wrong; compressed PLY, `.ksplat`, SOG and splats embedded in glTF / 3D Tiles are not yet supported; frame rates on real GPUs have not been measured systematically ([splats.md](docs/agents/splats.md) (Chinese)).
 - Indoor: reading IFC directly, section cuts and indoor navigation are not yet supported.

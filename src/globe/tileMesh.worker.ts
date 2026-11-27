@@ -20,7 +20,7 @@ import type { BuildTileRequest, BuiltTile, WorkerRequest, WorkerResponse } from 
 import { isQuantizedMesh, type QuantizedMeshTerrainSource, type RasterTerrainSource, type TerrainSource } from './terrain/TerrainSource';
 import { decodeQuantizedMesh, geographicTileRect, isTileAvailable, rasterizeQuantizedMesh, sampleGrid } from './terrain/quantizedMesh';
 import { isAbortError, LoadCache, throttledRead, type SharedLoad } from './terrain/terrainDownloads';
-import { rasterSourceTile, terrainLevelOffset, upsampleHeightGrid } from './terrain/terrainTiling';
+import { innerGrid, rasterSourceTile, sampleBorderedGrid, terrainLevelOffset, upsampleBorderedGrid } from './terrain/terrainTiling';
 import { buildTileIndices, edgeVertices } from './tileMeshLayout';
 
 // Minimal worker scope typing (the project compiles against the DOM lib).
@@ -103,8 +103,8 @@ function sourceTileFor(req: BuildTileRequest, src: RasterTerrainSource) {
   return rasterSourceTile(req.level, req.x, req.y, src.maxZoom, terrainLevelOffset(src.tileSize ?? 256, req.segments));
 }
 
+/** Heights of the tile grid with a one-cell border (`sampleBorderedGrid`; NaN where the elevation tile ends). */
 async function sampleTerrainGrid(req: BuildTileRequest, src: RasterTerrainSource, signal: AbortSignal): Promise<Float32Array> {
-  const N = req.segments;
   const { x, y } = req;
   // Each mesh tile samples a sub-rectangle of a coarser elevation tile.
   const { z: sz, x: sx, y: sy, dz } = sourceTileFor(req, src);
@@ -112,18 +112,10 @@ async function sampleTerrainGrid(req: BuildTileRequest, src: RasterTerrainSource
   const offU = (x - sx * 2 ** dz) * scale;
   const offV = (y - sy * 2 ** dz) * scale;
   const img = await getHeightImage(src, sz, sx, sy, signal);
-
-  const heights = new Float32Array((N + 1) * (N + 1));
-  for (let j = 0; j <= N; j++) {
-    const v = offV + (j / N) * scale;
-    for (let i = 0; i <= N; i++) {
-      const u = offU + (i / N) * scale;
-      let h = sampleHeight(img, u, v);
-      if (req.clampToSeaLevel && h < 0) h = 0;
-      heights[j * (N + 1) + i] = h * req.exaggeration;
-    }
-  }
-  return heights;
+  return sampleBorderedGrid(req.segments, offU, offV, scale, (u, v) => {
+    const h = sampleHeight(img, u, v);
+    return (req.clampToSeaLevel && h < 0 ? 0 : h) * req.exaggeration;
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -186,9 +178,10 @@ function geoTilesFor(req: BuildTileRequest, src: QuantizedMeshTerrainSource) {
   return { g, gx, rowOf, r0: rowOf(latS), r1: rowOf(latN - 1e-9) };
 }
 
+/** Heights of the tile grid with a one-cell border (NaN where the border leaves the loaded geographic tiles). */
 async function sampleQuantizedMesh(req: BuildTileRequest, src: QuantizedMeshTerrainSource, signal: AbortSignal): Promise<Float32Array> {
   const N = req.segments;
-  const row = N + 1;
+  const row = N + 3;
   const n = 2 ** req.level;
   const west = (req.x / n) * 360 - 180;
   const east = ((req.x + 1) / n) * 360 - 180;
@@ -203,34 +196,48 @@ async function sampleQuantizedMesh(req: BuildTileRequest, src: QuantizedMeshTerr
   );
 
   const heights = new Float32Array(row * row);
-  for (let j = 0; j <= N; j++) {
+  for (let j = -1; j <= N + 1; j++) {
     const lat = mercatorVToLatitude(vNorth + ((vSouth - vNorth) * j) / N) * toDeg;
     const tile = tiles.get(Math.min(r1, Math.max(r0, rowOf(lat))));
-    for (let i = 0; i <= N; i++) {
+    for (let i = -1; i <= N + 1; i++) {
       const lon = west + ((east - west) * i) / N;
+      const border = i < 0 || i > N || j < 0 || j > N;
       let h = 0;
       if (tile) {
         const rect = geographicTileRect(tile.level, tile.x, tile.y);
-        h = sampleGrid(tile.grid, QM_GRID, (lon - rect.west) / rect.size, (lat - rect.south) / rect.size);
+        const u = (lon - rect.west) / rect.size;
+        const v = (lat - rect.south) / rect.size;
+        if (border && (u < 0 || u > 1 || v < 0 || v > 1)) {
+          heights[(j + 1) * row + i + 1] = NaN;
+          continue;
+        }
+        h = sampleGrid(tile.grid, QM_GRID, u, v);
+      } else if (border) {
+        heights[(j + 1) * row + i + 1] = NaN;
+        continue;
       }
       if (req.exaggeration !== 1) {
         // Exaggerate relative to sea level, not to the ellipsoid.
         const n0 = geoidUndulation(lon / toDeg, lat / toDeg);
         h = (h - n0) * req.exaggeration + n0;
       }
-      heights[j * row + i] = h;
+      heights[(j + 1) * row + i + 1] = h;
     }
   }
   return heights;
 }
 
 /**
- * `ellipsoidal`: heights are already ellipsoidal and exaggerated (upsampled
- * from an ancestor mesh), so no geoid correction is applied.
+ * `bordered`: heights of the tile grid with a one-cell border
+ * (`sampleBorderedGrid`, NaN where there is no data), used for central
+ * differences at the edges. `ellipsoidal`: heights are already ellipsoidal
+ * and exaggerated (upsampled from an ancestor mesh), so no geoid correction
+ * is applied.
  */
-function buildMesh(req: BuildTileRequest, heights: Float32Array | null, src: TerrainSource | null, ellipsoidal = false): BuiltTile {
+function buildMesh(req: BuildTileRequest, bordered: Float32Array | null, src: TerrainSource | null, ellipsoidal = false): BuiltTile {
   const N = req.segments;
   const row = N + 1;
+  const brow = N + 3;
   const gridCount = row * row;
   const skirtCount = 4 * row;
   const vertexCount = gridCount + skirtCount;
@@ -240,17 +247,21 @@ function buildMesh(req: BuildTileRequest, heights: Float32Array | null, src: Ter
   const vNorth = req.y / n;
   const vSouth = (req.y + 1) / n;
 
-  const lats = new Float64Array(row);
-  for (let j = 0; j <= N; j++) lats[j] = mercatorVToLatitude(vNorth + ((vSouth - vNorth) * j) / N);
+  // Latitudes of rows -1..N + 1 (index j + 1) and longitude of column i (-1..N + 1).
+  const lats = new Float64Array(brow);
+  for (let j = -1; j <= N + 1; j++) lats[j + 1] = mercatorVToLatitude(vNorth + ((vSouth - vNorth) * j) / N);
+  const lonAt = (i: number) => west + ((east - west) * i) / N;
 
   // MSL -> ellipsoidal heights (EGM96), so terrain and 3D Tiles share one datum.
-  if (heights && !ellipsoidal && src?.heightReference === 'msl') {
-    for (let j = 0; j <= N; j++) {
-      for (let i = 0; i <= N; i++) {
-        heights[j * row + i] += geoidUndulation(west + ((east - west) * i) / N, lats[j]);
+  if (bordered && !ellipsoidal && src?.heightReference === 'msl') {
+    for (let j = -1; j <= N + 1; j++) {
+      for (let i = -1; i <= N + 1; i++) {
+        const k = (j + 1) * brow + i + 1;
+        if (!Number.isNaN(bordered[k])) bordered[k] += geoidUndulation(lonAt(i), lats[j + 1]);
       }
     }
   }
+  const heights = bordered ? innerGrid(bordered, N) : null;
 
   let minHeight = 0;
   let maxHeight = 0;
@@ -271,33 +282,66 @@ function buildMesh(req: BuildTileRequest, heights: Float32Array | null, src: Ter
   for (let j = 0; j <= N; j++) {
     for (let i = 0; i <= N; i++) {
       const k = j * row + i;
-      const lon = west + ((east - west) * i) / N;
-      geodeticToEcef(lon, lats[j], heights ? heights[k] : 0, ecef, k * 3);
-      geodeticNormal(lon, lats[j], normals64, k * 3);
+      const lon = lonAt(i);
+      geodeticToEcef(lon, lats[j + 1], heights ? heights[k] : 0, ecef, k * 3);
+      geodeticNormal(lon, lats[j + 1], normals64, k * 3);
       uvs[k * 2] = i / N;
       uvs[k * 2 + 1] = j / N;
     }
   }
 
-  // Terrain normals from central differences of the ECEF grid (east x north = up).
-  if (heights && maxHeight - minHeight > 0.01) {
+  // Terrain normals from central differences of the ECEF grid (east x north = up). At the edges
+  // the border samples stand in for the neighbor's row or column, so both tiles compute the same
+  // normal there; without a border sample (end of the source data) the difference is one-sided.
+  let reliefMin = minHeight;
+  let reliefMax = maxHeight;
+  if (bordered) {
+    for (let k = 0; k < bordered.length; k++) {
+      const h = bordered[k];
+      if (h < reliefMin) reliefMin = h;
+      if (h > reliefMax) reliefMax = h;
+    }
+  }
+  if (bordered && reliefMax - reliefMin > 0.01) {
+    // ECEF of grid point (i, j), -1..N + 1: tile vertices from `ecef`, border points computed here.
+    // Returns null for a border point without data.
+    const pa = [0, 0, 0];
+    const pb = [0, 0, 0];
+    const point = (i: number, j: number, out: number[]): number[] | null => {
+      if (i >= 0 && i <= N && j >= 0 && j <= N) {
+        const o = (j * row + i) * 3;
+        out[0] = ecef[o];
+        out[1] = ecef[o + 1];
+        out[2] = ecef[o + 2];
+        return out;
+      }
+      const h = bordered[(j + 1) * brow + i + 1];
+      if (Number.isNaN(h)) return null;
+      geodeticToEcef(lonAt(i), lats[j + 1], h, out, 0);
+      return out;
+    };
+    // Difference vector from the point before to the point after (i, j) along (di, dj).
+    const diff = (i: number, j: number, di: number, dj: number, out: number[]): void => {
+      const after = point(i + di, j + dj, pa) ?? point(i, j, pa)!;
+      const before = point(i - di, j - dj, pb) ?? point(i, j, pb)!;
+      out[0] = after[0] - before[0];
+      out[1] = after[1] - before[1];
+      out[2] = after[2] - before[2];
+    };
+    const east3 = [0, 0, 0];
+    const north3 = [0, 0, 0];
     for (let j = 0; j <= N; j++) {
       for (let i = 0; i <= N; i++) {
         const k = j * row + i;
-        const ie = Math.min(N, i + 1);
-        const iw = Math.max(0, i - 1);
-        const jn = Math.max(0, j - 1);
-        const js = Math.min(N, j + 1);
-        const e = (j * row + ie) * 3;
-        const w = (j * row + iw) * 3;
-        const no = (jn * row + i) * 3;
-        const so = (js * row + i) * 3;
-        const ax = ecef[e] - ecef[w];
-        const ay = ecef[e + 1] - ecef[w + 1];
-        const az = ecef[e + 2] - ecef[w + 2];
-        const bx = ecef[no] - ecef[so];
-        const by = ecef[no + 1] - ecef[so + 1];
-        const bz = ecef[no + 2] - ecef[so + 2];
+        diff(i, j, 1, 0, east3);
+        // Rows run north to south: "after" in the north direction is row j - 1.
+        diff(i, j, 0, -1, north3);
+        const ax = east3[0];
+        const ay = east3[1];
+        const az = east3[2];
+        const bx = north3[0];
+        const by = north3[1];
+        const bz = north3[2];
         let nx = ay * bz - az * by;
         let ny = az * bx - ax * bz;
         let nz = ax * by - ay * bx;
@@ -408,7 +452,7 @@ async function handleBuild(req: BuildTileRequest): Promise<void> {
     let tile: BuiltTile;
     if (src && req.upsample) {
       const u = req.upsample;
-      const heights = upsampleHeightGrid(u.heights, u.segments, u.level, u.x, u.y, req.level, req.x, req.y, req.segments);
+      const heights = upsampleBorderedGrid(u.heights, u.segments, u.level, u.x, u.y, req.level, req.x, req.y, req.segments);
       if (req.prefetch !== false) prefetchTerrain(req, src);
       tile = buildMesh(req, heights, src, true);
       tile.upsampled = true;
